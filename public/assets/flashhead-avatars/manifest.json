@@ -1,0 +1,35 @@
+{
+  "default": "motion-host",
+  "avatars": [
+    {
+      "id": "motion-host",
+      "label": "动作主播 PoC",
+      "thumbnail": "/assets/flashhead-avatars/motion-host.png"
+    },
+    {
+      "id": "current",
+      "label": "当前形象",
+      "thumbnail": "/assets/flashhead-avatars/current.png"
+    },
+    {
+      "id": "warm-studio",
+      "label": "暖光主播",
+      "thumbnail": "/assets/flashhead-avatars/warm-studio.png"
+    },
+    {
+      "id": "clear-host",
+      "label": "清朗主播",
+      "thumbnail": "/assets/flashhead-avatars/clear-host.png"
+    },
+    {
+      "id": "calm-host",
+      "label": "沉稳主播",
+      "thumbnail": "/assets/flashhead-avatars/calm-host.png"
+    },
+    {
+      "id": "bright-host",
+      "label": "明快主播",
+      "thumbnail": "/assets/flashhead-avatars/bright-host.png"
+    }
+  ]
+}

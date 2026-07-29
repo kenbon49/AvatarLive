@@ -1,0 +1,23 @@
+	Command being timed: "env PYTHONPATH=/tmp/opentalking-quicktalk-fresh-state.HLOHVi CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 OPENTALKING_QUICKTALK_MODEL_BACKEND=pth OPENTALKING_QUICKTALK_WORKER_CACHE=1 OPENTALKING_QUICKTALK_FACE_CACHE_DIR=/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/quicktalk-face-cache OPENTALKING_QUICKTALK_MAX_TEMPLATE_SECONDS=4 /data/llm_model/opentalking/.venv-quicktalk/bin/python /tmp/opentalking-quicktalk-fresh-state.HLOHVi/apps/cli/quicktalk_bench.py --asset-root /data/llm_model/opentalking/models/quicktalk --template-video /data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-template-100f.mp4 --audio /data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-audio.wav --output /data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-quicktalk-prewarmed-fresh-state-100f.mp4 --metrics-json /data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/quicktalk-prewarmed-first-user-metrics.json --runs 1 --fresh-state-before-run 1 --adapter-prewarm --device cuda:0"
+	User time (seconds): 41.36
+	System time (seconds): 7.27
+	Percent of CPU this job got: 213%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:22.80
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 2425104
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 290
+	Minor (reclaiming a frame) page faults: 842771
+	Voluntary context switches: 14537
+	Involuntary context switches: 27532
+	Swaps: 0
+	File system inputs: 20232
+	File system outputs: 5608
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

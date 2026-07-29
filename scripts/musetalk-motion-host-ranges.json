@@ -1,0 +1,32 @@
+{
+  "idle": {
+    "start": 14.4,
+    "end": 15.8,
+    "mode": "pingpong",
+    "playback_rate": 1.0
+  },
+  "talk_subtle": {
+    "start": 58.5,
+    "end": 61.5,
+    "mode": "pingpong",
+    "playback_rate": 1.0
+  },
+  "welcome": {
+    "start": 5.0,
+    "end": 9.0,
+    "mode": "once",
+    "playback_rate": 1.0
+  },
+  "point": {
+    "start": 41.8,
+    "end": 44.4,
+    "mode": "once",
+    "playback_rate": 1.0
+  },
+  "thank": {
+    "start": 35.7,
+    "end": 37.2,
+    "mode": "once",
+    "playback_rate": 1.0
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "version": 2,
+  "profile": "blue-host",
+  "internal_poc_only": true,
+  "source": "/data/llm_model/SoulX-LiveAct-models/LiveAct/assets/2.mp4",
+  "output_size": [
+    360,
+    624
+  ],
+  "fps": 25.0,
+  "source_face_box": [
+    0.231373,
+    0.238245,
+    0.85615,
+    0.863048
+  ],
+  "source_face_landmarks": [
+    [
+      0.420478,
+      0.436914
+    ],
+    [
+      0.661317,
+      0.452293
+    ],
+    [
+      0.540695,
+      0.58873
+    ],
+    [
+      0.526282,
+      0.70105
+    ],
+    [
+      0.271067,
+      0.483476
+    ],
+    [
+      0.766573,
+      0.52359
+    ]
+  ],
+  "landmark_schema": "mediapipe_face_detection_6",
+  "crossfade_frames": 5,
+  "transition_mode": "cut",
+  "feather_ratio": 0.12,
+  "color_match_strength": 0.65,
+  "actions": {
+    "idle": {
+      "file": "idle.npz",
+      "mode": "pingpong",
+      "source_range_seconds": [
+        85.6,
+        87.0
+      ],
+      "frames": 35,
+      "playback_rate": 1.0
+    },
+    "talk_subtle": {
+      "file": "talk_subtle.npz",
+      "mode": "pingpong",
+      "source_range_seconds": [
+        78.5,
+        80.1
+      ],
+      "frames": 40,
+      "playback_rate": 1.0
+    },
+    "welcome": {
+      "file": "welcome.npz",
+      "mode": "once",
+      "source_range_seconds": [
+        28.8,
+        31.2
+      ],
+      "frames": 60,
+      "playback_rate": 1.0
+    },
+    "point": {
+      "file": "point.npz",
+      "mode": "once",
+      "source_range_seconds": [
+        21.4,
+        22.8
+      ],
+      "frames": 35,
+      "playback_rate": 1.0
+    },
+    "thank": {
+      "file": "thank.npz",
+      "mode": "once",
+      "source_range_seconds": [
+        115.0,
+        117.0
+      ],
+      "frames": 50,
+      "playback_rate": 1.0
+    }
+  }
+}

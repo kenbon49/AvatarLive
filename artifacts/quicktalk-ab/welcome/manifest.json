@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "purpose": "Fixed MuseTalk versus QuickTalk welcome action A/B input and baseline",
+  "frame_numbering": "zero_based_decoded_presentation_order",
+  "sources": {
+    "recording": {
+      "path": "/tmp/musetalk-normal-speed-welcome.mp4",
+      "sha256": "015a0d9b16e9cb63736216f4bb6ddeb5b4f813d0485673c3b3484511876e401a",
+      "video": {
+        "codec": "h264",
+        "width": 360,
+        "height": 624,
+        "r_frame_rate": "30/1",
+        "avg_frame_rate": "7680/307",
+        "time_base": "1/15360",
+        "frame_count": 256,
+        "duration_seconds": 10.233333
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": 48000,
+        "channels": 2,
+        "time_base": "1/48000",
+        "duration_seconds": 10.22
+      }
+    },
+    "action_npz": {
+      "path": "public/assets/musetalk-body/motion-host/welcome.npz",
+      "sha256": "cd4c7d2eda8bb6418a91cacd1572f908b0332ca3a41a8977556c770e31f21bfb",
+      "frames_key": {
+        "shape": [100, 624, 360, 3],
+        "dtype": "uint8",
+        "color_order": "RGB"
+      },
+      "source_index_first": 0,
+      "source_index_last": 99,
+      "exact_duplicate_frame_indices": [13, 38, 63, 88]
+    }
+  },
+  "segment": {
+    "recording_frame_first_inclusive": 106,
+    "recording_frame_last_inclusive": 205,
+    "recording_frame_count": 100,
+    "first_frame_pts": 65024,
+    "first_frame_pts_seconds": 4.233333333333333,
+    "last_frame_pts": 125952,
+    "last_frame_pts_seconds": 8.2,
+    "end_frame_exclusive": 206,
+    "end_pts_exclusive": 126464,
+    "end_pts_exclusive_seconds": 8.233333333333333,
+    "duration_seconds": 4.0,
+    "audio_start_sample_inclusive": 203200,
+    "audio_end_sample_exclusive": 395200,
+    "audio_samples_per_channel": 192000,
+    "boundary_basis": "The audio starts at frame 106 PTS and ends at the next frame 206 PTS, so the display interval of frame 205 is retained. Cutting at frame 205 PTS would omit its final 33.333 ms.",
+    "mapping_validation": "Recording frames 106-205 map in order to NPZ source indices 0-99. Indices 13, 38, 63, and 88 are byte-identical to their preceding NPZ frames and are therefore visually indistinguishable during nearest-frame validation."
+  },
+  "artifacts": {
+    "welcome-template-100f.mp4": {
+      "role": "Canonical source template video generated directly from NPZ frames 0-99",
+      "sha256": "731e5bbffa82ab1c13ea805bc932e478cdfdacbfe6b43c244dc494897c1d0d67",
+      "video": {
+        "codec": "h264",
+        "profile": "High",
+        "pixel_format": "yuv420p",
+        "width": 360,
+        "height": 624,
+        "frame_rate": "25/1",
+        "frame_count": 100,
+        "duration_seconds": 4.0
+      },
+      "encoding": {
+        "encoder": "libx264",
+        "preset": "slow",
+        "crf": 10,
+        "profile": "high",
+        "level": "3.1",
+        "movflags": "+faststart"
+      }
+    },
+    "welcome-audio.wav": {
+      "role": "Canonical lossless A/B audio decoded from the recording over the exact segment PTS",
+      "sha256": "22cfc784e974a8a932e7a44473d0e2a600f33d3bedd7746b8dbc5ebc852c4856",
+      "audio": {
+        "codec": "pcm_s16le",
+        "sample_format": "s16",
+        "sample_rate": 48000,
+        "channels": 2,
+        "samples_per_channel": 192000,
+        "duration_seconds": 4.0
+      },
+      "extraction_filter": "atrim=start_sample=203200:end_sample=395200,asetpts=PTS-STARTPTS"
+    },
+    "welcome-musetalk-100f.mp4": {
+      "role": "MuseTalk output baseline for the same 100 frames, muxed with a viewing copy of the canonical WAV",
+      "sha256": "9535b5588b00ccac33466a0aba3b3859efa16435bbf9d60f6239321b5156ba3d",
+      "video": {
+        "codec": "h264",
+        "profile": "High",
+        "pixel_format": "yuv420p",
+        "width": 360,
+        "height": 624,
+        "frame_rate": "25/1",
+        "frame_count": 100,
+        "duration_seconds": 4.0
+      },
+      "audio": {
+        "codec": "aac",
+        "profile": "LC",
+        "sample_rate": 48000,
+        "channels": 2,
+        "stream_duration_seconds": 4.0,
+        "note": "The MP4 format duration is 4.022 seconds because of AAC encoder padding. Use welcome-audio.wav as the model input."
+      },
+      "selection_filter": "select=between(n,106,205),setpts=N/(25*TB)",
+      "encoding": {
+        "video_encoder": "libx264",
+        "video_preset": "slow",
+        "video_crf": 10,
+        "video_profile": "high",
+        "video_level": "3.1",
+        "audio_encoder": "aac",
+        "audio_bitrate": "192k",
+        "movflags": "+faststart"
+      }
+    }
+  },
+  "verification_files": [
+    "SHA256SUMS",
+    "PROBE_SHA256SUMS",
+    "source-recording.ffprobe.json",
+    "welcome-template-100f.ffprobe.json",
+    "welcome-audio.ffprobe.json",
+    "welcome-musetalk-100f.ffprobe.json"
+  ]
+}

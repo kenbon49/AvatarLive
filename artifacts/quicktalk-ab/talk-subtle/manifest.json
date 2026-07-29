@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "purpose": "Fixed MuseTalk versus QuickTalk talk_subtle A/B input and baseline",
+  "frame_numbering": "zero_based_decoded_presentation_order",
+  "sources": {
+    "recording": {
+      "path": "/tmp/musetalk-normal-speed-talk-subtle.mp4",
+      "sha256": "8a34f22d920b9b90e30198179513ca0f24aa312bd794fe96ef33892cc81b96a9",
+      "video": {
+        "codec": "h264",
+        "width": 360,
+        "height": 624,
+        "r_frame_rate": "30/1",
+        "avg_frame_rate": "3705/148",
+        "time_base": "1/15360",
+        "frame_count": 247,
+        "duration_seconds": 9.866016
+      },
+      "audio": {
+        "codec": "aac",
+        "sample_rate": 48000,
+        "channels": 2,
+        "time_base": "1/48000",
+        "duration_seconds": 9.86
+      }
+    },
+    "runtime_manifest": {
+      "path": "public/assets/musetalk-body/motion-host/manifest.json",
+      "sha256": "5b8b403e086da7389291961a3537a9c03f34f09263026493ae68e385463dfdb1",
+      "fps": 25.0
+    },
+    "action_npz": {
+      "talk_subtle": {
+        "path": "public/assets/musetalk-body/motion-host/talk_subtle.npz",
+        "sha256": "970ca2c6818a13bca2b677a8b08dad658bcebb477befa69e362749aff2b00cb7",
+        "frames_shape": [75, 624, 360, 3],
+        "dtype": "uint8",
+        "color_order": "RGB",
+        "mode": "pingpong",
+        "playback_rate": 1.0,
+        "exact_duplicate_frame_indices": [13, 38, 63]
+      }
+    }
+  },
+  "planner": {
+    "implementation": "apps/musetalk/action_runtime.py BodyActionRuntime.create_plan",
+    "requested_action": "talk_subtle",
+    "speaking": true,
+    "total_output_frames": 100,
+    "source_identity_spans": [
+      {
+        "output_first": 0,
+        "output_last": 74,
+        "action": "talk_subtle",
+        "source_index_first": 0,
+        "source_index_last": 74,
+        "direction": 1
+      },
+      {
+        "output_first": 75,
+        "output_last": 99,
+        "action": "talk_subtle",
+        "source_index_first": 73,
+        "source_index_last": 49,
+        "direction": -1
+      }
+    ],
+    "turnaround": "Output 74 emits source index 74. The next tick reverses to source index 73; the endpoint is not duplicated.",
+    "source_identity_serialization": "UTF-8 lines action:index with a trailing LF",
+    "source_identity_sha256": "2446b1d63dfd94822f9aba7ada59e4d9bb3d2ac0942a13a6820b5a740c80d910",
+    "source_identity_sequence": [
+      "talk_subtle:0",
+      "talk_subtle:1",
+      "talk_subtle:2",
+      "talk_subtle:3",
+      "talk_subtle:4",
+      "talk_subtle:5",
+      "talk_subtle:6",
+      "talk_subtle:7",
+      "talk_subtle:8",
+      "talk_subtle:9",
+      "talk_subtle:10",
+      "talk_subtle:11",
+      "talk_subtle:12",
+      "talk_subtle:13",
+      "talk_subtle:14",
+      "talk_subtle:15",
+      "talk_subtle:16",
+      "talk_subtle:17",
+      "talk_subtle:18",
+      "talk_subtle:19",
+      "talk_subtle:20",
+      "talk_subtle:21",
+      "talk_subtle:22",
+      "talk_subtle:23",
+      "talk_subtle:24",
+      "talk_subtle:25",
+      "talk_subtle:26",
+      "talk_subtle:27",
+      "talk_subtle:28",
+      "talk_subtle:29",
+      "talk_subtle:30",
+      "talk_subtle:31",
+      "talk_subtle:32",
+      "talk_subtle:33",
+      "talk_subtle:34",
+      "talk_subtle:35",
+      "talk_subtle:36",
+      "talk_subtle:37",
+      "talk_subtle:38",
+      "talk_subtle:39",
+      "talk_subtle:40",
+      "talk_subtle:41",
+      "talk_subtle:42",
+      "talk_subtle:43",
+      "talk_subtle:44",
+      "talk_subtle:45",
+      "talk_subtle:46",
+      "talk_subtle:47",
+      "talk_subtle:48",
+      "talk_subtle:49",
+      "talk_subtle:50",
+      "talk_subtle:51",
+      "talk_subtle:52",
+      "talk_subtle:53",
+      "talk_subtle:54",
+      "talk_subtle:55",
+      "talk_subtle:56",
+      "talk_subtle:57",
+      "talk_subtle:58",
+      "talk_subtle:59",
+      "talk_subtle:60",
+      "talk_subtle:61",
+      "talk_subtle:62",
+      "talk_subtle:63",
+      "talk_subtle:64",
+      "talk_subtle:65",
+      "talk_subtle:66",
+      "talk_subtle:67",
+      "talk_subtle:68",
+      "talk_subtle:69",
+      "talk_subtle:70",
+      "talk_subtle:71",
+      "talk_subtle:72",
+      "talk_subtle:73",
+      "talk_subtle:74",
+      "talk_subtle:73",
+      "talk_subtle:72",
+      "talk_subtle:71",
+      "talk_subtle:70",
+      "talk_subtle:69",
+      "talk_subtle:68",
+      "talk_subtle:67",
+      "talk_subtle:66",
+      "talk_subtle:65",
+      "talk_subtle:64",
+      "talk_subtle:63",
+      "talk_subtle:62",
+      "talk_subtle:61",
+      "talk_subtle:60",
+      "talk_subtle:59",
+      "talk_subtle:58",
+      "talk_subtle:57",
+      "talk_subtle:56",
+      "talk_subtle:55",
+      "talk_subtle:54",
+      "talk_subtle:53",
+      "talk_subtle:52",
+      "talk_subtle:51",
+      "talk_subtle:50",
+      "talk_subtle:49"
+    ],
+    "byte_identical_source_output_indices": [13, 38, 63, 86]
+  },
+  "segment": {
+    "recording_frame_first_inclusive": 72,
+    "recording_frame_last_inclusive": 171,
+    "recording_frame_count": 100,
+    "first_frame_pts": 44032,
+    "first_frame_pts_seconds": 2.8666666666666667,
+    "last_frame_pts": 104960,
+    "last_frame_pts_seconds": 6.833333333333333,
+    "end_frame_exclusive": 172,
+    "end_pts_exclusive": 105472,
+    "end_pts_exclusive_seconds": 6.866666666666666,
+    "duration_seconds": 4.0,
+    "audio_start_sample_inclusive": 137600,
+    "audio_end_sample_exclusive": 329600,
+    "audio_samples_per_channel": 192000,
+    "boundary_basis": "Audio starts at frame 72 PTS and ends at the next frame 172 PTS, retaining the complete display interval of frame 171."
+  },
+  "matching_validation": {
+    "method": "Sliding 100-frame mean squared luma error on a 6-pixel grid outside the union of planner face boxes expanded by 20 pixels.",
+    "excluded_face_rectangle_xyxy": [12, 148, 262, 388],
+    "best_recording_start_frame": 72,
+    "best_mean_squared_error": 15.906,
+    "next_best_start_frame": 73,
+    "next_best_mean_squared_error": 101.9078,
+    "source_identity_mismatches_after_exact_duplicate_equivalence": 0,
+    "baseline_recording_psnr_frame_count": 100,
+    "baseline_recording_psnr_min_db": 50.182802,
+    "baseline_recording_psnr_aggregate_db": 51.752629,
+    "audio_decoded_pcm_md5": "28f9f4936a5aefb2014d7613cd885a54"
+  },
+  "artifacts": {
+    "talk-subtle-planner-100f.npz": {
+      "role": "Composite 100-frame planner source and geometry for measure-video-ab.py",
+      "sha256": "4a074c0657a701bb235f577b9d897393b923104eb70f1f67c16f83740180806c",
+      "keys": {
+        "frames": {
+          "shape": [100, 624, 360, 3],
+          "dtype": "uint8",
+          "color_order": "RGB"
+        },
+        "face_boxes": {
+          "shape": [100, 4],
+          "dtype": "float32"
+        },
+        "face_landmarks": {
+          "shape": [100, 6, 2],
+          "dtype": "float32"
+        },
+        "face_landmarks_valid": {
+          "shape": [100],
+          "dtype": "bool",
+          "all_true": true
+        }
+      }
+    },
+    "talk-subtle-template-100f.mp4": {
+      "role": "Canonical source template generated by the real BodyActionRuntime planner",
+      "sha256": "f05a6d355aa5cc39d5364d74f4c4ecfc484f690fcef166ba29f309cdc7fe85ee",
+      "video": {
+        "codec": "h264",
+        "profile": "High",
+        "pixel_format": "yuv420p",
+        "width": 360,
+        "height": 624,
+        "frame_rate": "25/1",
+        "frame_count": 100,
+        "duration_seconds": 4.0
+      },
+      "encoding": {
+        "encoder": "libx264",
+        "preset": "slow",
+        "crf": 10,
+        "profile": "high",
+        "level": "3.1",
+        "movflags": "+faststart"
+      }
+    },
+    "talk-subtle-audio.wav": {
+      "role": "Canonical lossless A/B audio decoded from the exact recording segment",
+      "sha256": "681ad102b0a79606ba15a175241f96f49bff0e899abfadabbd750b45483cc02f",
+      "audio": {
+        "codec": "pcm_s16le",
+        "sample_format": "s16",
+        "sample_rate": 48000,
+        "channels": 2,
+        "samples_per_channel": 192000,
+        "duration_seconds": 4.0
+      },
+      "extraction_filter": "atrim=start_sample=137600:end_sample=329600,asetpts=PTS-STARTPTS"
+    },
+    "talk-subtle-musetalk-100f.mp4": {
+      "role": "MuseTalk output baseline for the same 100 frames, muxed with a viewing copy of the canonical WAV",
+      "sha256": "7f5552025a945ddb5808411d0f7d387a7dfb9e5bba8859b2fe28cb062283be6e",
+      "video": {
+        "codec": "h264",
+        "profile": "High",
+        "pixel_format": "yuv420p",
+        "width": 360,
+        "height": 624,
+        "frame_rate": "25/1",
+        "frame_count": 100,
+        "duration_seconds": 4.0
+      },
+      "audio": {
+        "codec": "aac",
+        "profile": "LC",
+        "sample_rate": 48000,
+        "channels": 2,
+        "stream_duration_seconds": 4.0,
+        "note": "The MP4 format duration is 4.022 seconds because of AAC encoder padding. Use talk-subtle-audio.wav as the model input."
+      },
+      "selection_filter": "select=between(n,72,171),settb=1/25,setpts=N",
+      "encoding": {
+        "video_encoder": "libx264",
+        "video_preset": "slow",
+        "video_crf": 10,
+        "video_profile": "high",
+        "video_level": "3.1",
+        "audio_encoder": "aac",
+        "audio_bitrate": "192k",
+        "movflags": "+faststart"
+      }
+    }
+  },
+  "verification_files": [
+    "SHA256SUMS",
+    "PROBE_SHA256SUMS",
+    "source-recording.ffprobe.json",
+    "talk-subtle-template-100f.ffprobe.json",
+    "talk-subtle-audio.ffprobe.json",
+    "talk-subtle-musetalk-100f.ffprobe.json"
+  ]
+}

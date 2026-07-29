@@ -1,0 +1,95 @@
+{
+  "version": 2,
+  "profile": "motion-host",
+  "internal_poc_only": true,
+  "source": "/data/llm_model/SoulX-LiveAct-models/LiveAct/assets/1.mp4",
+  "output_size": [
+    360,
+    624
+  ],
+  "fps": 20.0,
+  "source_face_box": [
+    0.207756,
+    0.279579,
+    0.749946,
+    0.821786
+  ],
+  "source_face_landmarks": [
+    [
+      0.371908,
+      0.459954
+    ],
+    [
+      0.580072,
+      0.464548
+    ],
+    [
+      0.454762,
+      0.591982
+    ],
+    [
+      0.456968,
+      0.686815
+    ],
+    [
+      0.288265,
+      0.493238
+    ],
+    [
+      0.719973,
+      0.508236
+    ]
+  ],
+  "landmark_schema": "mediapipe_face_detection_6",
+  "crossfade_frames": 5,
+  "transition_mode": "cut",
+  "feather_ratio": 0.12,
+  "color_match_strength": 0.65,
+  "actions": {
+    "idle": {
+      "file": "idle.npz",
+      "mode": "pingpong",
+      "source_range_seconds": [
+        14.0,
+        17.0
+      ],
+      "frames": 60
+    },
+    "talk_subtle": {
+      "file": "talk_subtle.npz",
+      "mode": "pingpong",
+      "source_range_seconds": [
+        58.5,
+        61.5
+      ],
+      "frames": 60
+    },
+    "welcome": {
+      "file": "welcome.npz",
+      "mode": "once",
+      "source_range_seconds": [
+        5.0,
+        9.0
+      ],
+      "frames": 80
+    },
+    "point": {
+      "file": "point.npz",
+      "mode": "once",
+      "source_range_seconds": [
+        41.8,
+        44.4
+      ],
+      "frames": 52
+    },
+    "thank": {
+      "file": "thank.npz",
+      "mode": "once",
+      "source_range_seconds": [
+        35.7,
+        37.2
+      ],
+      "frames": 30
+    }
+  }
+}

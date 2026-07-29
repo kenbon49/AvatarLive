@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "default": "motion-host",
+  "avatars": [
+    {
+      "id": "motion-host",
+      "label": "暖色女主播",
+      "thumbnail": "/assets/musetalk-body/motion-host/reference.png",
+      "manifest": "motion-host/manifest.json",
+      "cache": "motion-host-v15.npz"
+    },
+    {
+      "id": "blue-host",
+      "label": "蓝衣男主播",
+      "thumbnail": "/assets/musetalk-body/blue-host/reference.png",
+      "manifest": "blue-host/manifest.json",
+      "cache": "blue-host-v15.npz"
+    }
+  ]
+}

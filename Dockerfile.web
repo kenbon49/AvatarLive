@@ -1,0 +1,51 @@
+# SynLive 前端（Next.js）
+# 单机部署：前端通过 Caddy 反代访问后端，NEXT_PUBLIC_API_BASE_URL 留空 → 同源相对路径
+# 用 corepack 启用 pnpm（对齐 package.json 的 packageManager），避免 next build 找不到 pnpm。
+# REGISTRY：私有镜像仓库前缀（带尾斜杠），如 harbor-develop.zuzuche.net/dockerhub/
+# NPM_REGISTRY：npm/corepack 源，国内默认 npmmirror；可由 .env 覆盖。
+ARG REGISTRY=
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+
+FROM ${REGISTRY}node:22-alpine AS deps
+ARG NPM_REGISTRY
+WORKDIR /app
+ENV COREPACK_NPM_REGISTRY=$NPM_REGISTRY npm_config_registry=$NPM_REGISTRY
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --no-frozen-lockfile
+
+FROM ${REGISTRY}node:22-alpine AS builder
+ARG NPM_REGISTRY
+WORKDIR /app
+ENV COREPACK_NPM_REGISTRY=$NPM_REGISTRY npm_config_registry=$NPM_REGISTRY
+RUN corepack enable
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ARG NEXT_PUBLIC_API_BASE_URL=""
+ARG NEXT_PUBLIC_RENDERER_BACKEND=unreal
+ARG NEXT_PUBLIC_PIXELSTREAMING_URL=ws://localhost:8888
+ARG NEXT_PUBLIC_FLASHHEAD_URL=""
+ARG NEXT_PUBLIC_MUSETALK_URL=""
+ARG NEXT_PUBLIC_LIVEACT_DEMO_URL=http://localhost:5071
+ARG FLASHHEAD_UPSTREAM=http://host.docker.internal:8030
+ARG MUSETALK_UPSTREAM=http://host.docker.internal:8031
+ARG LIVEACT_UPSTREAM=http://host.docker.internal:5071
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
+    NEXT_PUBLIC_RENDERER_BACKEND=$NEXT_PUBLIC_RENDERER_BACKEND \
+    NEXT_PUBLIC_PIXELSTREAMING_URL=$NEXT_PUBLIC_PIXELSTREAMING_URL \
+    NEXT_PUBLIC_FLASHHEAD_URL=$NEXT_PUBLIC_FLASHHEAD_URL \
+    NEXT_PUBLIC_MUSETALK_URL=$NEXT_PUBLIC_MUSETALK_URL \
+    NEXT_PUBLIC_LIVEACT_DEMO_URL=$NEXT_PUBLIC_LIVEACT_DEMO_URL \
+    FLASHHEAD_UPSTREAM=$FLASHHEAD_UPSTREAM \
+    MUSETALK_UPSTREAM=$MUSETALK_UPSTREAM \
+    LIVEACT_UPSTREAM=$LIVEACT_UPSTREAM
+RUN pnpm run build
+
+FROM ${REGISTRY}node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+EXPOSE 3000
+CMD ["node_modules/.bin/next", "start"]

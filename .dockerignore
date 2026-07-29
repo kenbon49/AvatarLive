@@ -1,0 +1,22 @@
+node_modules
+.next
+out
+dist
+.git
+.venv
+.pnpm-store
+.train-data
+.env
+.env.*
+!.env.example
+tmp
+output
+**/__pycache__
+*.tsbuildinfo
+*.log
+# Body clips are consumed by host-side renderers, not the web image.
+public/assets/flashhead-body/**/*.npz
+public/assets/musetalk-body/**/*.npz
+apps/api/.env
+infra/.env
+scripts/.env

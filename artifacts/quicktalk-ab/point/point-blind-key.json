@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "selection_rule": "A is MuseTalk when the first audio SHA-256 hex nibble is even; otherwise A is QuickTalk",
+  "audio": {
+    "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/point/point-audio.wav",
+    "sha256": "fbd3697278f5cc54ec8ec0cc8cf7f7d46a0b55172974666c9b39bb1aa7e0ffb6"
+  },
+  "geometry": {
+    "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/point/point-planner-100f.npz",
+    "sha256": "76dff7cbd0685821b8fefd24467f199d557edcd329dbd42218f382581a90e294"
+  },
+  "mapping": {
+    "A": {
+      "model": "quicktalk-pth",
+      "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/point/point-quicktalk-100f.mp4",
+      "sha256": "de87c6b5719f9e51099c949292a4e60a96df1f7b9800d5d65f1f6f0dd28428ad"
+    },
+    "B": {
+      "model": "musetalk-1.5",
+      "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/point/point-musetalk-100f.mp4",
+      "sha256": "9dd7b4b2827e6b745a608eded3cd023cf026dda85ec2c204f96edd0dfad9e52b"
+    }
+  },
+  "contact_frames": [
+    4,
+    14,
+    24,
+    34,
+    44,
+    54,
+    64,
+    74,
+    84,
+    94
+  ],
+  "outputs": {
+    "video": {
+      "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/point/point-blind-ab.mp4",
+      "sha256": "7190c99d3258333fa268dce5117a0fd78e06c5a435dab219e45dafdbf5f317ae"
+    },
+    "mouth_contact_sheet": {
+      "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/point/point-blind-mouth-contact-sheet.png",
+      "sha256": "1d76400c9875e34780ceca4c1ce267205418d22a25ab8f2979de44b774cd1a7d"
+    }
+  }
+}

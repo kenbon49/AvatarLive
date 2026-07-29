@@ -1,0 +1,20 @@
+[Unit]
+Description=SynLive MuseTalk 1.5 Action Avatar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/MuseTalk
+EnvironmentFile=-/data/llm_model/SynLive/.env
+Environment=MUSETALK_PORT=8031
+Environment=MUSETALK_GPU=2
+Environment=MUSETALK_BATCH_SIZE=8
+ExecStart=/data/llm_model/SynLive/scripts/run-musetalk-demo.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+[Install]
+WantedBy=default.target

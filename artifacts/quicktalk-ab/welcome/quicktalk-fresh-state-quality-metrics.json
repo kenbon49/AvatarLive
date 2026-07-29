@@ -1,0 +1,691 @@
+{
+  "schema_version": 1,
+  "label": "quicktalk-pth-fresh-state",
+  "inputs": {
+    "candidate": {
+      "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-quicktalk-fresh-state-100f.mp4",
+      "sha256": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71"
+    },
+    "template": {
+      "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-template-100f.mp4",
+      "sha256": "731e5bbffa82ab1c13ea805bc932e478cdfdacbfe6b43c244dc494897c1d0d67"
+    },
+    "source_npz": {
+      "path": "/data/llm_model/SynLive/public/assets/musetalk-body/motion-host/welcome.npz",
+      "sha256": "cd4c7d2eda8bb6418a91cacd1572f908b0332ca3a41a8977556c770e31f21bfb"
+    },
+    "audio": {
+      "path": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-audio.wav",
+      "sha256": "22cfc784e974a8a932e7a44473d0e2a600f33d3bedd7746b8dbc5ebc852c4856",
+      "channels": 2,
+      "sample_rate": 48000,
+      "samples_per_channel": 192000,
+      "sample_width_bytes": 2,
+      "duration_seconds": 4.0
+    }
+  },
+  "media": {
+    "candidate": {
+      "codec": "h264",
+      "width": 360,
+      "height": 624,
+      "frame_count": 100,
+      "average_rate_fps": 25.0,
+      "base_rate_fps": 25.0,
+      "stream_duration_seconds": 4.0,
+      "container_duration_seconds": 4.0
+    },
+    "candidate_timeline": {
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 3.96,
+      "frame_interval_seconds": {
+        "count": 99,
+        "mean": 0.04,
+        "std": 9.687630108196408e-17,
+        "min": 0.03999999999999959,
+        "p05": 0.039999999999999813,
+        "median": 0.040000000000000036,
+        "p95": 0.040000000000000036,
+        "max": 0.040000000000000036
+      },
+      "median_frame_interval_seconds": 0.040000000000000036,
+      "timeline_duration_seconds": 4.0,
+      "timeline_fps": 25.0
+    },
+    "template": {
+      "codec": "h264",
+      "width": 360,
+      "height": 624,
+      "frame_count": 100,
+      "average_rate_fps": 25.0,
+      "base_rate_fps": 25.0,
+      "stream_duration_seconds": 4.0,
+      "container_duration_seconds": 4.0
+    },
+    "template_timeline": {
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 3.96,
+      "frame_interval_seconds": {
+        "count": 99,
+        "mean": 0.04,
+        "std": 9.687630108196408e-17,
+        "min": 0.03999999999999959,
+        "p05": 0.039999999999999813,
+        "median": 0.040000000000000036,
+        "p95": 0.040000000000000036,
+        "max": 0.040000000000000036
+      },
+      "median_frame_interval_seconds": 0.040000000000000036,
+      "timeline_duration_seconds": 4.0,
+      "timeline_fps": 25.0
+    }
+  },
+  "render_performance": {
+    "wall_seconds": 1.532724253833294,
+    "render_fps": 65.24330762686323,
+    "availability_note": "supplied by --render-wall-seconds"
+  },
+  "alignment": {
+    "nearest_source_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      12,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      37,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      62,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      87,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99
+    ],
+    "nearest_match_cost_mae_rgb_downsampled": {
+      "count": 100,
+      "mean": 3.421982060564284,
+      "std": 0.05408351745563985,
+      "min": 3.2924366263918357,
+      "p05": 3.3194629184349256,
+      "median": 3.422217077310929,
+      "p95": 3.523534985811222,
+      "max": 3.542001216545006
+    },
+    "exact_index_accuracy": 0.96,
+    "duplicate_equivalent_accuracy": 1.0,
+    "source_exact_duplicate_indices": [
+      13,
+      38,
+      63,
+      88
+    ],
+    "source_adjacent_freeze_ratio": 0.04040404040404041
+  },
+  "roi_definition": {
+    "geometry": "per-frame NPZ face_box plus mediapipe_face_detection_6 points",
+    "mouth": "ellipse at landmark 3; radii 0.23 face width and 0.135 face height",
+    "cheek_chin": "elliptical lower face below nose-to-mouth boundary, excluding mouth",
+    "outside_face": "outside face box expanded by 0.12 width and 0.10 height",
+    "changed_pixel": "mean absolute RGB difference per pixel greater than 8 on the 0..255 scale"
+  },
+  "regions": {
+    "mouth": {
+      "output_vs_template": {
+        "pixel_samples": 353253,
+        "mae_rgb_0_255": 15.120193364717828,
+        "mae_rgb_per_frame": {
+          "count": 100,
+          "mean": 15.099817538261414,
+          "std": 5.0762950474145585,
+          "min": 5.502325057983398,
+          "p05": 8.240782618522644,
+          "median": 15.062197208404541,
+          "p95": 23.443685436248778,
+          "max": 30.720136642456055
+        },
+        "changed_pixel_threshold_mae_rgb": 8.0,
+        "changed_pixel_ratio": 0.453527641661925,
+        "changed_pixel_ratio_per_frame": {
+          "count": 100,
+          "mean": 0.4528004907078859,
+          "std": 0.11248641582587603,
+          "min": 0.16396820724168384,
+          "p05": 0.2775417047791637,
+          "median": 0.46365751512331316,
+          "p95": 0.6215596330275229,
+          "max": 0.7315689981096408
+        },
+        "psnr_db": 19.611991445422603,
+        "candidate_mean_lab_per_frame": {
+          "L": {
+            "count": 100,
+            "mean": 51.82010555267334,
+            "std": 3.3545014016784287,
+            "min": 40.3045768737793,
+            "p05": 43.44081497192383,
+            "median": 52.206756591796875,
+            "p95": 55.82453880310059,
+            "max": 57.61939239501953
+          },
+          "a": {
+            "count": 100,
+            "mean": 19.200983848571777,
+            "std": 1.3654259726344267,
+            "min": 15.881057739257812,
+            "p05": 16.572265720367433,
+            "median": 19.27448081970215,
+            "p95": 21.38321695327759,
+            "max": 21.838502883911133
+          },
+          "b": {
+            "count": 100,
+            "mean": 7.253750467300415,
+            "std": 0.6584604749664532,
+            "min": 6.065181255340576,
+            "p05": 6.154970264434814,
+            "median": 7.1477837562561035,
+            "p95": 8.357417488098145,
+            "max": 9.143932342529297
+          }
+        },
+        "color_pumping": {
+          "definition": "stddev and peak-to-peak of per-frame mean candidate-minus-template Lab",
+          "residual_mean_lab_std": [
+            2.5423812866210938,
+            0.6567928791046143,
+            0.5339258909225464
+          ],
+          "residual_mean_lab_peak_to_peak": [
+            13.36097240447998,
+            3.5388906002044678,
+            2.364927291870117
+          ],
+          "residual_mean_lab_std_l2": 2.6795814037323
+        }
+      },
+      "temporal": {
+        "candidate_adjacent_mae_rgb": {
+          "count": 99,
+          "mean": 14.802237757378155,
+          "std": 6.551233039837387,
+          "min": 0.13914237916469574,
+          "p05": 4.418574619293214,
+          "median": 14.45816707611084,
+          "p95": 26.100972747802732,
+          "max": 36.06553649902344
+        },
+        "template_adjacent_mae_rgb": {
+          "count": 99,
+          "mean": 17.439763115286226,
+          "std": 7.266827671658937,
+          "min": 0.0,
+          "p05": 5.910348558425904,
+          "median": 17.332427978515625,
+          "p95": 28.41574459075927,
+          "max": 36.900169372558594
+        },
+        "candidate_minus_template_adjacent_mae": -2.6375253579080713,
+        "residual_temporal_mad_rgb": {
+          "count": 99,
+          "mean": 15.364322459908447,
+          "std": 6.094627079801944,
+          "min": 0.13914237916469574,
+          "p05": 6.682314491271973,
+          "median": 15.932156562805176,
+          "p95": 25.520603942871084,
+          "max": 32.89007568359375
+        },
+        "residual_definition": "abs((candidate-template)[t] - (candidate-template)[t-1])"
+      }
+    },
+    "cheek_chin": {
+      "output_vs_template": {
+        "pixel_samples": 706483,
+        "mae_rgb_0_255": 4.22339391039841,
+        "mae_rgb_per_frame": {
+          "count": 100,
+          "mean": 4.219920327663422,
+          "std": 0.9383263318246886,
+          "min": 2.751577615737915,
+          "p05": 3.1626743912696837,
+          "median": 3.9690158367156982,
+          "p95": 6.09237642288208,
+          "max": 6.568304538726807
+        },
+        "changed_pixel_threshold_mae_rgb": 8.0,
+        "changed_pixel_ratio": 0.09733567545149706,
+        "changed_pixel_ratio_per_frame": {
+          "count": 100,
+          "mean": 0.09623819338114066,
+          "std": 0.052443604842212554,
+          "min": 0.02375737152485257,
+          "p05": 0.0338252231500144,
+          "median": 0.08036200894247453,
+          "p95": 0.18865327064231355,
+          "max": 0.2663200462160601
+        },
+        "psnr_db": 29.784054603451715,
+        "candidate_mean_lab_per_frame": {
+          "L": {
+            "count": 100,
+            "mean": 36.37192022323608,
+            "std": 4.744425254318043,
+            "min": 27.113187789916992,
+            "p05": 29.226541137695314,
+            "median": 35.739091873168945,
+            "p95": 45.06042346954346,
+            "max": 46.64641571044922
+          },
+          "a": {
+            "count": 100,
+            "mean": 9.075058851242066,
+            "std": 1.032847329358583,
+            "min": 7.315832614898682,
+            "p05": 7.502829217910767,
+            "median": 9.080842971801758,
+            "p95": 11.075831174850464,
+            "max": 11.369750022888184
+          },
+          "b": {
+            "count": 100,
+            "mean": 4.307977175712585,
+            "std": 0.9540487064849713,
+            "min": 2.121318817138672,
+            "p05": 2.6493733167648315,
+            "median": 4.14051365852356,
+            "p95": 5.853595280647278,
+            "max": 6.178630352020264
+          }
+        },
+        "color_pumping": {
+          "definition": "stddev and peak-to-peak of per-frame mean candidate-minus-template Lab",
+          "residual_mean_lab_std": [
+            0.6073376536369324,
+            0.09656988829374313,
+            0.10576031357049942
+          ],
+          "residual_mean_lab_peak_to_peak": [
+            3.119565963745117,
+            0.4793911278247833,
+            0.46806854009628296
+          ],
+          "residual_mean_lab_std_l2": 0.6239951848983765
+        }
+      },
+      "temporal": {
+        "candidate_adjacent_mae_rgb": {
+          "count": 99,
+          "mean": 8.398131588605619,
+          "std": 4.07635809343746,
+          "min": 0.05307787284255028,
+          "p05": 2.1742556333541874,
+          "median": 7.807222843170166,
+          "p95": 15.245146369934071,
+          "max": 19.481576919555664
+        },
+        "template_adjacent_mae_rgb": {
+          "count": 99,
+          "mean": 8.733762907182959,
+          "std": 4.009167448076816,
+          "min": 0.0,
+          "p05": 2.483590078353882,
+          "median": 8.151314735412598,
+          "p95": 15.407748317718502,
+          "max": 17.79533576965332
+        },
+        "candidate_minus_template_adjacent_mae": -0.33563131857733985,
+        "residual_temporal_mad_rgb": {
+          "count": 99,
+          "mean": 3.432263889509921,
+          "std": 1.1397416520475958,
+          "min": 0.05307787284255028,
+          "p05": 2.342276740074158,
+          "median": 3.334681749343872,
+          "p95": 5.077900028228756,
+          "max": 7.211485385894775
+        },
+        "residual_definition": "abs((candidate-template)[t] - (candidate-template)[t-1])"
+      }
+    },
+    "outside_face": {
+      "output_vs_template": {
+        "pixel_samples": 17259275,
+        "mae_rgb_0_255": 2.2344816531014966,
+        "mae_rgb_per_frame": {
+          "count": 100,
+          "mean": 2.2347638034820556,
+          "std": 0.027239058676263094,
+          "min": 2.1679184436798096,
+          "p05": 2.1781387329101562,
+          "median": 2.2397663593292236,
+          "p95": 2.2683626651763915,
+          "max": 2.31219744682312
+        },
+        "changed_pixel_threshold_mae_rgb": 8.0,
+        "changed_pixel_ratio": 0.00013094408658532875,
+        "changed_pixel_ratio_per_frame": {
+          "count": 100,
+          "mean": 0.00013068398221319696,
+          "std": 0.00014117376005750925,
+          "min": 0.0,
+          "p05": 5.867307913584386e-06,
+          "median": 8.822754970431329e-05,
+          "p95": 0.0003831263944605758,
+          "max": 0.0008884862633055173
+        },
+        "psnr_db": 39.90419882074291,
+        "candidate_mean_lab_per_frame": {
+          "L": {
+            "count": 100,
+            "mean": 51.03071514129638,
+            "std": 2.495079680931531,
+            "min": 44.96949005126953,
+            "p05": 45.72818107604981,
+            "median": 51.824039459228516,
+            "p95": 53.92704105377197,
+            "max": 55.12424850463867
+          },
+          "a": {
+            "count": 100,
+            "mean": 6.062314105033875,
+            "std": 0.5002495187999312,
+            "min": 5.3752312660217285,
+            "p05": 5.494535040855408,
+            "median": 5.845189332962036,
+            "p95": 6.979585766792297,
+            "max": 7.099417209625244
+          },
+          "b": {
+            "count": 100,
+            "mean": 7.057077383995056,
+            "std": 0.5538500194682586,
+            "min": 5.820194244384766,
+            "p05": 6.046356415748596,
+            "median": 7.1152143478393555,
+            "p95": 7.725880289077758,
+            "max": 8.025174140930176
+          }
+        },
+        "color_pumping": {
+          "definition": "stddev and peak-to-peak of per-frame mean candidate-minus-template Lab",
+          "residual_mean_lab_std": [
+            0.015453697182238102,
+            0.01590113714337349,
+            0.017877865582704544
+          ],
+          "residual_mean_lab_peak_to_peak": [
+            0.05836755037307739,
+            0.09024333953857422,
+            0.0835411548614502
+          ],
+          "residual_mean_lab_std_l2": 0.028482995927333832
+        }
+      },
+      "temporal": {
+        "candidate_adjacent_mae_rgb": {
+          "count": 99,
+          "mean": 8.504899544525548,
+          "std": 3.6246473708433564,
+          "min": 0.0009371657506562769,
+          "p05": 3.5077027797698976,
+          "median": 8.683045387268066,
+          "p95": 13.656424808502196,
+          "max": 15.693689346313477
+        },
+        "template_adjacent_mae_rgb": {
+          "count": 99,
+          "mean": 8.481493159130832,
+          "std": 3.6250933481955823,
+          "min": 0.0005646039498969913,
+          "p05": 3.467903208732605,
+          "median": 8.648670196533203,
+          "p95": 13.648538303375243,
+          "max": 15.689130783081055
+        },
+        "candidate_minus_template_adjacent_mae": 0.023406385394716622,
+        "residual_temporal_mad_rgb": {
+          "count": 99,
+          "mean": 0.9102519512202384,
+          "std": 0.21105792816022967,
+          "min": 0.0008180995937436819,
+          "p05": 0.7792901396751404,
+          "median": 0.9284694194793701,
+          "p95": 1.09475280046463,
+          "max": 1.2611684799194336
+        },
+        "residual_definition": "abs((candidate-template)[t] - (candidate-template)[t-1])"
+      }
+    },
+    "upper_face_control": {
+      "output_vs_template": {
+        "pixel_samples": 1783954,
+        "mae_rgb_0_255": 3.150906357450921,
+        "mae_rgb_per_frame": {
+          "count": 100,
+          "mean": 3.151811730861664,
+          "std": 0.0929160207804673,
+          "min": 2.899345636367798,
+          "p05": 3.008707845211029,
+          "median": 3.153656482696533,
+          "p95": 3.301397609710693,
+          "max": 3.3714499473571777
+        },
+        "changed_pixel_threshold_mae_rgb": 8.0,
+        "changed_pixel_ratio": 0.024301635580289627,
+        "changed_pixel_ratio_per_frame": {
+          "count": 100,
+          "mean": 0.024278170272082598,
+          "std": 0.005502623492511383,
+          "min": 0.01173631677086761,
+          "p05": 0.014531166072200365,
+          "median": 0.025175292482831815,
+          "p95": 0.031749279896451384,
+          "max": 0.03842387234287689
+        },
+        "psnr_db": 35.84673532602844,
+        "candidate_mean_lab_per_frame": {
+          "L": {
+            "count": 100,
+            "mean": 43.59343925476074,
+            "std": 2.5117761832257592,
+            "min": 38.58452224731445,
+            "p05": 39.48914470672607,
+            "median": 43.74249076843262,
+            "p95": 47.59138412475586,
+            "max": 49.490089416503906
+          },
+          "a": {
+            "count": 100,
+            "mean": 12.175627164840698,
+            "std": 0.9092585251522493,
+            "min": 10.092848777770996,
+            "p05": 10.346642017364502,
+            "median": 12.417579174041748,
+            "p95": 13.376790761947632,
+            "max": 13.832061767578125
+          },
+          "b": {
+            "count": 100,
+            "mean": 4.764946074485779,
+            "std": 0.6624845857924936,
+            "min": 3.1986210346221924,
+            "p05": 3.528107988834381,
+            "median": 4.641804218292236,
+            "p95": 5.850295424461365,
+            "max": 6.023403167724609
+          }
+        },
+        "color_pumping": {
+          "definition": "stddev and peak-to-peak of per-frame mean candidate-minus-template Lab",
+          "residual_mean_lab_std": [
+            0.042676620185375214,
+            0.03846501186490059,
+            0.046744491904973984
+          ],
+          "residual_mean_lab_peak_to_peak": [
+            0.22589117288589478,
+            0.17193418741226196,
+            0.21429094672203064
+          ],
+          "residual_mean_lab_std_l2": 0.07406685501337051
+        }
+      },
+      "temporal": {
+        "candidate_adjacent_mae_rgb": {
+          "count": 99,
+          "mean": 13.050205002905745,
+          "std": 6.920008659010146,
+          "min": 0.0,
+          "p05": 2.6655810117721557,
+          "median": 11.969249725341797,
+          "p95": 25.680088806152337,
+          "max": 30.840286254882812
+        },
+        "template_adjacent_mae_rgb": {
+          "count": 99,
+          "mean": 13.372998286490187,
+          "std": 6.9499476777468985,
+          "min": 0.0,
+          "p05": 2.798063278198242,
+          "median": 12.215764999389648,
+          "p95": 26.2681562423706,
+          "max": 30.890106201171875
+        },
+        "candidate_minus_template_adjacent_mae": -0.32279328358444204,
+        "residual_temporal_mad_rgb": {
+          "count": 99,
+          "mean": 2.3174336245189413,
+          "std": 0.5247363213267222,
+          "min": 0.0,
+          "p05": 1.5501578330993653,
+          "median": 2.4647257328033447,
+          "p95": 2.7166984558105467,
+          "max": 2.830310583114624
+        },
+        "residual_definition": "abs((candidate-template)[t] - (candidate-template)[t-1])"
+      }
+    }
+  },
+  "mouth_pixel_activity": {
+    "candidate": {
+      "definition": "adjacent grayscale MAE after geometry-normalized 96x48 mouth crop",
+      "adjacent_mae_gray_0_255": {
+        "count": 99,
+        "mean": 8.860317622170303,
+        "std": 3.9394004824028737,
+        "min": 0.6907551884651184,
+        "p05": 3.2427518367767334,
+        "median": 8.105034828186035,
+        "p95": 16.776996231079103,
+        "max": 18.62152862548828,
+        "p95_minus_p05": 13.53424439430237
+      }
+    },
+    "template": {
+      "definition": "adjacent grayscale MAE after geometry-normalized 96x48 mouth crop",
+      "adjacent_mae_gray_0_255": {
+        "count": 99,
+        "mean": 10.179917700964996,
+        "std": 4.234023448911918,
+        "min": 0.0,
+        "p05": 4.160937690734864,
+        "median": 10.01258659362793,
+        "p95": 17.059462547302243,
+        "max": 21.25889778137207,
+        "p95_minus_p05": 12.898524856567379
+      }
+    }
+  },
+  "limitations": [
+    "This evaluator measures fixed-region pixel activity, not phoneme-level lip aperture.",
+    "SyncNet/LSE and identity embeddings are not available in the installed environment.",
+    "Candidate and template must use the same capture and encoding path for a fair codec floor."
+  ]
+}

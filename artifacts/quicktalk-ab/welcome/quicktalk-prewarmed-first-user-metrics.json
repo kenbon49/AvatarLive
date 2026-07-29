@@ -1,0 +1,360 @@
+{
+  "schema_version": 1,
+  "started_at_utc": "2026-07-22T11:00:38.448488+00:00",
+  "process": {
+    "pid": 2689595,
+    "python": "3.10.20",
+    "executable": "/home/super/miniconda3/envs/cyberverse/bin/python3.10",
+    "same_python_process": true
+  },
+  "inputs": {
+    "asset_root": "/data/llm_model/opentalking/models/quicktalk",
+    "template_video": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-template-100f.mp4",
+    "template_video_sha256": "731e5bbffa82ab1c13ea805bc932e478cdfdacbfe6b43c244dc494897c1d0d67",
+    "audio": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-audio.wav",
+    "audio_sha256": "22cfc784e974a8a932e7a44473d0e2a600f33d3bedd7746b8dbc5ebc852c4856"
+  },
+  "configuration": {
+    "device_argument": "cuda:0",
+    "cuda_visible_devices": "1",
+    "expected_physical_gpu_index": "1",
+    "model_backend": "pth",
+    "worker_cache_enabled": true,
+    "face_cache_dir": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/quicktalk-face-cache",
+    "face_cache_file": "None",
+    "max_template_seconds": "4",
+    "model_load_count": 1,
+    "avatar_load_count": 1,
+    "utterance_count": 1,
+    "same_adapter_and_worker_all_runs": true,
+    "fresh_state_before_run": 1,
+    "adapter_prewarm": true,
+    "worker_object_id": 140486235544048,
+    "initial_session_state_object_id": 140486235544288,
+    "state_replacements": [
+      {
+        "before_run": 1,
+        "old_session_state_object_id": 140486235544288,
+        "new_session_state": {
+          "object_id": 140485850160272,
+          "frame_index": 0,
+          "hn_shape": [
+            2,
+            1,
+            576
+          ],
+          "hn_nonzero_count": 0,
+          "hn_l2": 0.0,
+          "cn_shape": [
+            2,
+            1,
+            576
+          ],
+          "cn_nonzero_count": 0,
+          "cn_l2": 0.0
+        }
+      }
+    ]
+  },
+  "model_and_avatar_init_seconds": 4.972041949629784,
+  "resources_after_model_and_avatar_init": {
+    "process": {
+      "rss_mib": 2171.22265625,
+      "high_water_mib": 2264.890625
+    },
+    "cuda": {
+      "device": "cuda:0",
+      "allocated_mib": 853.822265625,
+      "reserved_mib": 1546.0,
+      "max_allocated_mib": 1346.5849609375,
+      "max_reserved_mib": 1546.0
+    },
+    "nvidia_process": {
+      "available": true,
+      "devices": [
+        {
+          "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+          "used_mib": 1896.0
+        }
+      ],
+      "total_mib": 1896.0
+    }
+  },
+  "adapter_prewarm": {
+    "method": "adapter.warmup(state) followed by CUDA synchronize",
+    "seconds": 4.467803463339806,
+    "session_state_before": {
+      "object_id": 140486235544288,
+      "frame_index": 0,
+      "hn_shape": [
+        2,
+        1,
+        576
+      ],
+      "hn_nonzero_count": 0,
+      "hn_l2": 0.0,
+      "cn_shape": [
+        2,
+        1,
+        576
+      ],
+      "cn_nonzero_count": 0,
+      "cn_l2": 0.0
+    },
+    "session_state_after": {
+      "object_id": 140486235544288,
+      "frame_index": 0,
+      "hn_shape": [
+        2,
+        1,
+        576
+      ],
+      "hn_nonzero_count": 0,
+      "hn_l2": 0.0,
+      "cn_shape": [
+        2,
+        1,
+        576
+      ],
+      "cn_nonzero_count": 0,
+      "cn_l2": 0.0
+    },
+    "process_after": {
+      "rss_mib": 2267.625,
+      "high_water_mib": 2267.625
+    },
+    "cuda_after": {
+      "device": "cuda:0",
+      "allocated_mib": 853.822265625,
+      "reserved_mib": 1546.0,
+      "max_allocated_mib": 916.94287109375,
+      "max_reserved_mib": 1546.0
+    },
+    "nvidia_process_after": {
+      "available": true,
+      "devices": [
+        {
+          "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+          "used_mib": 1898.0
+        }
+      ],
+      "total_mib": 1898.0
+    }
+  },
+  "gpu_inventory_before": {
+    "available": true,
+    "gpus": [
+      {
+        "physical_index": 0,
+        "uuid": "GPU-2e46a42f-6fd3-8b0f-ea58-7ee06800dc16",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 10312.0,
+        "memory_free_mib": 13727.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 1,
+        "uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 9710.0,
+        "memory_free_mib": 14329.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 2,
+        "uuid": "GPU-9840a411-c0fa-ff74-1414-13ff1c03c2d0",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 14969.0,
+        "memory_free_mib": 9070.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 3,
+        "uuid": "GPU-193b366f-917b-9017-7261-48f4d95097b1",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 19779.0,
+        "memory_free_mib": 4261.0,
+        "utilization_gpu_pct": 0.0
+      }
+    ]
+  },
+  "gpu_inventory_after": {
+    "available": true,
+    "gpus": [
+      {
+        "physical_index": 0,
+        "uuid": "GPU-2e46a42f-6fd3-8b0f-ea58-7ee06800dc16",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 10312.0,
+        "memory_free_mib": 13727.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 1,
+        "uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 11613.0,
+        "memory_free_mib": 12426.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 2,
+        "uuid": "GPU-9840a411-c0fa-ff74-1414-13ff1c03c2d0",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 14969.0,
+        "memory_free_mib": 9070.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 3,
+        "uuid": "GPU-193b366f-917b-9017-7261-48f4d95097b1",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 19779.0,
+        "memory_free_mib": 4261.0,
+        "utilization_gpu_pct": 0.0
+      }
+    ]
+  },
+  "runs": [
+    {
+      "run": 1,
+      "started_at_utc": "2026-07-22T11:00:48.367972+00:00",
+      "started_unix_seconds": 1784718048.3679976,
+      "finished_at_utc": "2026-07-22T11:00:50.896965+00:00",
+      "finished_unix_seconds": 1784718050.8969922,
+      "output": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-quicktalk-prewarmed-fresh-state-100f.mp4",
+      "output_sha256": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71",
+      "frames": 100,
+      "fps": 25.0,
+      "audio_duration_ms": 4000.0,
+      "audio_feature_seconds_reported": 0.08262359350919724,
+      "audio_feature_wall_seconds": 0.08272077143192291,
+      "first_frame_seconds": 0.0166960209608078,
+      "last_frame_yield_seconds": 1.5328032225370407,
+      "render_pipeline_seconds": 1.5334596708416939,
+      "render_fps_100_frames": 65.21201822354509,
+      "post_first_99_seconds": 1.516107201576233,
+      "sustained_fps_after_first": 65.29881257543917,
+      "inter_frame_seconds": {
+        "mean": 0.015314214157335686,
+        "p50": 0.01472899317741394,
+        "p95": 0.015342731028795242,
+        "max": 0.06496341526508331
+      },
+      "mux_finalize_seconds": 0.6305297240614891,
+      "fresh_session_state": true,
+      "session_state_start": {
+        "object_id": 140485850160272,
+        "frame_index": 0,
+        "hn_shape": [
+          2,
+          1,
+          576
+        ],
+        "hn_nonzero_count": 0,
+        "hn_l2": 0.0,
+        "cn_shape": [
+          2,
+          1,
+          576
+        ],
+        "cn_nonzero_count": 0,
+        "cn_l2": 0.0
+      },
+      "session_state_end": {
+        "object_id": 140485850160272,
+        "frame_index": 100,
+        "hn_shape": [
+          2,
+          1,
+          576
+        ],
+        "hn_nonzero_count": 1152,
+        "hn_l2": 4.390422344207764,
+        "cn_shape": [
+          2,
+          1,
+          576
+        ],
+        "cn_nonzero_count": 1152,
+        "cn_l2": 11.738015174865723
+      },
+      "session_frame_index_start": 0,
+      "session_frame_index_end": 100,
+      "resources": {
+        "process_start": {
+          "rss_mib": 2267.625,
+          "high_water_mib": 2267.625
+        },
+        "process_after_features": {
+          "rss_mib": 2276.91796875,
+          "high_water_mib": 2276.91796875
+        },
+        "process_after_render": {
+          "rss_mib": 2281.30078125,
+          "high_water_mib": 2281.30078125
+        },
+        "process_sampling": {
+          "sample_interval_seconds": 0.02,
+          "sample_count": 122,
+          "peak_rss_mib": 2281.30078125
+        },
+        "cuda_after_features": {
+          "device": "cuda:0",
+          "allocated_mib": 853.822265625,
+          "reserved_mib": 1546.0,
+          "max_allocated_mib": 905.43994140625,
+          "max_reserved_mib": 1546.0
+        },
+        "cuda_after_render": {
+          "device": "cuda:0",
+          "allocated_mib": 853.822265625,
+          "reserved_mib": 1546.0,
+          "max_allocated_mib": 916.94287109375,
+          "max_reserved_mib": 1546.0
+        },
+        "nvidia_process_start": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        },
+        "nvidia_process_after_features": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        },
+        "nvidia_process_after_render": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        }
+      }
+    }
+  ],
+  "comparison_run1_run2": null,
+  "comparison_run2_run3": null,
+  "total_process_wall_seconds": 12.36784204095602
+}

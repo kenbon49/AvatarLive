@@ -1,0 +1,15 @@
+[Unit]
+Description=SynLive FlashHead Lite real-time renderer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/llm_model/SynLive
+ExecStart=/data/llm_model/SynLive/scripts/run-flashhead-demo.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

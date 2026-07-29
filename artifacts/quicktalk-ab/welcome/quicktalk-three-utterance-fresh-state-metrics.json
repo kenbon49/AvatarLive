@@ -1,0 +1,568 @@
+{
+  "schema_version": 1,
+  "started_at_utc": "2026-07-22T10:57:06.058402+00:00",
+  "process": {
+    "pid": 2684027,
+    "python": "3.10.20",
+    "executable": "/home/super/miniconda3/envs/cyberverse/bin/python3.10",
+    "same_python_process": true
+  },
+  "inputs": {
+    "asset_root": "/data/llm_model/opentalking/models/quicktalk",
+    "template_video": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-template-100f.mp4",
+    "template_video_sha256": "731e5bbffa82ab1c13ea805bc932e478cdfdacbfe6b43c244dc494897c1d0d67",
+    "audio": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-audio.wav",
+    "audio_sha256": "22cfc784e974a8a932e7a44473d0e2a600f33d3bedd7746b8dbc5ebc852c4856"
+  },
+  "configuration": {
+    "device_argument": "cuda:0",
+    "cuda_visible_devices": "1",
+    "expected_physical_gpu_index": "1",
+    "model_backend": "pth",
+    "worker_cache_enabled": true,
+    "face_cache_dir": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/quicktalk-face-cache",
+    "face_cache_file": "None",
+    "max_template_seconds": "4",
+    "model_load_count": 1,
+    "avatar_load_count": 1,
+    "utterance_count": 3,
+    "same_adapter_and_worker_all_runs": true,
+    "fresh_state_before_run": 3,
+    "adapter_prewarm": false,
+    "worker_object_id": 140357064202736,
+    "initial_session_state_object_id": 140357064202976,
+    "state_replacements": [
+      {
+        "before_run": 3,
+        "old_session_state_object_id": 140357064202976,
+        "new_session_state": {
+          "object_id": 140361532042176,
+          "frame_index": 0,
+          "hn_shape": [
+            2,
+            1,
+            576
+          ],
+          "hn_nonzero_count": 0,
+          "hn_l2": 0.0,
+          "cn_shape": [
+            2,
+            1,
+            576
+          ],
+          "cn_nonzero_count": 0,
+          "cn_l2": 0.0
+        }
+      }
+    ]
+  },
+  "model_and_avatar_init_seconds": 4.53939363360405,
+  "resources_after_model_and_avatar_init": {
+    "process": {
+      "rss_mib": 2178.66796875,
+      "high_water_mib": 2197.49609375
+    },
+    "cuda": {
+      "device": "cuda:0",
+      "allocated_mib": 853.822265625,
+      "reserved_mib": 1546.0,
+      "max_allocated_mib": 1346.5849609375,
+      "max_reserved_mib": 1546.0
+    },
+    "nvidia_process": {
+      "available": true,
+      "devices": [
+        {
+          "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+          "used_mib": 1896.0
+        }
+      ],
+      "total_mib": 1896.0
+    }
+  },
+  "adapter_prewarm": null,
+  "gpu_inventory_before": {
+    "available": true,
+    "gpus": [
+      {
+        "physical_index": 0,
+        "uuid": "GPU-2e46a42f-6fd3-8b0f-ea58-7ee06800dc16",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 10312.0,
+        "memory_free_mib": 13727.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 1,
+        "uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 9710.0,
+        "memory_free_mib": 14329.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 2,
+        "uuid": "GPU-9840a411-c0fa-ff74-1414-13ff1c03c2d0",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 14969.0,
+        "memory_free_mib": 9070.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 3,
+        "uuid": "GPU-193b366f-917b-9017-7261-48f4d95097b1",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 19779.0,
+        "memory_free_mib": 4261.0,
+        "utilization_gpu_pct": 0.0
+      }
+    ]
+  },
+  "gpu_inventory_after": {
+    "available": true,
+    "gpus": [
+      {
+        "physical_index": 0,
+        "uuid": "GPU-2e46a42f-6fd3-8b0f-ea58-7ee06800dc16",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 10312.0,
+        "memory_free_mib": 13727.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 1,
+        "uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 11613.0,
+        "memory_free_mib": 12426.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 2,
+        "uuid": "GPU-9840a411-c0fa-ff74-1414-13ff1c03c2d0",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 14969.0,
+        "memory_free_mib": 9070.0,
+        "utilization_gpu_pct": 0.0
+      },
+      {
+        "physical_index": 3,
+        "uuid": "GPU-193b366f-917b-9017-7261-48f4d95097b1",
+        "name": "NVIDIA GeForce RTX 3090",
+        "memory_total_mib": 24576.0,
+        "memory_used_mib": 19779.0,
+        "memory_free_mib": 4261.0,
+        "utilization_gpu_pct": 0.0
+      }
+    ]
+  },
+  "runs": [
+    {
+      "run": 1,
+      "started_at_utc": "2026-07-22T10:57:10.965700+00:00",
+      "started_unix_seconds": 1784717830.9657247,
+      "finished_at_utc": "2026-07-22T10:57:17.755497+00:00",
+      "finished_unix_seconds": 1784717837.755522,
+      "output": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-quicktalk-three-utterance-fresh-state-run1.mp4",
+      "output_sha256": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71",
+      "frames": 100,
+      "fps": 25.0,
+      "audio_duration_ms": 4000.0,
+      "audio_feature_seconds_reported": 0.11602446436882019,
+      "audio_feature_wall_seconds": 0.11612372100353241,
+      "first_frame_seconds": 4.31293561309576,
+      "last_frame_yield_seconds": 5.765785612165928,
+      "render_pipeline_seconds": 5.766335837543011,
+      "render_fps_100_frames": 17.34203536133428,
+      "post_first_99_seconds": 1.4528499990701675,
+      "sustained_fps_after_first": 68.14192797836017,
+      "inter_frame_seconds": {
+        "mean": 0.014675252515860278,
+        "p50": 0.014574937522411346,
+        "p95": 0.015250445902347564,
+        "max": 0.016819581389427185
+      },
+      "mux_finalize_seconds": 0.6270364820957184,
+      "fresh_session_state": false,
+      "session_state_start": {
+        "object_id": 140357064202976,
+        "frame_index": 0,
+        "hn_shape": [
+          2,
+          1,
+          576
+        ],
+        "hn_nonzero_count": 0,
+        "hn_l2": 0.0,
+        "cn_shape": [
+          2,
+          1,
+          576
+        ],
+        "cn_nonzero_count": 0,
+        "cn_l2": 0.0
+      },
+      "session_state_end": {
+        "object_id": 140357064202976,
+        "frame_index": 100,
+        "hn_shape": [
+          2,
+          1,
+          576
+        ],
+        "hn_nonzero_count": 1152,
+        "hn_l2": 4.390422344207764,
+        "cn_shape": [
+          2,
+          1,
+          576
+        ],
+        "cn_nonzero_count": 1152,
+        "cn_l2": 11.738015174865723
+      },
+      "session_frame_index_start": 0,
+      "session_frame_index_end": 100,
+      "resources": {
+        "process_start": {
+          "rss_mib": 2178.66796875,
+          "high_water_mib": 2197.49609375
+        },
+        "process_after_features": {
+          "rss_mib": 2234.9453125,
+          "high_water_mib": 2234.9453125
+        },
+        "process_after_render": {
+          "rss_mib": 2293.1484375,
+          "high_water_mib": 2293.1484375
+        },
+        "process_sampling": {
+          "sample_interval_seconds": 0.02,
+          "sample_count": 333,
+          "peak_rss_mib": 2293.1484375
+        },
+        "cuda_after_features": {
+          "device": "cuda:0",
+          "allocated_mib": 853.822265625,
+          "reserved_mib": 1546.0,
+          "max_allocated_mib": 905.43994140625,
+          "max_reserved_mib": 1546.0
+        },
+        "cuda_after_render": {
+          "device": "cuda:0",
+          "allocated_mib": 853.822265625,
+          "reserved_mib": 1546.0,
+          "max_allocated_mib": 916.94287109375,
+          "max_reserved_mib": 1546.0
+        },
+        "nvidia_process_start": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1896.0
+            }
+          ],
+          "total_mib": 1896.0
+        },
+        "nvidia_process_after_features": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        },
+        "nvidia_process_after_render": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        }
+      }
+    },
+    {
+      "run": 2,
+      "started_at_utc": "2026-07-22T10:57:17.765228+00:00",
+      "started_unix_seconds": 1784717837.7652414,
+      "finished_at_utc": "2026-07-22T10:57:20.314139+00:00",
+      "finished_unix_seconds": 1784717840.314163,
+      "output": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-quicktalk-three-utterance-fresh-state-run2.mp4",
+      "output_sha256": "c2c7f048cb0c7309acd331ab10184f6a32d0e8ef9a29511875c28e8b51a92d1e",
+      "frames": 100,
+      "fps": 25.0,
+      "audio_duration_ms": 4000.0,
+      "audio_feature_seconds_reported": 0.028885826468467712,
+      "audio_feature_wall_seconds": 0.028965868055820465,
+      "first_frame_seconds": 0.015469834208488464,
+      "last_frame_yield_seconds": 1.5364044308662415,
+      "render_pipeline_seconds": 1.5370673164725304,
+      "render_fps_100_frames": 65.05895931057431,
+      "post_first_99_seconds": 1.520934596657753,
+      "sustained_fps_after_first": 65.09155634801921,
+      "inter_frame_seconds": {
+        "mean": 0.015362975723815687,
+        "p50": 0.014692731201648712,
+        "p95": 0.017150291800498964,
+        "max": 0.06055781990289688
+      },
+      "mux_finalize_seconds": 0.6796372979879379,
+      "fresh_session_state": false,
+      "session_state_start": {
+        "object_id": 140357064202976,
+        "frame_index": 100,
+        "hn_shape": [
+          2,
+          1,
+          576
+        ],
+        "hn_nonzero_count": 1152,
+        "hn_l2": 4.390422344207764,
+        "cn_shape": [
+          2,
+          1,
+          576
+        ],
+        "cn_nonzero_count": 1152,
+        "cn_l2": 11.738015174865723
+      },
+      "session_state_end": {
+        "object_id": 140357064202976,
+        "frame_index": 200,
+        "hn_shape": [
+          2,
+          1,
+          576
+        ],
+        "hn_nonzero_count": 1152,
+        "hn_l2": 4.390422344207764,
+        "cn_shape": [
+          2,
+          1,
+          576
+        ],
+        "cn_nonzero_count": 1152,
+        "cn_l2": 11.738015174865723
+      },
+      "session_frame_index_start": 100,
+      "session_frame_index_end": 200,
+      "resources": {
+        "process_start": {
+          "rss_mib": 2293.15234375,
+          "high_water_mib": 2293.15234375
+        },
+        "process_after_features": {
+          "rss_mib": 2293.15234375,
+          "high_water_mib": 2293.15234375
+        },
+        "process_after_render": {
+          "rss_mib": 2293.15234375,
+          "high_water_mib": 2293.15234375
+        },
+        "process_sampling": {
+          "sample_interval_seconds": 0.02,
+          "sample_count": 122,
+          "peak_rss_mib": 2293.15234375
+        },
+        "cuda_after_features": {
+          "device": "cuda:0",
+          "allocated_mib": 853.822265625,
+          "reserved_mib": 1546.0,
+          "max_allocated_mib": 905.43994140625,
+          "max_reserved_mib": 1546.0
+        },
+        "cuda_after_render": {
+          "device": "cuda:0",
+          "allocated_mib": 853.822265625,
+          "reserved_mib": 1546.0,
+          "max_allocated_mib": 916.94287109375,
+          "max_reserved_mib": 1546.0
+        },
+        "nvidia_process_start": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        },
+        "nvidia_process_after_features": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        },
+        "nvidia_process_after_render": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        }
+      }
+    },
+    {
+      "run": 3,
+      "started_at_utc": "2026-07-22T10:57:20.324306+00:00",
+      "started_unix_seconds": 1784717840.3243186,
+      "finished_at_utc": "2026-07-22T10:57:22.805803+00:00",
+      "finished_unix_seconds": 1784717842.805832,
+      "output": "/data/llm_model/SynLive/artifacts/quicktalk-ab/welcome/welcome-quicktalk-three-utterance-fresh-state-run3.mp4",
+      "output_sha256": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71",
+      "frames": 100,
+      "fps": 25.0,
+      "audio_duration_ms": 4000.0,
+      "audio_feature_seconds_reported": 0.02885764092206955,
+      "audio_feature_wall_seconds": 0.028930559754371643,
+      "first_frame_seconds": 0.01554851233959198,
+      "last_frame_yield_seconds": 1.5320499315857887,
+      "render_pipeline_seconds": 1.532724253833294,
+      "render_fps_100_frames": 65.24330762686323,
+      "post_first_99_seconds": 1.5165014192461967,
+      "sustained_fps_after_first": 65.28183801450687,
+      "inter_frame_seconds": {
+        "mean": 0.015318196154001987,
+        "p50": 0.014780059456825256,
+        "p95": 0.015452872961759567,
+        "max": 0.060996681451797485
+      },
+      "mux_finalize_seconds": 0.6381326243281364,
+      "fresh_session_state": true,
+      "session_state_start": {
+        "object_id": 140361532042176,
+        "frame_index": 0,
+        "hn_shape": [
+          2,
+          1,
+          576
+        ],
+        "hn_nonzero_count": 0,
+        "hn_l2": 0.0,
+        "cn_shape": [
+          2,
+          1,
+          576
+        ],
+        "cn_nonzero_count": 0,
+        "cn_l2": 0.0
+      },
+      "session_state_end": {
+        "object_id": 140361532042176,
+        "frame_index": 100,
+        "hn_shape": [
+          2,
+          1,
+          576
+        ],
+        "hn_nonzero_count": 1152,
+        "hn_l2": 4.390422344207764,
+        "cn_shape": [
+          2,
+          1,
+          576
+        ],
+        "cn_nonzero_count": 1152,
+        "cn_l2": 11.738015174865723
+      },
+      "session_frame_index_start": 0,
+      "session_frame_index_end": 100,
+      "resources": {
+        "process_start": {
+          "rss_mib": 2293.15625,
+          "high_water_mib": 2293.15625
+        },
+        "process_after_features": {
+          "rss_mib": 2293.15625,
+          "high_water_mib": 2293.15625
+        },
+        "process_after_render": {
+          "rss_mib": 2293.15625,
+          "high_water_mib": 2293.15625
+        },
+        "process_sampling": {
+          "sample_interval_seconds": 0.02,
+          "sample_count": 119,
+          "peak_rss_mib": 2293.15625
+        },
+        "cuda_after_features": {
+          "device": "cuda:0",
+          "allocated_mib": 853.822265625,
+          "reserved_mib": 1546.0,
+          "max_allocated_mib": 905.43994140625,
+          "max_reserved_mib": 1546.0
+        },
+        "cuda_after_render": {
+          "device": "cuda:0",
+          "allocated_mib": 853.822265625,
+          "reserved_mib": 1546.0,
+          "max_allocated_mib": 916.94287109375,
+          "max_reserved_mib": 1546.0
+        },
+        "nvidia_process_start": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        },
+        "nvidia_process_after_features": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        },
+        "nvidia_process_after_render": {
+          "available": true,
+          "devices": [
+            {
+              "gpu_uuid": "GPU-ce371efa-d785-317a-c922-c09f545873e4",
+              "used_mib": 1898.0
+            }
+          ],
+          "total_mib": 1898.0
+        }
+      }
+    }
+  ],
+  "comparison_run1_run2": {
+    "run2_first_frame_speedup": 278.7964987193726,
+    "run2_first_frame_reduction_seconds": 4.297465778887272,
+    "run2_first_frame_reduction_ratio": 0.9964131543810865,
+    "run2_vs_run1_audio_feature_ratio": 0.24943971658417097,
+    "run2_vs_run1_render_pipeline_ratio": 0.26655875755017805
+  },
+  "comparison_run2_run3": {
+    "run3_vs_run2_first_frame_ratio": 1.0050859065483937,
+    "run3_vs_run2_audio_feature_ratio": 0.9987810376895738,
+    "run3_vs_run2_render_pipeline_ratio": 0.9971744486447064
+  },
+  "total_process_wall_seconds": 16.677457854151726
+}

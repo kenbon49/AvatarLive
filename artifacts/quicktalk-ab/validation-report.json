@@ -1,0 +1,452 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-22T20:23:14+08:00",
+  "root": "artifacts/quicktalk-ab",
+  "overall_status": "qualified_pass",
+  "summary": "All three fixed 100-frame cases have intact inputs, MuseTalk baselines, QuickTalk renders, matching live media probes, and region metrics. The evidence supports a QuickTalk integration PoC, but it is not a codec-generation-matched perceptual benchmark and does not prove phoneme-level lip sync.",
+  "scope": {
+    "cases": [
+      "welcome",
+      "point",
+      "talk-subtle"
+    ],
+    "production_services_changed": false,
+    "synlive_production_code_changed": false,
+    "port_8032_started": false,
+    "source_recordings_present": true,
+    "inventory_scope": "All stable evidence files below artifacts/quicktalk-ab at report generation time, including README.md and the two measurement/generation scripts. The two validation report outputs and transient __pycache__ bytecode are excluded to avoid self-reference and machine-specific cache data."
+  },
+  "integrity": {
+    "case_sha256sum_files": {
+      "welcome/SHA256SUMS": "pass",
+      "welcome/PROBE_SHA256SUMS": "pass",
+      "welcome/QUICKTALK_TWO_UTTERANCE_SHA256SUMS": "pass",
+      "welcome/QUICKTALK_FRESH_STATE_SHA256SUMS": "pass",
+      "point/SHA256SUMS": "pass",
+      "point/PROBE_SHA256SUMS": "pass",
+      "talk-subtle/SHA256SUMS": "pass",
+      "talk-subtle/PROBE_SHA256SUMS": "pass"
+    },
+    "live_ffprobe": {
+      "status": "pass",
+      "stored_probe_files_checked": 16,
+      "method": "ffprobe -count_frames -show_streams -show_format; every recorded field was compared with the live media value",
+      "source_recording_probes_replayed": 3,
+      "source_recording_result": "All three /tmp source files match their manifest SHA256 exactly. Fresh ffprobe values match the recorded media facts except codec_time_base and refs, two decoder/version-derived fields that differ under the current ffprobe build.",
+      "durability_note": "The source MP4 files remain under /tmp and are not part of the stable artifact inventory; the case manifests and checksum-covered probe JSON are the durable records."
+    },
+    "blind_review_media": {
+      "status": "pass",
+      "files_checked": 3,
+      "video": "720x624, 100 frames, 25 FPS, 4.000 seconds",
+      "audio": "AAC stereo 48 kHz, 192000 declared samples/channel, 4.000 seconds, 188 decoded packets",
+      "container_duration_seconds": 4.022,
+      "audio_alignment": "Each blind MP4 has one canonical shared audio track, not separate A/B audio. Its first 192000 decoded samples match the case WAV at correlation >= 0.999998568."
+    },
+    "planner_npz": {
+      "point": {
+        "status": "pass",
+        "frames_equal_to_declared_source_sequence": true,
+        "face_boxes_equal": true,
+        "face_landmarks_equal": true,
+        "face_landmarks_valid_equal": true,
+        "all_geometry_finite": true,
+        "source_identity_sha256": "fc12103245db16a1480e7c302c7c115c6a7993a03ae9fefb8271bb58d2b7664d"
+      },
+      "talk-subtle": {
+        "status": "pass",
+        "frames_equal_to_declared_source_sequence": true,
+        "face_boxes_equal": true,
+        "face_landmarks_equal": true,
+        "face_landmarks_valid_equal": true,
+        "all_geometry_finite": true,
+        "source_identity_sha256": "2446b1d63dfd94822f9aba7ada59e4d9bb3d2ac0942a13a6820b5a740c80d910"
+      }
+    },
+    "runtime_source_assets": {
+      "manifest_sha256": "5b8b403e086da7389291961a3537a9c03f34f09263026493ae68e385463dfdb1",
+      "welcome_npz_sha256": "cd4c7d2eda8bb6418a91cacd1572f908b0332ca3a41a8977556c770e31f21bfb",
+      "point_npz_sha256": "908892b41137d44c759b86ea4e8bf62900cae4b448f459d84430f474d34dd97a",
+      "talk_subtle_npz_sha256": "970ca2c6818a13bca2b677a8b08dad658bcebb477befa69e362749aff2b00cb7"
+    }
+  },
+  "common_media": {
+    "template": {
+      "video_frames": 100,
+      "width": 360,
+      "height": 624,
+      "fps": 25,
+      "duration_seconds": 4.0,
+      "audio_present": false
+    },
+    "canonical_wav": {
+      "codec": "pcm_s16le",
+      "sample_rate": 48000,
+      "channels": 2,
+      "samples_per_channel": 192000,
+      "duration_seconds": 4.0
+    },
+    "rendered_mp4": {
+      "video_frames": 100,
+      "width": 360,
+      "height": 624,
+      "fps": 25,
+      "video_duration_seconds": 4.0,
+      "aac_stream_duration_seconds": 4.0,
+      "container_duration_seconds": 4.022,
+      "decoder_padding_note": "ffmpeg decodes 192512 samples/channel: the declared 192000-sample stream plus a 512-sample AAC tail. Audio comparisons use the first 192000 samples."
+    }
+  },
+  "cases": {
+    "welcome": {
+      "status": "pass_with_method_limits",
+      "blind_review": {
+        "video": "welcome/welcome-blind-ab.mp4",
+        "mouth_contact_sheet": "welcome/welcome-blind-mouth-contact-sheet.png",
+        "key": "welcome/welcome-blind-key.json"
+      },
+      "audio_alignment": {
+        "musetalk_correlation": 0.999998618,
+        "musetalk_relative_rmse": 0.001671,
+        "quicktalk_original_correlation": 0.999983087,
+        "quicktalk_original_relative_rmse": 0.005854,
+        "quicktalk_canonical_correlation": 0.999998618,
+        "quicktalk_canonical_relative_rmse": 0.001671
+      },
+      "frame_order": {
+        "musetalk_exact_index_accuracy": 0.96,
+        "musetalk_duplicate_equivalent_accuracy": 1.0,
+        "quicktalk_exact_index_accuracy": 0.96,
+        "quicktalk_duplicate_equivalent_accuracy": 1.0,
+        "exact_duplicate_source_indices": [13, 38, 63, 88]
+      },
+      "metrics": {
+        "musetalk": {
+          "mouth_mae": 19.550145,
+          "mouth_residual_temporal_mad": 17.442340,
+          "mouth_pixel_activity": 7.669141,
+          "cheek_chin_mae": 7.472023,
+          "cheek_chin_residual_temporal_mad": 5.847915,
+          "upper_face_mae": 4.303457,
+          "upper_face_residual_temporal_mad": 4.847996,
+          "outside_face_mae": 3.580104,
+          "outside_face_residual_temporal_mad": 3.357895
+        },
+        "quicktalk_fresh_state_canonical": {
+          "mouth_mae": 15.120193,
+          "mouth_residual_temporal_mad": 15.364322,
+          "mouth_pixel_activity": 8.860318,
+          "cheek_chin_mae": 4.223394,
+          "cheek_chin_residual_temporal_mad": 3.432264,
+          "upper_face_mae": 3.150906,
+          "upper_face_residual_temporal_mad": 2.317434,
+          "outside_face_mae": 2.234482,
+          "outside_face_residual_temporal_mad": 0.910252
+        },
+        "template_mouth_pixel_activity": 10.179918
+      },
+      "quicktalk_performance": {
+        "timing_scope": "first_frame_seconds and render_fps measure only the render loop after full HuBERT feature extraction and FFmpeg writer setup; they are not end-to-end user TTFF or full-pipeline FPS",
+        "cold_unprewarmed": {
+          "first_frame_seconds": 4.312936,
+          "render_100_frames_seconds": 5.766336,
+          "render_fps": 17.342035
+        },
+        "warm_fresh_session_state": {
+          "first_frame_seconds": 0.015549,
+          "render_100_frames_seconds": 1.532724,
+          "render_fps": 65.243308
+        },
+        "cold_process_with_adapter_prewarm": {
+          "model_avatar_init_seconds": 4.972042,
+          "prewarm_seconds": 4.467803,
+          "first_user_audio_features_seconds": 0.082721,
+          "first_user_first_frame_seconds": 0.016696,
+          "first_user_render_100_frames_seconds": 1.533460,
+          "first_user_render_fps": 65.212018
+        },
+        "prewarmed_first_user_pipeline": {
+          "audio_feature_seconds": 0.082721,
+          "feature_start_to_first_generated_frame_approx_seconds": 0.099417,
+          "mux_finalize_seconds": 0.630530,
+          "feature_plus_render_plus_mux_seconds": 2.246710,
+          "note": "This still excludes TTS and assumes the complete four-second WAV is already available."
+        },
+        "session_state_result": "A fresh zeroed state after a prior utterance retains warm performance and reproduces the canonical fresh-state video SHA256. Prewarm should happen before ready; each user session/utterance must still receive a fresh state."
+      }
+    },
+    "point": {
+      "status": "pass_with_method_limits",
+      "blind_review": {
+        "video": "point/point-blind-ab.mp4",
+        "mouth_contact_sheet": "point/point-blind-mouth-contact-sheet.png",
+        "key": "point/point-blind-key.json"
+      },
+      "audio_alignment": {
+        "musetalk_correlation": 0.999998569,
+        "musetalk_relative_rmse": 0.001704,
+        "quicktalk_correlation": 0.999998569,
+        "quicktalk_relative_rmse": 0.001704
+      },
+      "frame_order": {
+        "musetalk_exact_index_accuracy": 0.97,
+        "musetalk_duplicate_equivalent_accuracy": 1.0,
+        "quicktalk_exact_index_accuracy": 0.96,
+        "quicktalk_raw_npz_duplicate_equivalent_accuracy": 0.99,
+        "secondary_decoded_template_check": "The lone non-equivalent raw-NPZ nearest-frame result at output 52 prefers raw frame 51 by a small outside-face cost difference (3.3730 versus 3.4406 for expected frame 52), but maps to template frame 52 against the actual encoded template. The remaining nearest-index differences are the declared duplicate source frames 18, 43, and 78.",
+        "exact_duplicate_source_indices": [18, 43, 78]
+      },
+      "metrics": {
+        "musetalk": {
+          "mouth_mae": 18.050577,
+          "mouth_residual_temporal_mad": 13.035376,
+          "mouth_pixel_activity": 5.732602,
+          "cheek_chin_mae": 7.601016,
+          "cheek_chin_residual_temporal_mad": 5.332961,
+          "upper_face_mae": 4.044660,
+          "upper_face_residual_temporal_mad": 4.129918,
+          "outside_face_mae": 3.307941,
+          "outside_face_residual_temporal_mad": 2.759305
+        },
+        "quicktalk": {
+          "mouth_mae": 13.285625,
+          "mouth_residual_temporal_mad": 11.140262,
+          "mouth_pixel_activity": 6.945043,
+          "cheek_chin_mae": 4.603686,
+          "cheek_chin_residual_temporal_mad": 3.472021,
+          "upper_face_mae": 3.200076,
+          "upper_face_residual_temporal_mad": 2.272318,
+          "outside_face_mae": 2.298122,
+          "outside_face_residual_temporal_mad": 0.928676,
+          "reported_render_seconds": 6.209510,
+          "reported_render_fps": 16.104329
+        },
+        "template_mouth_pixel_activity": 7.285516
+      }
+    },
+    "talk-subtle": {
+      "status": "pass_with_method_limits",
+      "blind_review": {
+        "video": "talk-subtle/talk-subtle-blind-ab.mp4",
+        "mouth_contact_sheet": "talk-subtle/talk-subtle-blind-mouth-contact-sheet.png",
+        "key": "talk-subtle/talk-subtle-blind-key.json"
+      },
+      "audio_alignment": {
+        "musetalk_correlation": 0.999998571,
+        "musetalk_relative_rmse": 0.001698,
+        "quicktalk_correlation": 0.999998571,
+        "quicktalk_relative_rmse": 0.001698
+      },
+      "frame_order": {
+        "musetalk_exact_index_accuracy": 0.72,
+        "musetalk_duplicate_equivalent_accuracy": 1.0,
+        "quicktalk_exact_index_accuracy": 0.72,
+        "quicktalk_duplicate_equivalent_accuracy": 1.0,
+        "note": "The ping-pong planner reuses frames on the reverse leg, so exact positional nearest-index accuracy is not meaningful by itself; pixel-equivalent accuracy is complete.",
+        "exact_duplicate_output_indices": [13, 38, 63, 86]
+      },
+      "metrics": {
+        "musetalk": {
+          "mouth_mae": 15.592395,
+          "mouth_residual_temporal_mad": 10.124078,
+          "mouth_pixel_activity": 4.577559,
+          "cheek_chin_mae": 6.403475,
+          "cheek_chin_residual_temporal_mad": 4.145551,
+          "upper_face_mae": 3.684645,
+          "upper_face_residual_temporal_mad": 3.713357,
+          "outside_face_mae": 3.082143,
+          "outside_face_residual_temporal_mad": 2.330895
+        },
+        "quicktalk": {
+          "mouth_mae": 13.325755,
+          "mouth_residual_temporal_mad": 9.669806,
+          "mouth_pixel_activity": 5.579933,
+          "cheek_chin_mae": 4.094225,
+          "cheek_chin_residual_temporal_mad": 2.699441,
+          "upper_face_mae": 3.161985,
+          "upper_face_residual_temporal_mad": 2.050623,
+          "outside_face_mae": 2.264372,
+          "outside_face_residual_temporal_mad": 0.752923,
+          "reported_render_seconds": 5.670771,
+          "reported_render_fps": 17.634285
+        },
+        "template_mouth_pixel_activity": 5.090911
+      }
+    }
+  },
+  "cross_case_observations": {
+    "supported": [
+      "QuickTalk changes a narrower cheek/chin and upper-face region than the captured MuseTalk baseline in all three cases.",
+      "QuickTalk mouth pixel activity is higher than MuseTalk in all three cases and is closer to the moving source mouth in welcome and point; talk-subtle exceeds the source activity slightly.",
+      "The welcome contact sheet qualitatively shows clearer openings and teeth for QuickTalk, while the MuseTalk mouth is softer and often more closed.",
+      "All candidates preserve a 100-frame, 25 FPS, four-second video timeline and aligned canonical audio.",
+      "A resident, prewarmed QuickTalk worker is fast enough for 25 FPS output on the tested RTX 3090; an unprewarmed first utterance is not."
+    ],
+    "not_supported": [
+      "Lower mouth MAE does not prove better lip sync; a model can score lower by changing the source mouth less.",
+      "Mouth pixel activity is not a phoneme-level synchronization score.",
+      "Residual temporal MAD in the mouth includes intended articulation and source-motion differences, not only flicker.",
+      "ROIs use fixed source-NPZ geometry; a candidate that moves the mouth substantially can be undercounted or sampled off-center.",
+      "The outside-face region is dominated by background and body content. It indicates a broad preservation/encoding floor but is not a precise face-region codec correction.",
+      "These clips do not establish identity preservation, long-run stability, multi-avatar cache capacity, or production concurrency.",
+      "The available checkpoint metadata does not establish commercial redistribution or production-use rights."
+    ]
+  },
+  "encoding_generation_limit": {
+    "severity": "material",
+    "musetalk_path": "WebRTC capture followed by libx264 slow CRF 10 / AAC 192k re-encode",
+    "quicktalk_canonical_path": "Direct render from the encoded template followed by libx264 slow CRF 10 / AAC 192k",
+    "original_quicktalk_path": "Direct render followed by libx264 veryfast CRF 18 / default AAC",
+    "effect": "MuseTalk contains an extra WebRTC/capture generation. Even the canonical QuickTalk files therefore have a lower-generation preservation advantage. Raw MAE, PSNR, outside-face error, and temporal residual differences cannot be attributed purely to the model.",
+    "still_valid": [
+      "media timing and audio alignment",
+      "planner and frame-order checks",
+      "QuickTalk warmup/session-state performance",
+      "qualitative contact-sheet inspection",
+      "the observation that QuickTalk edits a narrower broad face region in these delivered files"
+    ]
+  },
+  "recommended_corrected_protocol": [
+    "Capture raw or lossless renderer frames from both models before any WebRTC or delivery encoding.",
+    "Measure raw frames, then create viewing copies with one identical encoder invocation.",
+    "Add SyncNet/LSE or audio-conditioned lip-aperture timing instead of treating pixel activity as lip-sync accuracy.",
+    "Use a content-matched per-region encode-only control for each path.",
+    "Run at least 30-minute, 2-hour, and 8-hour resident-worker tests with per-process GPU/RSS/queue measurements.",
+    "Audit QuickTalk, HuBERT, and InsightFace checkpoint licenses and provenance before commercial use."
+  ],
+  "opentalking_environment": {
+    "official_repo_commit": "69af1069eab3d736798b406e79801d6a600f581b",
+    "benchmark_provenance": {
+      "adapter_and_model_runtime": "OpenTalking adapter/runtime code at the stated commit",
+      "worktree_clean": false,
+      "local_benchmark_harness_changes": "apps/cli/quicktalk_bench.py resamples non-16k WAV input to mono 16 kHz and writes matched x264 slow CRF 10 / AAC 192k viewing files instead of veryfast CRF 18 / default AAC.",
+      "instrumentation_evidence": [
+        "welcome/quicktalk-two-utterance-bench.patch",
+        "welcome/quicktalk-fresh-state-prewarm-bench.patch"
+      ],
+      "note": "The measurements are not output from the pristine upstream CLI with no harness changes; the local changes affect input preparation, instrumentation, and viewing-copy encoding, not the QuickTalk adapter/model implementation."
+    },
+    "python311_sync": {
+      "status": "dependency_sync_complete_but_quicktalk_cuda_not_accepted",
+      "python": "3.11.13",
+      "packages_checked": 219,
+      "uv_pip_check": "pass",
+      "torch": "2.10.0+cu128",
+      "torch_cuda_available": true,
+      "torchscript_checkpoint_load": "pass",
+      "problem": "The environment contains onnxruntime 1.27.0 and onnxruntime-gpu 1.26.0 simultaneously. The imported 1.27.0 CPU pybind exposes only AzureExecutionProvider and CPUExecutionProvider, so CUDAExecutionProvider is not available even though the GPU provider shared library exists.",
+      "likely_dependency_cause": "insightface 1.0.1 requires the onnxruntime distribution while the quicktalk-cuda extra requires onnxruntime-gpu; both distributions own the same Python import namespace."
+    },
+    "successful_render_runtime": {
+      "path": "/data/llm_model/opentalking/.venv-quicktalk",
+      "python": "3.10.20",
+      "onnxruntime_gpu": "1.23.2",
+      "available_providers": [
+        "TensorrtExecutionProvider",
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "isolation": "non-hermetic overlay venv: include-system-site-packages=true and its Python links to the existing cyberverse conda environment"
+    }
+  },
+  "inventory_sha256": {
+    "README.md": "b489ecf8873a51b1ab571765d4edf954cfa574f26c355a03b73142cb5bdba5f8",
+    "make-blind-ab.py": "e2195bb0f3d792d891e16e56331691c1200b14b8de07f2c4930de5b9a07217c8",
+    "measure-video-ab.py": "c586b0b81e0a3489f395df9d96a6391e2a4f0bc038f879bd132d5d6791ca94f6",
+    "point/PROBE_SHA256SUMS": "dd9b980fe3a1db98cd5a89b193c734749054eaf4959fd4dbfe6a02d51f5982f0",
+    "point/SHA256SUMS": "c3b0da9dfe6391e56a4f5eeec28f6678e23a3415f787c23e9ec0329bc5d0a699",
+    "point/manifest.json": "2fa7112f1ba542d4fd2afd39dc045932016b33b1c046236cce10161880d7118f",
+    "point/musetalk-baseline-metrics.json": "6601793b80f1c9dd7a05bd756cdf2990d6d2b2be9badf872b34f0c3b66215564",
+    "point/point-blind-ab.mp4": "7190c99d3258333fa268dce5117a0fd78e06c5a435dab219e45dafdbf5f317ae",
+    "point/point-blind-key.json": "f7fea0f6969435873c125e40ac7d308e46382a0eb04188d81e02cf371c76a94c",
+    "point/point-blind-mouth-contact-sheet.png": "1d76400c9875e34780ceca4c1ce267205418d22a25ab8f2979de44b774cd1a7d",
+    "point/point-audio.ffprobe.json": "9368f7f16d5a63110504ed3f5921710e460232470f03ce6576a41551b417298b",
+    "point/point-audio.wav": "fbd3697278f5cc54ec8ec0cc8cf7f7d46a0b55172974666c9b39bb1aa7e0ffb6",
+    "point/point-musetalk-100f.ffprobe.json": "a52af4fa41cca4619aa3e181d7319e03586e94d3760aa92ef56e3a82b0a5298a",
+    "point/point-musetalk-100f.mp4": "9dd7b4b2827e6b745a608eded3cd023cf026dda85ec2c204f96edd0dfad9e52b",
+    "point/point-planner-100f.npz": "76dff7cbd0685821b8fefd24467f199d557edcd329dbd42218f382581a90e294",
+    "point/point-quicktalk-100f.ffprobe.json": "ee178099e043533a59f170d38245bbcfb55dc38822c7c96d9c81defefa95a29a",
+    "point/point-quicktalk-100f.mp4": "de87c6b5719f9e51099c949292a4e60a96df1f7b9800d5d65f1f6f0dd28428ad",
+    "point/point-template-100f.ffprobe.json": "4660c6188e0c828bda73d5227151e48943667095801a429d0b2c855fed5a01d9",
+    "point/point-template-100f.mp4": "daf5506a09a1619989c12ccabb4bc91ac822ddc9693ab8da1e3be6c4e6aefd37",
+    "point/quicktalk-benchmark.time.txt": "d41172f0a8757eb4f0c5047f223046c03a069859ea7c7447e7982573f26a62e6",
+    "point/quicktalk-face-cache/face_0b7935b305d8ed6c739df8da.npz": "80e4e997f582ef1a58b2cde8bc3ff9429c3536356be4816cbef0c61803e85ad1",
+    "point/quicktalk-metrics.json": "0ba81d63cf2116bb12bb579c733f55f8a5f1e71ace9d1d2d2ad4438b985c78e7",
+    "point/source-recording.ffprobe.json": "2ed84cbb573b349eb9615b84044f3742097ffaa45853e01bc294bfa6606c0e68",
+    "talk-subtle/PROBE_SHA256SUMS": "0b70faa9a53acf0479b8cf1657b3ca31b66cca9925709bfc7714c5e9de78b811",
+    "talk-subtle/SHA256SUMS": "50175a4968ac4534d129766b1d4e043239fb4cb1021cd1327fa70ea9f79d84a8",
+    "talk-subtle/manifest.json": "5a4a14ff0a14e9a728ced32bc8596fc03498d40703e849abc3161aa7ebd7472a",
+    "talk-subtle/musetalk-baseline-metrics.json": "803349542022764f6242ccd16a77292b85a4614bab5bab74f7f56bab8d069e92",
+    "talk-subtle/quicktalk-benchmark.time.txt": "1f14ada538aaf1f0187c4fb8062fc2fb5a957d8ae2940b68a043d7eb2a174862",
+    "talk-subtle/quicktalk-face-cache/face_9b104f3542705c1e207d4324.npz": "e6f847462ac4afb8085204c5a486a59dfa7d43d30df25d62bc5e88954e949581",
+    "talk-subtle/quicktalk-metrics.json": "1d4736d8baa184a272eece8537ddaaf057030e51241c1659d5dd9776655e5c51",
+    "talk-subtle/source-recording.ffprobe.json": "71ae89d9b5e66a3fa474aa23a97abf1b5a6f28cf95fcdd1e6bf5c1ad7169f3b8",
+    "talk-subtle/talk-subtle-blind-ab.mp4": "608a281eb505f377ed6368e66a278c835200bc3ba9febb20367ed0e258cbfa63",
+    "talk-subtle/talk-subtle-blind-key.json": "eb03c98ce37431f87db465e6490a714540ac0af93493a1d914cd9367345e1516",
+    "talk-subtle/talk-subtle-blind-mouth-contact-sheet.png": "51966ddfeb8a446fe91b7776d4d074d5c11c01befc9e8e614e8dac4bc0ac7cfd",
+    "talk-subtle/talk-subtle-audio.ffprobe.json": "5f882b68d24582fd192443e87d48fa54c9595811061c3982566b0e7cebde7fba",
+    "talk-subtle/talk-subtle-audio.wav": "681ad102b0a79606ba15a175241f96f49bff0e899abfadabbd750b45483cc02f",
+    "talk-subtle/talk-subtle-musetalk-100f.ffprobe.json": "78fdbd7da66d10f16e7ba1caacb53b479b5ae1969c5e787c2b2f26266e042aad",
+    "talk-subtle/talk-subtle-musetalk-100f.mp4": "7f5552025a945ddb5808411d0f7d387a7dfb9e5bba8859b2fe28cb062283be6e",
+    "talk-subtle/talk-subtle-planner-100f.npz": "4a074c0657a701bb235f577b9d897393b923104eb70f1f67c16f83740180806c",
+    "talk-subtle/talk-subtle-quicktalk-100f.ffprobe.json": "6f32d250944452d957005b22062ec603f7dd70ef585d84903b87d8101a08aa2e",
+    "talk-subtle/talk-subtle-quicktalk-100f.mp4": "2fec5d3eddaaa392de3abaf9181fc481ccc4696923c162d7bd95891ae5e9ea9c",
+    "talk-subtle/talk-subtle-template-100f.ffprobe.json": "73bfac5412e1510f039c9831fd758a697c4beaae108bd927066a1ddf9242eb55",
+    "talk-subtle/talk-subtle-template-100f.mp4": "f05a6d355aa5cc39d5364d74f4c4ecfc484f690fcef166ba29f309cdc7fe85ee",
+    "welcome/PROBE_SHA256SUMS": "a65efb64a2ca0db8a839d834725c6b9bb1371e35f9a3a4b328b811965551d6ed",
+    "welcome/QUICKTALK_FRESH_STATE_SHA256SUMS": "6a75857e55747547c1d0c937d4efbff7f47d7acc7d1ee203ef3b24af6785c47f",
+    "welcome/QUICKTALK_TWO_UTTERANCE_SHA256SUMS": "f13261fdd21e6dedc7db63f2d71950bccf8e7c14d658874b976d326ed5e2b85d",
+    "welcome/SHA256SUMS": "88291080c38f61a1622b1d99de8b68d1977162a44bef0a6564655ca71a3410e3",
+    "welcome/manifest.json": "1cb120c4243b34d69e2996f7f45bc0ff4732b444ec31064d4e116038ab17edd4",
+    "welcome/musetalk-baseline-metrics.json": "c6dcb0967082aaafa55fe8ab45f78452254138a710ae2d416160fb8c059ed016",
+    "welcome/quicktalk-benchmark.stderr.log": "9edfa7ec6e2c377c23eeace1e9cad5d83d20af5d90d1ddee6e0b35cdddc78313",
+    "welcome/quicktalk-benchmark.stdout.log": "1a59560009b3b877f99059ce5a72e196ed36ff232d1545b0a90f207cb8b19d35",
+    "welcome/quicktalk-benchmark.time.txt": "5a6c43ba78d2d906abe5de231254099906da5cc25ad151afaa8611b050c940ac",
+    "welcome/quicktalk-face-cache/face_713127f4dc6fd2fb1af8e6aa.npz": "bd9356b31495d16e4821e39cfb413c78ecbaf8f51bbb5bf9ba905393a5fbec1b",
+    "welcome/quicktalk-fresh-state-prewarm-bench.patch": "f759f6f5066a096ca5bb17504281af1f536170fd57a90b949ae51e3f11d56be1",
+    "welcome/quicktalk-fresh-state-quality-metrics.json": "6b1b90c20ec8488078ca1a0635cba833bb615d0086b08ebeb7bfef36285ddb80",
+    "welcome/quicktalk-gpu1-memory.csv": "6881bc5be29768d4c49498d5b83b747e8e9634c8f443d9796220b59b194fe47e",
+    "welcome/quicktalk-metrics.json": "fdce6ea0b537e1211f1c7bc98ad7678a24a1c79ab3c39a50931c6c886fb53fc8",
+    "welcome/quicktalk-prewarmed-first-user-gpu1.csv": "dfb61129b59e4f3564fee9ae70cee3441ad4eb297f1238574d30c5188173946a",
+    "welcome/quicktalk-prewarmed-first-user-metrics.json": "23bb6a9f7ac2fbaa442e96d648fbda0ef35738ab4c9a25753fc711af3460cad7",
+    "welcome/quicktalk-prewarmed-first-user.stderr.log": "9edfa7ec6e2c377c23eeace1e9cad5d83d20af5d90d1ddee6e0b35cdddc78313",
+    "welcome/quicktalk-prewarmed-first-user.stdout.log": "423650215c9b3dceaa369dd575476dea9e5bc0a8229d03a75be45d69e48a19a0",
+    "welcome/quicktalk-prewarmed-first-user.time.txt": "70e67860be52611c30e72fe02d739972914a7ea30a6cdfd0d05b5ee2cb4c3f17",
+    "welcome/quicktalk-three-utterance-fresh-state-gpu1.csv": "f46a1d36b60cca672fcacc49ed6f2c0a007959ea4303e3bfb9041c125b9ad2da",
+    "welcome/quicktalk-three-utterance-fresh-state-metrics.json": "0162f97ec87813f1fd84513a704524634dd55cb70e7aeceab662ba1a83bc0e6b",
+    "welcome/quicktalk-three-utterance-fresh-state.stderr.log": "9edfa7ec6e2c377c23eeace1e9cad5d83d20af5d90d1ddee6e0b35cdddc78313",
+    "welcome/quicktalk-three-utterance-fresh-state.stdout.log": "4106c361001cdd0038c17167894c8e0be5756872ffbd5d0fb3200f839c0cf39d",
+    "welcome/quicktalk-three-utterance-fresh-state.time.txt": "4a8f81204447f5d54d897a48858bee2090ff369257416422bc9984da0dd6ed27",
+    "welcome/quicktalk-two-utterance-bench.patch": "349d1d5fa9446a4908ba768ebd186b5da41c6914e5a461b277a2b8c0a7831cad",
+    "welcome/quicktalk-two-utterance-gpu1.csv": "8fb0565e1015c855c49be01840e013f2d59b4fb75ee50ca32bd0b3f7bdde23bb",
+    "welcome/quicktalk-two-utterance-metrics.json": "028330c6ac0323e79ce6e1e8765ca789cad89dcaf73ceb511d5f4c6ae3bf962b",
+    "welcome/quicktalk-two-utterance.stderr.log": "9edfa7ec6e2c377c23eeace1e9cad5d83d20af5d90d1ddee6e0b35cdddc78313",
+    "welcome/quicktalk-two-utterance.stdout.log": "1f4582a878c249f579d1c97450e9bb87fea7d2660b140a0c3e99c4d6911d64a0",
+    "welcome/quicktalk-two-utterance.time.txt": "5cf4229e6eb5ec3d1947a89f9ead7c3f47e77ca52a3a5e5b617b34f0a8876d8f",
+    "welcome/source-recording.ffprobe.json": "a2ca04768a402bf4056f66473951346f79be96df1405a499bdd538c0ddce0118",
+    "welcome/welcome-audio.ffprobe.json": "7b5feed33fe9f8806dbf6f47295434b85d19aeadfe6fda6d571034fed17ed0f4",
+    "welcome/welcome-audio.wav": "22cfc784e974a8a932e7a44473d0e2a600f33d3bedd7746b8dbc5ebc852c4856",
+    "welcome/welcome-blind-ab.mp4": "14b19a22d14a3b73eb30cf96068413c508acddd33ae5763b277c54ccc87468a9",
+    "welcome/welcome-blind-key.json": "51f8073e1be8a3f2163ec4a329ab8b0ea7a0fd009609d2d657b15e911286080d",
+    "welcome/welcome-blind-mouth-contact-sheet.png": "0ac06a53fb32cd3b712e1da460ba7c8ab5f74bf063fdd0d30b04f683adc56b55",
+    "welcome/welcome-mouth-contact-sheet.png": "4a06b68cc3da0da127442d145231fb02f72b1b1afe95e6a279f865dbb3a091c0",
+    "welcome/welcome-musetalk-100f.ffprobe.json": "e4d5b01622c7fb9c6e67d5eaaddf83eb54ce7acee99faf89eb1083b2547170ff",
+    "welcome/welcome-musetalk-100f.mp4": "9535b5588b00ccac33466a0aba3b3859efa16435bbf9d60f6239321b5156ba3d",
+    "welcome/welcome-quicktalk-100f.mp4": "e98cbdff05cdd7e2c4953f8e34d7d7d4f889354b0d5e9da8a81b0b4655a4647c",
+    "welcome/welcome-quicktalk-fresh-state-100f.ffprobe.json": "74ed00d7e54cfaf1c1e25fcda136dfb682a16258d3db8ad158f270de3139768e",
+    "welcome/welcome-quicktalk-fresh-state-100f.mp4": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71",
+    "welcome/welcome-quicktalk-prewarmed-fresh-state-100f.ffprobe.json": "74ed00d7e54cfaf1c1e25fcda136dfb682a16258d3db8ad158f270de3139768e",
+    "welcome/welcome-quicktalk-prewarmed-fresh-state-100f.mp4": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71",
+    "welcome/welcome-quicktalk-three-utterance-fresh-state-run1.mp4": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71",
+    "welcome/welcome-quicktalk-three-utterance-fresh-state-run2.mp4": "c2c7f048cb0c7309acd331ab10184f6a32d0e8ef9a29511875c28e8b51a92d1e",
+    "welcome/welcome-quicktalk-three-utterance-fresh-state-run3.ffprobe.json": "74ed00d7e54cfaf1c1e25fcda136dfb682a16258d3db8ad158f270de3139768e",
+    "welcome/welcome-quicktalk-three-utterance-fresh-state-run3.mp4": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71",
+    "welcome/welcome-quicktalk-two-utterance-run1.ffprobe.json": "74ed00d7e54cfaf1c1e25fcda136dfb682a16258d3db8ad158f270de3139768e",
+    "welcome/welcome-quicktalk-two-utterance-run1.mp4": "2ffc74ddeb8e253bdb7b16cb2b35a93da878ec725c3b53b83b8676536dc9ad71",
+    "welcome/welcome-quicktalk-two-utterance-run2.ffprobe.json": "2174fd365c4ff8a4acc122a3f570aa9e968a63c7366e5a5211bf8827105b5e5d",
+    "welcome/welcome-quicktalk-two-utterance-run2.mp4": "c2c7f048cb0c7309acd331ab10184f6a32d0e8ef9a29511875c28e8b51a92d1e",
+    "welcome/welcome-source-musetalk-quicktalk.mp4": "f05215e89f2346f461ab9dca01d974768450792c9cef8ced39e4d520b717733e",
+    "welcome/welcome-template-100f.ffprobe.json": "e328d86c2fa39f4bbde89b1de8cbc7c4e460dcab5f30d37316bc83e9501832c0",
+    "welcome/welcome-template-100f.mp4": "731e5bbffa82ab1c13ea805bc932e478cdfdacbfe6b43c244dc494897c1d0d67"
+  }
+}
