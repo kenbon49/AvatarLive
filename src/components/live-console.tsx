@@ -59,9 +59,12 @@ import {
   type SessionInfo,
   type VoiceItem,
 } from '@/lib/api';
+import { MuseTalkMicrophoneStream } from '@/lib/musetalk-microphone';
+import { MuseTalkTotalStream, pingMuseTalkTotal } from '@/lib/musetalk-total-stream';
 
 type AvatarState = 'idle' | 'connecting' | 'connected' | 'failed';
 type RenderMode = 'flashhead' | 'musetalk' | 'liveact' | 'fallback';
+const MUSETALK_ONLY = true;
 
 interface QaItem {
   question: string;
@@ -189,9 +192,9 @@ export function LiveConsole() {
   const [qaDriveInfo, setQaDriveInfo] = useState('');
   const [history, setHistory] = useState<QaItem[]>([]);
 
-  // 默认走独立 :8030 的 FlashHead；原 :8028/UE 路径保留为兼容回退。
-  const [mode, setMode] = useState<RenderMode>('flashhead');
-  const modeRef = useRef<RenderMode>('flashhead');
+  // 当前部署只启用 MuseTalk，避免探测尚未部署的 FlashHead :8030。
+  const [mode, setMode] = useState<RenderMode>('musetalk');
+  const modeRef = useRef<RenderMode>('musetalk');
   const interactionGenerationRef = useRef(0);
   const flashHeadProbeGenerationRef = useRef(0);
   const [flashHeadUp, setFlashHeadUp] = useState<boolean | null>(null);
@@ -228,6 +231,16 @@ export function LiveConsole() {
   const [museTalkActionBusy, setMuseTalkActionBusy] = useState(false);
   const [museTalkActionErr, setMuseTalkActionErr] = useState('');
   const museTalkActionGenerationRef = useRef(0);
+  const [museTalkMicState, setMuseTalkMicState] = useState<
+    'idle' | 'connecting' | 'recording' | 'submitting'
+  >('idle');
+  const museTalkMicrophoneRef = useRef<MuseTalkMicrophoneStream | null>(null);
+  const museTalkIdleVideoRef = useRef<HTMLVideoElement | null>(null);
+  const museTalkTotalCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const museTalkTotalRef = useRef<MuseTalkTotalStream | null>(null);
+  const [museTalkMediaSource, setMuseTalkMediaSource] = useState<'webrtc' | 'total' | null>(null);
+  const [museTalkTotalStage, setMuseTalkTotalStage] = useState('idle');
+  const [museTalkTotalUp, setMuseTalkTotalUp] = useState<boolean | null>(null);
 
   // —— LiveAct 生成式数字人 ——
   const [laText, setLaText] = useState('大家好，今天为大家介绍我们的新品。');
@@ -250,6 +263,12 @@ export function LiveConsole() {
     } catch {
       setReady(null);
     }
+  }, []);
+
+  const checkMuseTalkTotal = useCallback(async () => {
+    const up = await pingMuseTalkTotal();
+    setMuseTalkTotalUp(up);
+    return up;
   }, []);
 
   const checkFlashHead = useCallback(async () => {
@@ -398,11 +417,14 @@ export function LiveConsole() {
   useEffect(() => {
     loadReady();
     ensureSession();
-    // LiveTalking 后端才探测可达性（/offer 同源 GET）；UE 后端的信令是 ws，单独的连接按钮会自报状态。
-    if (!IS_UNREAL) pingLiveTalking().then(setRendererReachable);
-    void checkFlashHead();
-    void checkMuseTalk();
-    void checkLiveAct();
+    if (!MUSETALK_ONLY) {
+      // 其他渲染器恢复启用时再探测，MuseTalk-only 部署不产生无效端口请求。
+      if (!IS_UNREAL) pingLiveTalking().then(setRendererReachable);
+      void checkFlashHead();
+      void checkMuseTalk();
+      void checkLiveAct();
+    }
+    void checkMuseTalkTotal();
     return () => {
       interactionGenerationRef.current += 1;
       transportGenerationRef.current += 1;
@@ -412,8 +434,12 @@ export function LiveConsole() {
       museTalkProbeGenerationRef.current += 1;
       museTalkAvatarGenerationRef.current += 1;
       museTalkActionGenerationRef.current += 1;
-      if (modeRef.current === 'flashhead') void interruptFlashHead();
-      if (modeRef.current === 'musetalk') void interruptMuseTalk();
+      if (!MUSETALK_ONLY && modeRef.current === 'flashhead') void interruptFlashHead();
+      if (!MUSETALK_ONLY && modeRef.current === 'musetalk') void interruptMuseTalk();
+      void museTalkMicrophoneRef.current?.cancel();
+      museTalkMicrophoneRef.current = null;
+      void museTalkTotalRef.current?.cancel();
+      museTalkTotalRef.current = null;
       pcRef.current?.close();
       pcRef.current = null;
       psRef.current?.disconnect?.();
@@ -421,7 +447,7 @@ export function LiveConsole() {
       hlsRef.current?.destroy();
       hlsRef.current = null;
     };
-  }, [loadReady, ensureSession, checkFlashHead, checkMuseTalk, checkLiveAct]);
+  }, [loadReady, ensureSession, checkFlashHead, checkMuseTalk, checkMuseTalkTotal, checkLiveAct]);
 
   // FlashHead 模型启动后才监听 :8030；实时模式持续探测，服务就绪后自动解锁连接。
   useEffect(() => {
@@ -453,10 +479,14 @@ export function LiveConsole() {
 
   useEffect(() => {
     if (mode !== 'musetalk') return;
-    void checkMuseTalk();
-    const timer = window.setInterval(() => void checkMuseTalk(), 5000);
+    if (!MUSETALK_ONLY) void checkMuseTalk();
+    void checkMuseTalkTotal();
+    const timer = window.setInterval(() => {
+      if (!MUSETALK_ONLY) void checkMuseTalk();
+      void checkMuseTalkTotal();
+    }, 5000);
     return () => window.clearInterval(timer);
-  }, [mode, checkMuseTalk]);
+  }, [mode, checkMuseTalk, checkMuseTalkTotal]);
 
   useEffect(() => {
     if (mode !== 'musetalk') return;
@@ -841,6 +871,14 @@ export function LiveConsole() {
 
   const stopMuseTalk = async () => {
     if (modeRef.current !== 'musetalk' || museTalkAvatarSwitching || museTalkActionBusy) return;
+    const microphone = museTalkMicrophoneRef.current;
+    museTalkMicrophoneRef.current = null;
+    await microphone?.cancel();
+    setMuseTalkMicState('idle');
+    await museTalkTotalRef.current?.cancel();
+    museTalkTotalRef.current = null;
+    setMuseTalkMediaSource(null);
+    setMuseTalkTotalStage('idle');
     interactionGenerationRef.current += 1;
     setBroadcastBusy(false);
     setQaBusy(false);
@@ -861,8 +899,93 @@ export function LiveConsole() {
     }
   };
 
+  const toggleMuseTalkMicrophone = async () => {
+    if (modeRef.current !== 'musetalk') return;
+    const active = museTalkMicrophoneRef.current;
+    if (active) {
+      setMuseTalkMicState('submitting');
+      try {
+        const result = await active.stop();
+        if (modeRef.current !== 'musetalk') return;
+        const actionLabel = museTalkActionState?.actions.find(
+          (action) => action.id === result.action,
+        )?.label;
+        setBroadcastInfo(
+          `麦克风音频已提交 · ${result.audioSeconds.toFixed(1)} 秒${
+            actionLabel ? ` · ${actionLabel}` : ''
+          }`,
+        );
+        const generation = interactionGenerationRef.current;
+        setMuseTalkMediaSource('webrtc');
+        void monitorMuseTalkPlayback(Number(result.requestId), generation);
+        setBroadcastErr('');
+      } catch (error) {
+        if (modeRef.current === 'musetalk') {
+          setBroadcastErr(`麦克风提交失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      } finally {
+        if (museTalkMicrophoneRef.current === active) museTalkMicrophoneRef.current = null;
+        if (modeRef.current === 'musetalk') setMuseTalkMicState('idle');
+      }
+      return;
+    }
+
+    setMuseTalkMicState('connecting');
+    setBroadcastErr('');
+    setBroadcastInfo('正在连接 MuseTalk 音频流并申请麦克风权限…');
+    try {
+      const connected = await connectAvatar();
+      if (!connected || modeRef.current !== 'musetalk') throw new Error('WebRTC 画面尚未连接');
+      const stream = new MuseTalkMicrophoneStream();
+      museTalkMicrophoneRef.current = stream;
+      await stream.start(museTalkAction);
+      if (modeRef.current !== 'musetalk' || museTalkMicrophoneRef.current !== stream) {
+        await stream.cancel();
+        return;
+      }
+      setMuseTalkMicState('recording');
+      setBroadcastInfo('正在采集麦克风 · 再次点击后提交并驱动实时画面');
+    } catch (error) {
+      const stream = museTalkMicrophoneRef.current;
+      museTalkMicrophoneRef.current = null;
+      await stream?.cancel();
+      if (modeRef.current === 'musetalk') {
+        setMuseTalkMicState('idle');
+        setBroadcastInfo('');
+        setBroadcastErr(`麦克风启动失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  };
+
   const interactionIsCurrent = (generation: number, expectedMode: RenderMode) =>
     interactionGenerationRef.current === generation && modeRef.current === expectedMode;
+
+  const monitorMuseTalkPlayback = async (requestId: number, generation: number) => {
+    let observed = false;
+    for (let attempt = 0; attempt < 2400; attempt += 1) {
+      if (!interactionIsCurrent(generation, 'musetalk')) return;
+      try {
+        const health = await getMuseTalkHealth();
+        const timingId = Number(health.last_timing?.request_id || 0);
+        const timingState = String(health.last_timing?.state || '');
+        if (health.active_id === requestId || timingId === requestId) observed = true;
+        if (
+          timingId === requestId &&
+          ['completed', 'failed', 'interrupted'].includes(timingState)
+        ) break;
+        if (observed && health.active_id !== requestId && health.queued === 0) break;
+      } catch {
+        // A transient health failure should not hide a stream that is already playing.
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    if (
+      interactionIsCurrent(generation, 'musetalk') &&
+      museTalkMediaSource !== 'total'
+    ) {
+      setMuseTalkMediaSource(null);
+    }
+  };
 
   const doBroadcast = async () => {
     const operationMode = modeRef.current;
@@ -871,6 +994,7 @@ export function LiveConsole() {
       (operationMode === 'flashhead' && flashHeadAvatarSwitching) ||
       (operationMode === 'flashhead' && flashHeadActionBusy) ||
       (operationMode === 'musetalk' && (museTalkAvatarSwitching || museTalkActionBusy)) ||
+      (operationMode === 'musetalk' && museTalkMicState !== 'idle') ||
       (!session && operationMode === 'fallback')
     ) return;
     const generation = ++interactionGenerationRef.current;
@@ -894,16 +1018,27 @@ export function LiveConsole() {
       }
 
       if (operationMode === 'musetalk') {
-        const connected = await connectAvatar();
-        if (!interactionIsCurrent(generation, operationMode) || !connected) return;
-        const result = await speakMuseTalk(broadcastText, true, museTalkAction);
+        const canvas = museTalkTotalCanvasRef.current;
+        if (!canvas) throw new Error('MuseTalk 流式画布尚未就绪');
+        const total = new MuseTalkTotalStream(canvas, {
+          profile: 'chinese',
+          language: 'ZH',
+          onMediaActive: (active) => {
+            if (interactionIsCurrent(generation, operationMode)) {
+              setMuseTalkMediaSource(active ? 'total' : null);
+            }
+          },
+          onStage: (stage) => {
+            if (interactionIsCurrent(generation, operationMode)) setMuseTalkTotalStage(stage);
+          },
+        });
+        const previousTotal = museTalkTotalRef.current;
+        museTalkTotalRef.current = total;
+        await total.prepareAudio();
+        await previousTotal?.cancel();
+        const result = await total.speak(broadcastText);
         if (!interactionIsCurrent(generation, operationMode)) return;
-        const actionLabel = museTalkActionState?.actions.find(
-          (action) => action.id === result.action,
-        )?.label;
-        setBroadcastInfo(
-          `已发送给 MuseTalk · ${result.latencyMs}ms${actionLabel ? ` · ${actionLabel}` : ''}`,
-        );
+        setBroadcastInfo(`已发送给 MuseTalk 流式服务 · ${result.totalLatencyMs}ms`);
         return;
       }
 
@@ -918,6 +1053,11 @@ export function LiveConsole() {
       );
     } catch (e) {
       if (interactionIsCurrent(generation, operationMode)) {
+        if (operationMode === 'musetalk' && MUSETALK_ONLY) {
+          await museTalkTotalRef.current?.cancel();
+          museTalkTotalRef.current = null;
+          setMuseTalkMediaSource(null);
+        }
         setBroadcastErr(e instanceof Error ? e.message : String(e));
       }
     } finally {
@@ -928,9 +1068,10 @@ export function LiveConsole() {
   const doAsk = async () => {
     const operationMode = modeRef.current;
     if (
-      !session ||
+      (!session && operationMode !== 'musetalk') ||
       (operationMode === 'flashhead' && (flashHeadAvatarSwitching || flashHeadActionBusy)) ||
-      (operationMode === 'musetalk' && (museTalkAvatarSwitching || museTalkActionBusy))
+      (operationMode === 'musetalk' &&
+        (museTalkAvatarSwitching || museTalkActionBusy || museTalkMicState !== 'idle'))
     ) return;
     const generation = ++interactionGenerationRef.current;
     setQaBusy(true);
@@ -938,12 +1079,45 @@ export function LiveConsole() {
     setQaDriveInfo('');
     setQaResult(null);
     try {
-      // LLM 生成回答 → 后端驱动渲染后端 → 数字人开口（音视频经 Pixel Streaming/WebRTC）
-      // 独立渲染模式都由前端各自编排，因此 speak=false，避免同时误驱动旧 :8028。
-      const res = await api.answer(session.id, {
-        question,
-        speak: operationMode === 'fallback',
-      });
+      let res: AnswerResult;
+      if (operationMode === 'musetalk') {
+        const canvas = museTalkTotalCanvasRef.current;
+        if (!canvas) throw new Error('MuseTalk 流式画布尚未就绪');
+        const total = new MuseTalkTotalStream(canvas, {
+          profile: 'chinese',
+          language: 'ZH',
+          onMediaActive: (active) => {
+            if (interactionIsCurrent(generation, operationMode)) {
+              setMuseTalkMediaSource(active ? 'total' : null);
+            }
+          },
+          onStage: (stage) => {
+            if (interactionIsCurrent(generation, operationMode)) setMuseTalkTotalStage(stage);
+          },
+        });
+        const previousTotal = museTalkTotalRef.current;
+        museTalkTotalRef.current = total;
+        await total.prepareAudio();
+        await interruptMuseTalk();
+        await previousTotal?.cancel();
+        const result = await total.ask(question);
+        res = {
+          session_id: session?.id || 'server-total',
+          question,
+          answer: result.answer,
+          model_id: 'server_total/LiteLLM',
+          llm_latency_ms: result.llmLatencyMs,
+          livetalking: null,
+        };
+        setQaDriveInfo(`总流程已完成 · ${result.totalLatencyMs}ms · 流式音视频正在播放`);
+      } else {
+        if (!session) return;
+        // 其他独立渲染模式仍由前端编排，避免同时误驱动旧 :8028。
+        res = await api.answer(session.id, {
+          question,
+          speak: operationMode === 'fallback',
+        });
+      }
       if (!interactionIsCurrent(generation, operationMode)) return;
       if (operationMode === 'flashhead') {
         const connected = await connectAvatar();
@@ -954,16 +1128,6 @@ export function LiveConsole() {
           setQaDriveInfo(`AI 回答已发送给 FlashHead · ${result.latencyMs}ms`);
         } else {
           setQaDriveInfo('AI 回答已生成；FlashHead 连接失败，暂未播报。');
-        }
-      } else if (operationMode === 'musetalk') {
-        const connected = await connectAvatar();
-        if (!interactionIsCurrent(generation, operationMode)) return;
-        if (connected) {
-          const result = await speakMuseTalk(res.answer, true, museTalkAction);
-          if (!interactionIsCurrent(generation, operationMode)) return;
-          setQaDriveInfo(`AI 回答已发送给 MuseTalk · ${result.latencyMs}ms`);
-        } else {
-          setQaDriveInfo('AI 回答已生成；MuseTalk 连接失败，暂未播报。');
         }
       } else if (operationMode === 'liveact') {
         setLaText(res.answer);
@@ -981,6 +1145,11 @@ export function LiveConsole() {
       );
     } catch (e) {
       if (interactionIsCurrent(generation, operationMode)) {
+        if (operationMode === 'musetalk') {
+          await museTalkTotalRef.current?.cancel();
+          museTalkTotalRef.current = null;
+          setMuseTalkMediaSource(null);
+        }
         setQaErr(e instanceof Error ? e.message : String(e));
       }
     } finally {
@@ -998,6 +1167,15 @@ export function LiveConsole() {
     museTalkProbeGenerationRef.current += 1;
     if (previousMode === 'flashhead') void interruptFlashHead();
     if (previousMode === 'musetalk') void interruptMuseTalk();
+    if (previousMode === 'musetalk') {
+      void museTalkMicrophoneRef.current?.cancel();
+      museTalkMicrophoneRef.current = null;
+      void museTalkTotalRef.current?.cancel();
+      museTalkTotalRef.current = null;
+      setMuseTalkMicState('idle');
+      setMuseTalkMediaSource(null);
+      setMuseTalkTotalStage('idle');
+    }
 
     if (previousMode === 'liveact') {
       hlsRef.current?.destroy();
@@ -1200,7 +1378,9 @@ export function LiveConsole() {
   const isMuseTalk = mode === 'musetalk';
   const isLiveact = mode === 'liveact';
   const isFallback = mode === 'fallback';
-  const canSpeak = avatarConnected && (isFlashHead || isMuseTalk || !!session);
+  const canSpeak = isMuseTalk && MUSETALK_ONLY
+    ? museTalkTotalUp === true
+    : avatarConnected && (isFlashHead || isMuseTalk || !!session);
   const flashHeadActiveAvatar = flashHeadAvatarState?.avatars.find(
     (avatar) => avatar.id === flashHeadAvatarState.active_avatar,
   );
@@ -1229,6 +1409,7 @@ export function LiveConsole() {
     museTalkAvatarLoading ||
     museTalkAvatarSwitching ||
     museTalkActionBusy ||
+    museTalkMicState !== 'idle' ||
     broadcastBusy ||
     qaBusy;
   const museTalkActionsEnabled = !!(
@@ -1271,6 +1452,8 @@ export function LiveConsole() {
     : isFlashHead || isMuseTalk
       ? avatarConnected
       : !IS_UNREAL && avatarConnected;
+  const showMuseTalkIdle = isMuseTalk && museTalkMediaSource === null;
+  const showMuseTalkTotal = isMuseTalk && museTalkMediaSource === 'total';
 
   return (
     <div className="liveConsole">
@@ -1292,32 +1475,29 @@ export function LiveConsole() {
             ok={!!ready?.llm_configured}
             hint="LiteLLM 网关"
           />
-          <StatusLight
-            label={isFlashHead ? 'FlashHead 实时 · 当前' : 'FlashHead 实时 · 点击进入'}
-            ok={!!flashHeadUp}
-            warn={flashHeadUp === null}
-            active={isFlashHead}
-            onClick={() => void switchMode('flashhead')}
-            hint={
-              flashHeadUp
-                ? mounted
-                  ? `FlashHead Lite 已就绪 · 独立服务 ${FLASHHEAD_URL}`
-                  : 'FlashHead Lite 已就绪'
-                : flashHeadUp === null
-                  ? '正在探测 FlashHead Lite…'
-                  : mounted
-                    ? `FlashHead 暂不可达 · ${FLASHHEAD_URL}`
-                    : 'FlashHead 暂不可达'
-            }
-          />
+          {!MUSETALK_ONLY && (
+            <StatusLight
+              label={isFlashHead ? 'FlashHead 实时 · 当前' : 'FlashHead 实时 · 点击进入'}
+              ok={!!flashHeadUp}
+              warn={flashHeadUp === null}
+              active={isFlashHead}
+              onClick={() => void switchMode('flashhead')}
+              hint={flashHeadUp ? 'FlashHead Lite 已就绪' : `FlashHead 暂不可达 · ${FLASHHEAD_URL}`}
+            />
+          )}
           <StatusLight
             label={isMuseTalk ? 'MuseTalk 动作 · 当前' : 'MuseTalk 动作 · 点击进入'}
-            ok={!!museTalkUp}
-            warn={museTalkUp === null || (!!museTalkHealth && !museTalkHealth.ready)}
+            ok={museTalkUp === true || museTalkTotalUp === true}
+            warn={
+              (museTalkUp === null && museTalkTotalUp === null) ||
+              (!!museTalkHealth && !museTalkHealth.ready)
+            }
             active={isMuseTalk}
             onClick={() => void switchMode('musetalk')}
             hint={
-              museTalkUp
+              museTalkTotalUp
+                ? 'MuseTalk 总流程已就绪 · :8080 · 空闲视频/流式媒体自动切换'
+                : museTalkUp
                 ? mounted
                   ? `MuseTalk ${museTalkHealth?.model_version || '1.5'} 已就绪 · ${MUSETALK_URL}`
                   : 'MuseTalk 1.5 已就绪'
@@ -1330,53 +1510,36 @@ export function LiveConsole() {
                       : 'MuseTalk 暂不可达'
             }
           />
-          <StatusLight
-            label={isLiveact ? 'LiveAct 生成式 · 当前' : 'LiveAct 生成式 · 点击进入'}
-            ok={!!laDemoUp}
-            warn={laDemoUp === null}
-            active={isLiveact}
-            onClick={() => void switchMode('liveact')}
-            hint={
-              laDemoUp
-                ? `LiveAct 已就绪 · ${LIVEACT_DEMO_URL}`
-                : laDemoUp === null
-                  ? '点击进入 LiveAct；正在探测 demo…'
-                  : `点击进入 LiveAct 并重试；demo 暂不可达（首次启动需预热 3-5 分钟）· ${LIVEACT_DEMO_URL}`
-            }
-          />
-          <StatusLight
-            label={isFallback ? '兼容渲染 · 当前' : '兼容渲染'}
-            ok={isFallback && avatarConnected}
-            warn={isFallback && !avatarConnected}
-            active={isFallback}
-            onClick={() => void switchMode('fallback')}
-            hint={
-              IS_UNREAL
-                ? '保留原 UE5 Pixel Streaming 路径'
-                : rendererReachable === false
-                  ? '保留原 LiveTalking :8028 路径；当前服务不可达'
-                  : '保留原 LiveTalking :8028 路径'
-            }
-          />
+          {!MUSETALK_ONLY && (
+            <StatusLight
+              label={isLiveact ? 'LiveAct 生成式 · 当前' : 'LiveAct 生成式 · 点击进入'}
+              ok={!!laDemoUp}
+              warn={laDemoUp === null}
+              active={isLiveact}
+              onClick={() => void switchMode('liveact')}
+              hint={`LiveAct · ${LIVEACT_DEMO_URL}`}
+            />
+          )}
         </div>
       </div>
 
       {/* 实时头肩、真人动作换嘴与生成式出片并列；旧渲染器仅作回退。 */}
       <div className="liveModeToggle" role="tablist" aria-label="数字人渲染模式">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={isFlashHead}
-          className={`liveModeOption${isFlashHead ? ' active' : ''}`}
-          onClick={() => void switchMode('flashhead')}
-        >
-          <Gauge size={20} />
-          <span>
-            <strong>实时高保真</strong>
-            <small>FlashHead Lite · WebRTC · 直播推荐</small>
-          </span>
-          <em>默认</em>
-        </button>
+        {!MUSETALK_ONLY && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isFlashHead}
+            className={`liveModeOption${isFlashHead ? ' active' : ''}`}
+            onClick={() => void switchMode('flashhead')}
+          >
+            <Gauge size={20} />
+            <span>
+              <strong>实时高保真</strong>
+              <small>FlashHead Lite · WebRTC</small>
+            </span>
+          </button>
+        )}
         <button
           type="button"
           role="tab"
@@ -1387,11 +1550,11 @@ export function LiveConsole() {
           <Mic size={20} />
           <span>
             <strong>动作主播 · MuseTalk 1.5</strong>
-            <small>真人动作帧 · 嘴部重建 · WebRTC</small>
+            <small>MeloTTS · MuseTalk · MSTK 流式音视频</small>
           </span>
-          <em>推荐方案</em>
+          <em>当前方案</em>
         </button>
-        <button
+        {!MUSETALK_ONLY && <button
           type="button"
           role="tab"
           aria-selected={isLiveact}
@@ -1403,8 +1566,8 @@ export function LiveConsole() {
             <strong>LiveAct 高质量</strong>
             <small>扩散生成 · 高质量片段 · 非实时</small>
           </span>
-        </button>
-        <button
+        </button>}
+        {!MUSETALK_ONLY && <button
           type="button"
           role="tab"
           aria-selected={isFallback}
@@ -1413,7 +1576,7 @@ export function LiveConsole() {
           title={IS_UNREAL ? '原 UE5 Pixel Streaming 路径' : '原 LiveTalking :8028 路径'}
         >
           <RotateCcw size={14} /> 兼容模式
-        </button>
+        </button>}
       </div>
 
       <div className="liveGrid">
@@ -1473,7 +1636,51 @@ export function LiveConsole() {
                 zIndex: 1,
               }}
             />
-            {!isLiveact && !avatarConnected && (
+            <video
+              ref={museTalkIdleVideoRef}
+              src="/assets/musetalk-default/chinese-idle-3f.mp4"
+              muted
+              autoPlay
+              loop
+              playsInline
+              preload="auto"
+              aria-hidden={!showMuseTalkIdle}
+              onLoadedData={(event) => {
+                event.currentTarget.currentTime = 0;
+                event.currentTarget.play().catch(() => {});
+              }}
+              onTimeUpdate={(event) => {
+                if (event.currentTarget.currentTime >= 1) event.currentTarget.currentTime = 0;
+              }}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                objectPosition: 'center',
+                background: '#070a0e',
+                borderRadius: '20px',
+                visibility: showMuseTalkIdle ? 'visible' : 'hidden',
+                zIndex: 2,
+              }}
+            />
+            <canvas
+              ref={museTalkTotalCanvasRef}
+              aria-hidden={!showMuseTalkTotal}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                background: '#070a0e',
+                borderRadius: '20px',
+                visibility: showMuseTalkTotal ? 'visible' : 'hidden',
+                zIndex: 3,
+              }}
+            />
+            {!isLiveact && !isMuseTalk && !avatarConnected && (
               <button
                 className="primaryCta"
                 onClick={() => void connectAvatar()}
@@ -1505,6 +1712,10 @@ export function LiveConsole() {
                     : laErr
                       ? '生成失败'
                       : 'LiveAct · 生成式数字人预览'
+                : isMuseTalk && museTalkMediaSource === 'total'
+                  ? `MuseTalk 总流程 · ${museTalkTotalStage}`
+                  : isMuseTalk && museTalkMediaSource === null
+                    ? 'MuseTalk 默认人物 · 前 1 秒静音循环待机'
                 : avatarConnected
                   ? isFlashHead
                     ? flashHeadBodyEnabled
@@ -1544,7 +1755,9 @@ export function LiveConsole() {
                   {isFlashHead
                     ? 'FlashHead Lite 在 GPU 节点完整生成脸部、表情与头动，经 WebRTC 实时回传；本模式独立使用 :8030。'
                     : isMuseTalk
-                      ? 'MuseTalk 1.5 以真人动作视频当前帧为底片，只重建嘴部与下半脸，头姿、头发、身体和手势保持同一运动源；本模式独立使用 :8031。'
+                      ? MUSETALK_ONLY
+                        ? 'MuseTalk-only：空闲时循环默认形象；实时播报走 MeloTTS :8084 与 MuseTalk MSTK :8083，AI 问答走 server_total :8080。'
+                        : 'MuseTalk 1.5 以真人动作视频当前帧为底片，只重建嘴部与下半脸，头姿、头发、身体和手势保持同一运动源；本模式独立使用 :8031。'
                       : IS_UNREAL
                       ? '画面由 UE5 MetaHuman 实时渲染、经 Pixel Streaming(WebRTC) 直传浏览器；语音经同一条流回传。'
                       : '画面由 GPU 节点 LiveTalking 实时渲染、经 WebRTC 直传浏览器，作为兼容回退。'}
@@ -1553,9 +1766,11 @@ export function LiveConsole() {
                       ? ` 服务地址 ${FLASHHEAD_URL}`
                       : ' 服务地址 …'
                     : isMuseTalk
-                      ? mounted
-                        ? ` 服务地址 ${MUSETALK_URL}`
-                        : ' 服务地址 …'
+                      ? MUSETALK_ONLY
+                        ? ' 服务地址 :8080 / :8083 / :8084'
+                        : mounted
+                          ? ` 服务地址 ${MUSETALK_URL}`
+                          : ' 服务地址 …'
                       : IS_UNREAL
                     ? mounted
                       ? ` 信令地址 ${PIXELSTREAMING_URL}`
@@ -1566,8 +1781,8 @@ export function LiveConsole() {
                         ? ` 信令地址 ${LIVETALKING_URL}`
                         : ' 信令地址 …'}
                   {isFlashHead && flashHeadUp === false && ' ⚠ FlashHead 暂不可达，页面每 5 秒自动重试。'}
-                  {isMuseTalk && museTalkHealth && !museTalkHealth.ready && ' MuseTalk 正在预热动作素材，页面会自动重试。'}
-                  {isMuseTalk && museTalkUp === false && !museTalkHealth && ' ⚠ MuseTalk 暂不可达，页面每 5 秒自动重试。'}
+                  {!MUSETALK_ONLY && isMuseTalk && museTalkHealth && !museTalkHealth.ready && ' MuseTalk 正在预热动作素材，页面会自动重试。'}
+                  {!MUSETALK_ONLY && isMuseTalk && museTalkUp === false && !museTalkHealth && ' ⚠ MuseTalk 暂不可达，页面每 5 秒自动重试。'}
                   {avatarErr && <span style={{ color: '#ff5c5c' }}> · {avatarErr}</span>}
                 </div>
               )
@@ -1753,7 +1968,7 @@ export function LiveConsole() {
             </section>
           )}
 
-          {isMuseTalk && (
+          {isMuseTalk && !MUSETALK_ONLY && (
             <section
               className="fhAvatarSelector"
               aria-labelledby="musetalk-avatar-title"
@@ -1865,7 +2080,7 @@ export function LiveConsole() {
             </section>
           )}
 
-          {isMuseTalk && (
+          {isMuseTalk && !MUSETALK_ONLY && (
             <section className={`fhActionComposer mtActionComposer${museTalkActionsEnabled ? ' enabled' : ''}`}>
               <header className="fhActionHeader">
                 <div>
@@ -1980,6 +2195,7 @@ export function LiveConsole() {
                     (isFlashHead && flashHeadActionBusy) ||
                     (isMuseTalk && museTalkAvatarSwitching) ||
                     (isMuseTalk && museTalkActionBusy) ||
+                    (isMuseTalk && museTalkMicState !== 'idle') ||
                     (isFallback && !session)
                   }
                   title={
@@ -2015,6 +2231,35 @@ export function LiveConsole() {
                           ? '实时播报'
                           : '让数字人说'}
                 </button>
+                {isMuseTalk && !MUSETALK_ONLY && (
+                  <button
+                    type="button"
+                    className={`streamMicCta${museTalkMicState === 'recording' ? ' recording' : ''}`}
+                    onClick={() => void toggleMuseTalkMicrophone()}
+                    disabled={
+                      museTalkMicState === 'connecting' ||
+                      museTalkMicState === 'submitting' ||
+                      museTalkAvatarSwitching ||
+                      museTalkActionBusy ||
+                      broadcastBusy ||
+                      qaBusy
+                    }
+                    title="将浏览器麦克风转换为 16 kHz PCM，提交给 MuseTalk 并通过当前 WebRTC 画面播放"
+                  >
+                    {museTalkMicState === 'connecting' || museTalkMicState === 'submitting' ? (
+                      <Loader2 size={16} className="spin" />
+                    ) : (
+                      <Mic size={16} />
+                    )}
+                    {museTalkMicState === 'recording'
+                      ? '停止并驱动画面'
+                      : museTalkMicState === 'submitting'
+                        ? '正在提交…'
+                        : museTalkMicState === 'connecting'
+                          ? '连接麦克风…'
+                          : '麦克风流输入'}
+                  </button>
+                )}
               </div>
               {broadcastInfo && (
                 <div className="liveAudioRow">
@@ -2026,7 +2271,7 @@ export function LiveConsole() {
                   {isFlashHead
                     ? '可直接点击“实时播报”，页面会先连接 FlashHead 再发送文本。'
                     : isMuseTalk
-                      ? '可直接点击“实时播报”，页面会先连接 MuseTalk 再发送文本。'
+                      ? 'MuseTalk 总流程就绪后可直接流式播报。'
                       : '请先点上方“连接兼容渲染”拉起画面，再播报。'}
                 </div>
               )}
@@ -2168,7 +2413,7 @@ export function LiveConsole() {
                   qaBusy ||
                   broadcastBusy ||
                   !question.trim() ||
-                  !session ||
+                  (!session && !isMuseTalk) ||
                   (isFlashHead && (flashHeadAvatarSwitching || flashHeadActionBusy)) ||
                   (isMuseTalk && (museTalkAvatarSwitching || museTalkActionBusy))
                 }

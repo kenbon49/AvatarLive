@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'SynLive | AI 数字人直播中控平台',
-  description: '数字人定制、AI 直播中控、脚本编排、知识库问答、多平台推流和数据复盘。',
+  title: '灵境数字人 | 实时互动与直播',
+  description: '基于 MuseTalk 的实时数字人互动与直播工作台',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

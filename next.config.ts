@@ -26,6 +26,18 @@ const nextConfig: NextConfig = {
         source: '/musetalk-api/:path*',
         destination: `${process.env.MUSETALK_UPSTREAM ?? 'http://localhost:8031'}/:path*`,
       },
+      {
+        source: '/musetalk-total-api/:path*',
+        destination: `${process.env.MUSETALK_TOTAL_UPSTREAM ?? 'http://localhost:8080'}/:path*`,
+      },
+      {
+        source: '/melotts-api/:path*',
+        destination: `${process.env.MELOTTS_UPSTREAM ?? 'http://localhost:8084'}/:path*`,
+      },
+      {
+        source: '/musetalk-stream-api/:path*',
+        destination: `${process.env.MUSETALK_STREAM_UPSTREAM ?? 'http://localhost:8083'}/:path*`,
+      },
       // LiveAct 生成式数字人：浏览器同源 /liveact-api/* → demo.py（默认本机 :5071）。
       // 同源代理一次解决：① 跨源 CORS；② https 页面 fetch http demo 的混合内容拦截；
       // ③ 远程浏览器访问不到 host 的 localhost:5071。不改 demo.py。

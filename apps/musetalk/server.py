@@ -33,6 +33,7 @@ from aiortc import (
 from .action_runtime import BodyActionRuntime, UnknownActionError
 from .avatar_catalog import AvatarProfile, load_avatar_catalog
 from .inference import MuseTalkEngine, build_cache_key
+from .streaming import PCM_SAMPLE_RATE, PcmInputBuffer
 
 
 logging.basicConfig(
@@ -128,6 +129,14 @@ class ServiceConfig:
 
 class SpeechInterrupted(Exception):
     """Internal control-flow signal for generation-safe barge-in."""
+
+
+@dataclass(frozen=True)
+class SpeechJob:
+    speech_id: int
+    text: str
+    action: str
+    pcm16k: np.ndarray | None = None
 
 
 def azure_tts(config: ServiceConfig, text: str) -> np.ndarray:
@@ -448,7 +457,7 @@ async def _wait_for_playback(
 class SpeechController:
     def __init__(self, service: MuseTalkService) -> None:
         self.service = service
-        self.queue: asyncio.Queue[tuple[int, str, str]] = asyncio.Queue()
+        self.queue: asyncio.Queue[SpeechJob] = asyncio.Queue()
         self.worker: asyncio.Task | None = None
         self.active_task: asyncio.Task | None = None
         self.active_id: int | None = None
@@ -473,7 +482,27 @@ class SpeechController:
             await self.interrupt()
         speech_id = self._next_id
         self._next_id += 1
-        await self.queue.put((speech_id, text, action))
+        await self.queue.put(SpeechJob(speech_id, text, action))
+        self._ensure_worker()
+        return speech_id, self.queue.qsize()
+
+    async def submit_pcm(
+        self,
+        pcm16k: np.ndarray,
+        action: str,
+        *,
+        interrupt: bool,
+    ) -> tuple[int, int]:
+        if self._closing:
+            raise RuntimeError("speech controller is shutting down")
+        pcm = np.asarray(pcm16k, dtype=np.float32).reshape(-1).copy()
+        if not len(pcm):
+            raise ValueError("PCM audio is empty")
+        if interrupt:
+            await self.interrupt()
+        speech_id = self._next_id
+        self._next_id += 1
+        await self.queue.put(SpeechJob(speech_id, "", action, pcm))
         self._ensure_worker()
         return speech_id, self.queue.qsize()
 
@@ -509,12 +538,25 @@ class SpeechController:
 
     async def _run(self) -> None:
         while True:
-            speech_id, text, action = await self.queue.get()
+            job = await self.queue.get()
+            speech_id = job.speech_id
             cancel_event = asyncio.Event()
             self.active_id = speech_id
             self._active_cancel = cancel_event
+            if job.pcm16k is None:
+                coroutine = self.service.speak_into_tracks(
+                    job.text, speech_id, cancel_event, job.action
+                )
+            else:
+                coroutine = self.service.speak_into_tracks(
+                    job.text,
+                    speech_id,
+                    cancel_event,
+                    job.action,
+                    pcm16k=job.pcm16k,
+                )
             task = asyncio.create_task(
-                self.service.speak_into_tracks(text, speech_id, cancel_event, action),
+                coroutine,
                 name=f"musetalk-speech-{speech_id}",
             )
             self.active_task = task
@@ -793,6 +835,13 @@ class MuseTalkService:
             "batch_size": self.config.batch_size,
             "neutral_idle": self.ready,
             "start_buffer_ms": round(self.config.start_buffer_seconds * 1000, 1),
+            "streaming_input": {
+                "available": self.ready,
+                "endpoint": "/stream",
+                "sample_rate": PCM_SAMPLE_RATE,
+                "format": "pcm_s16le_mono",
+                "output": "webrtc",
+            },
             "initialization_ms": self.init_ms,
             "initialization_error": self.init_error,
             **self.speech.status(),
@@ -832,6 +881,8 @@ class MuseTalkService:
         speech_id: int,
         cancel_event: asyncio.Event,
         action: str,
+        *,
+        pcm16k: np.ndarray | None = None,
     ) -> None:
         if not self.ready or self.runtime is None or self.engine is None:
             raise RuntimeError("MuseTalk is not ready")
@@ -840,7 +891,11 @@ class MuseTalkService:
         avatar_id = self.active_avatar_id
         loop = asyncio.get_running_loop()
         request_started = loop.time()
-        timing: dict[str, Any] = {"request_id": speech_id, "state": "tts"}
+        timing: dict[str, Any] = {
+            "request_id": speech_id,
+            "source": "pcm_stream" if pcm16k is not None else "tts",
+            "state": "audio_features" if pcm16k is not None else "tts",
+        }
         self.last_timing = timing
         video, audio = self.video, self.audio
         if video is None or audio is None:
@@ -851,9 +906,12 @@ class MuseTalkService:
         generation: int | None = None
         completed = False
         try:
-            phase = loop.time()
-            pcm = await loop.run_in_executor(self.tts_executor, self.tts, text)
-            timing["tts_ms"] = round((loop.time() - phase) * 1000, 1)
+            if pcm16k is None:
+                phase = loop.time()
+                pcm = await loop.run_in_executor(self.tts_executor, self.tts, text)
+                timing["tts_ms"] = round((loop.time() - phase) * 1000, 1)
+            else:
+                pcm = np.asarray(pcm16k, dtype=np.float32).reshape(-1)
             if cancel_event.is_set():
                 raise SpeechInterrupted
             if not len(pcm):
@@ -1263,6 +1321,105 @@ def create_app(service: MuseTalkService) -> web.Application:
             }
         )
 
+    async def stream_audio(request: web.Request) -> web.WebSocketResponse:
+        websocket = web.WebSocketResponse(max_msg_size=512 * 1024)
+        await websocket.prepare(request)
+        if not service.ready or service.runtime is None:
+            await websocket.send_json(
+                {"type": "error", "code": "renderer_not_ready", **service.health()}
+            )
+            await websocket.close(code=1013, message=b"renderer not ready")
+            return websocket
+        if service.video is None or service.audio is None:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "webrtc_required",
+                    "message": "connect WebRTC with /offer before streaming audio",
+                }
+            )
+            await websocket.close(code=1008, message=b"WebRTC required")
+            return websocket
+
+        audio = PcmInputBuffer()
+        action = "auto"
+        await websocket.send_json(
+            {
+                "type": "ready",
+                "sample_rate": PCM_SAMPLE_RATE,
+                "channels": 1,
+                "audio_format": "pcm_s16le",
+                "max_audio_seconds": 120,
+                "transport": "websocket_input_webrtc_output",
+            }
+        )
+        try:
+            async for message in websocket:
+                if message.type == web.WSMsgType.BINARY:
+                    audio.append(message.data)
+                    continue
+                if message.type != web.WSMsgType.TEXT:
+                    if message.type == web.WSMsgType.ERROR:
+                        error = websocket.exception()
+                        raise error or RuntimeError("WebSocket failed")
+                    continue
+                try:
+                    control = json.loads(message.data)
+                except json.JSONDecodeError as exc:
+                    raise ValueError("control message must be valid JSON") from exc
+                if not isinstance(control, dict):
+                    raise ValueError("control message must be a JSON object")
+                control_type = str(control.get("type") or "").lower()
+                if control_type == "start":
+                    requested_action = control.get("action", "auto")
+                    if not isinstance(requested_action, str):
+                        raise ValueError("action must be a string")
+                    if service.runtime is None:
+                        raise RuntimeError("MuseTalk renderer is not ready")
+                    action = service.runtime.resolve_action(requested_action)
+                    audio.clear()
+                    if control.get("interrupt") is not False:
+                        await service.speech.interrupt()
+                    await websocket.send_json({"type": "started", "action": action})
+                elif control_type == "cancel":
+                    audio.clear()
+                    await websocket.send_json({"type": "cancelled"})
+                elif control_type == "interrupt":
+                    audio.clear()
+                    result = await service.speech.interrupt()
+                    await websocket.send_json({"type": "interrupted", **result})
+                elif control_type == "commit":
+                    duration = audio.duration_seconds
+                    pcm = audio.commit()
+                    async with service.offer_lock:
+                        speech_id, queued = await service.speech.submit_pcm(
+                            pcm,
+                            action,
+                            interrupt=control.get("interrupt") is True,
+                        )
+                    await websocket.send_json(
+                        {
+                            "type": "queued",
+                            "request_id": speech_id,
+                            "queued": queued,
+                            "action": action,
+                            "audio_seconds": round(duration, 3),
+                        }
+                    )
+                else:
+                    raise ValueError(
+                        f"unsupported control type: {control_type or '<empty>'}"
+                    )
+        except Exception as exc:
+            log.exception("MuseTalk PCM streaming session failed")
+            if not websocket.closed:
+                with contextlib.suppress(Exception):
+                    await websocket.send_json(
+                        {"type": "error", "code": "stream_failed", "message": str(exc)}
+                    )
+                    await websocket.close(code=1003, message=b"stream failed")
+        return websocket
+
     async def on_startup(_: web.Application) -> None:
         await service.initialize()
 
@@ -1278,6 +1435,8 @@ def create_app(service: MuseTalkService) -> web.Application:
     app.router.add_post("/action", trigger_action)
     app.router.add_post("/offer", offer)
     app.router.add_post("/human", human)
+    app.router.add_get("/stream", stream_audio)
+    app.router.add_get("/v1/stream", stream_audio)
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
     return app

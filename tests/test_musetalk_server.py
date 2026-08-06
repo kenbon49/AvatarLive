@@ -276,6 +276,8 @@ class ReadyMuseTalkAPITests(AioHTTPTestCase):
         self.assertEqual(health["status"], "ok")
         self.assertTrue(health["ready"])
         self.assertEqual(health["resolution"], {"width": 6, "height": 4})
+        self.assertEqual(health["streaming_input"]["endpoint"], "/stream")
+        self.assertEqual(health["streaming_input"]["output"], "webrtc")
 
         self.assertEqual(actions_response.status, 200)
         actions = await actions_response.json()
@@ -284,6 +286,34 @@ class ReadyMuseTalkAPITests(AioHTTPTestCase):
             [item["id"] for item in actions["actions"]],
             ["auto", "idle", "talk_subtle"],
         )
+
+    async def test_pcm_websocket_queues_audio_for_webrtc_playback(self) -> None:
+        pcm = np.arange(640, dtype="<i2")
+        with mock.patch.object(
+            self.service.speech,
+            "submit_pcm",
+            new=mock.AsyncMock(return_value=(17, 1)),
+        ) as submit:
+            websocket = await self.client.ws_connect("/stream")
+            ready = await websocket.receive_json()
+            self.assertEqual(ready["type"], "ready")
+            self.assertEqual(ready["sample_rate"], 16_000)
+
+            await websocket.send_json(
+                {"type": "start", "action": "talk_subtle", "interrupt": False}
+            )
+            started = await websocket.receive_json()
+            self.assertEqual(started, {"type": "started", "action": "talk_subtle"})
+            await websocket.send_bytes(pcm.tobytes())
+            await websocket.send_json({"type": "commit"})
+            queued = await websocket.receive_json()
+
+            self.assertEqual(queued["type"], "queued")
+            self.assertEqual(queued["request_id"], 17)
+            submitted_pcm, action = submit.await_args.args
+            self.assertEqual(action, "talk_subtle")
+            np.testing.assert_allclose(submitted_pcm, pcm.astype(np.float32) / 32768.0)
+            await websocket.close()
 
     async def test_avatar_switch_reuses_tracks_and_updates_action_profile(self) -> None:
         before = await (await self.client.get("/avatars")).json()
@@ -452,6 +482,7 @@ class _ControllerService:
         self.audio = None
         self.runtime = None
         self.calls: list[tuple[str, int, str]] = []
+        self.pcm_calls: list[np.ndarray] = []
         self.fail_first = True
 
     async def speak_into_tracks(
@@ -460,9 +491,13 @@ class _ControllerService:
         speech_id: int,
         cancel_event: asyncio.Event,
         action: str,
+        *,
+        pcm16k: np.ndarray | None = None,
     ) -> None:
         del cancel_event
         self.calls.append((text, speech_id, action))
+        if pcm16k is not None:
+            self.pcm_calls.append(pcm16k)
         if self.fail_first:
             self.fail_first = False
             raise RuntimeError("synthetic inference failure")
@@ -484,6 +519,24 @@ class _ToggleEngine:
 
 
 class SpeechControllerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pcm_submission_bypasses_text_to_speech_job(self) -> None:
+        service = _ControllerService()
+        service.fail_first = False
+        controller = SpeechController(service)  # type: ignore[arg-type]
+        self.addAsyncCleanup(controller.shutdown)
+        pcm = np.linspace(-1.0, 1.0, 640, dtype=np.float32)
+
+        speech_id, queued = await controller.submit_pcm(
+            pcm, "talk_subtle", interrupt=False
+        )
+        pcm[:] = 0
+        await asyncio.wait_for(controller.queue.join(), timeout=1.0)
+
+        self.assertEqual((speech_id, queued), (1, 1))
+        self.assertEqual(service.calls, [("", 1, "talk_subtle")])
+        self.assertEqual(len(service.pcm_calls), 1)
+        self.assertGreater(float(np.max(service.pcm_calls[0])), 0.9)
+
     async def test_inference_failure_does_not_break_following_request(self) -> None:
         service = _ControllerService()
         controller = SpeechController(service)  # type: ignore[arg-type]

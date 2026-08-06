@@ -1,5 +1,5 @@
-import { MarketingHome } from '@/components/marketing-home';
+import { InteractionConsole } from '@/components/interaction-console';
 
 export default function HomePage() {
-  return <MarketingHome />;
+  return <InteractionConsole />;
 }
