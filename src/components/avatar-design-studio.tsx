@@ -2,17 +2,48 @@
 
 import { FormEvent, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ArrowRight, Check, ImagePlus, Sparkles } from 'lucide-react';
-import { ProductShell } from '@/components/product-shell';
+import {
+  ArrowLeft,
+  Bot,
+  Check,
+  Image as ImageIcon,
+  ImagePlus,
+  MessageSquareText,
+  Mic2,
+  Palette,
+  RotateCcw,
+  Send,
+  Sparkles,
+  UserRound,
+  Volume2,
+} from 'lucide-react';
+
+type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona';
+type ChatMessage = { role: 'assistant' | 'user'; text: string };
 
 type StoredAvatar = {
   id: string;
   name: string;
   role: string;
+  description: string;
   profile: 'chinese';
   image: string;
   custom: true;
 };
+
+const CREATOR_TABS = [
+  { id: 'appearance' as const, label: '形象', icon: UserRound },
+  { id: 'voice' as const, label: '声音', icon: Mic2 },
+  { id: 'background' as const, label: '背景', icon: ImageIcon },
+  { id: 'persona' as const, label: '人设', icon: Bot },
+];
+
+const BACKGROUNDS = [
+  { id: 'transparent', label: '透明', className: 'transparent' },
+  { id: 'studio', label: '演播室', className: 'studio' },
+  { id: 'warm', label: '暖调空间', className: 'warm' },
+  { id: 'brand', label: '品牌蓝', className: 'brand' },
+];
 
 async function resizeImage(file: File): Promise<string> {
   const source = await new Promise<string>((resolve, reject) => {
@@ -35,12 +66,39 @@ async function resizeImage(file: File): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.86);
 }
 
+async function bakeImageFilter(source: string, filter: string): Promise<string> {
+  if (filter === 'none') return source;
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => resolve(element);
+    element.onerror = () => reject(new Error('修改后的图片无法保存'));
+    element.src = source;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('当前浏览器无法处理图片');
+  context.filter = filter;
+  context.drawImage(image, 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.86);
+}
+
 export function AvatarDesignStudio() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [activeTab, setActiveTab] = useState<CreatorTab>('appearance');
   const [name, setName] = useState('');
-  const [role, setRole] = useState('专属数字人');
+  const [role, setRole] = useState('品牌数字人');
+  const [greeting, setGreeting] = useState('你好，很高兴认识你。有什么可以帮你？');
+  const [voice, setVoice] = useState('温暖自然 · 中文女声');
+  const [background, setBackground] = useState('transparent');
   const [image, setImage] = useState('');
+  const [imageFilter, setImageFilter] = useState('none');
+  const [prompt, setPrompt] = useState('');
+  const [chat, setChat] = useState<ChatMessage[]>([
+    { role: 'assistant', text: '上传形象后，可以告诉我“亮一点”“偏暖”“黑白”或“恢复原图”。' },
+  ]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -53,61 +111,159 @@ export function AvatarDesignStudio() {
     try {
       setError('');
       setImage(await resizeImage(file));
+      setImageFilter('none');
+      setChat((items) => [...items, { role: 'assistant', text: '形象已载入。现在可以用自然语言调整画面风格。' }]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '图片处理失败');
     }
   };
 
-  const submit = (event: FormEvent) => {
+  const modifyImage = (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || !image) return;
+    const instruction = prompt.trim();
+    if (!instruction) return;
+    setPrompt('');
+    setChat((items) => [...items, { role: 'user', text: instruction }]);
+
+    if (!image) {
+      setChat((items) => [...items, { role: 'assistant', text: '请先上传一张正面人物图片，我才能开始修改。' }]);
+      return;
+    }
+
+    let nextFilter = imageFilter;
+    let response = '已记录这条修改要求。换装、发型或重绘需要接入图像编辑模型；当前预览支持亮度、冷暖和黑白调整。';
+    if (/恢复|还原|原图|重置/.test(instruction)) {
+      nextFilter = 'none';
+      response = '已恢复原图。';
+    } else if (/更亮|亮一点|提亮|明亮/.test(instruction)) {
+      nextFilter = 'brightness(1.14) contrast(1.03)';
+      response = '已经提亮形象，并轻微增强了对比度。';
+    } else if (/更暗|暗一点|压暗/.test(instruction)) {
+      nextFilter = 'brightness(.84) contrast(1.06)';
+      response = '已经降低亮度，让画面更沉稳。';
+    } else if (/暖|温暖|暖色/.test(instruction)) {
+      nextFilter = 'sepia(.16) saturate(1.12) brightness(1.03)';
+      response = '已经调整为更温暖、自然的色调。';
+    } else if (/冷|冷色|清冷/.test(instruction)) {
+      nextFilter = 'saturate(.9) hue-rotate(8deg) brightness(1.02)';
+      response = '已经调整为更清爽的冷色调。';
+    } else if (/黑白|单色|去色/.test(instruction)) {
+      nextFilter = 'grayscale(1) contrast(1.08)';
+      response = '已经生成黑白风格预览。';
+    }
+    setImageFilter(nextFilter);
+    window.setTimeout(() => setChat((items) => [...items, { role: 'assistant', text: response }]), 180);
+  };
+
+  const saveAvatar = async () => {
+    if (!name.trim() || !image || saving) return;
     setSaving(true);
-    const avatar: StoredAvatar = {
-      id: `custom-${Date.now()}`,
-      name: name.trim(),
-      role: role.trim() || '专属数字人',
-      profile: 'chinese',
-      image,
-      custom: true,
-    };
+    setError('');
     try {
+      const finalImage = await bakeImageFilter(image, imageFilter);
+      const avatar: StoredAvatar = {
+        id: `custom-${Date.now()}`,
+        name: name.trim(),
+        role: role.trim() || '专属数字人',
+        description: greeting.trim() || '专属互动数字人',
+        profile: 'chinese',
+        image: finalImage,
+        custom: true,
+      };
       const existing = JSON.parse(localStorage.getItem('lingjing-custom-avatars') || '[]') as StoredAvatar[];
-      localStorage.setItem('lingjing-custom-avatars', JSON.stringify([...(Array.isArray(existing) ? existing : []), avatar]));
+      localStorage.setItem('lingjing-custom-avatars', JSON.stringify([avatar, ...(Array.isArray(existing) ? existing : [])]));
       router.push('/');
-    } catch {
+    } catch (cause) {
       setSaving(false);
-      setError('浏览器存储空间不足，请使用尺寸更小的照片。');
+      setError(cause instanceof Error ? cause.message : '浏览器存储空间不足，请使用尺寸更小的照片。');
     }
   };
 
   return (
-    <ProductShell>
-      <main className="designPage">
-        <button className="backButton designBack" type="button" onClick={() => router.push('/')}><ArrowLeft size={18} />返回形象列表</button>
-        <header className="designHeader">
-          <span className="eyebrow">AVATAR DESIGN STUDIO</span>
-          <h1>设计你的数字人</h1>
-          <p>一张清晰的正面照片，即可建立专属互动形象。</p>
-        </header>
-        <form className="designWorkspace" onSubmit={submit}>
-          <section className="designPreview">
-            <button type="button" className={`designUpload ${image ? 'hasImage' : ''}`} onClick={() => fileRef.current?.click()}>
-              {image ? <img src={image} alt="数字人形象预览" /> : <><span><ImagePlus size={34} /></span><strong>上传正面照片</strong><small>支持 JPG、PNG、WebP，建议人物居中且光线均匀</small></>}
-            </button>
-            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => void loadImage(event.target.files?.[0])} />
-            <div className="photoTips"><strong>照片要求</strong><span><Check size={14} />正脸面向镜头</span><span><Check size={14} />面部无遮挡</span><span><Check size={14} />背景简洁清晰</span></div>
-          </section>
-          <section className="designSettings">
-            <div className="settingHeading"><span>形象信息</span><small>创建后可立即在实时互动中选择</small></div>
-            <label><span>数字人名称</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：小岚" maxLength={16} /></label>
-            <label><span>角色定位</span><input value={role} onChange={(event) => setRole(event.target.value)} placeholder="例如：品牌讲解员" maxLength={24} /></label>
-            <label><span>默认声音</span><select defaultValue="warm"><option value="warm">温暖自然 · 中文女声</option><option value="clear">清晰专业 · 中文女声</option><option value="male">沉稳可信 · 中文男声</option></select></label>
-            <div className="designEngine"><Sparkles size={18} /><span><strong>MuseTalk 实时驱动</strong><small>新形象默认使用中文音视频生成配置</small></span></div>
-            {error && <div className="inlineError designError">{error}</div>}
-            <button className="primaryButton" disabled={!name.trim() || !image || saving} type="submit">{saving ? '正在创建…' : '完成创建'} <ArrowRight size={17} /></button>
-          </section>
-        </form>
-      </main>
-    </ProductShell>
+    <div className="creatorShell">
+      <header className="creatorTopbar">
+        <button className="creatorBack" type="button" onClick={() => router.push('/')} aria-label="返回形象列表"><ArrowLeft size={18} /></button>
+        <div className="creatorResourceTitle"><span>图片数字人 /</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="未命名形象" maxLength={16} /></div>
+        <span className="creatorSaveHint">配置会保存在当前浏览器</span>
+        <button className="creatorPublish" type="button" onClick={() => void saveAvatar()} disabled={!name.trim() || !image || saving}>{saving ? '正在保存…' : '保存并使用'}</button>
+      </header>
+
+      <div className="creatorBody">
+        <nav className="creatorRail" aria-label="数字人配置">
+          {CREATOR_TABS.map((tab) => {
+            const Icon = tab.icon;
+            return <button key={tab.id} className={activeTab === tab.id ? 'active' : ''} type="button" onClick={() => setActiveTab(tab.id)}><Icon size={20} /><span>{tab.label}</span></button>;
+          })}
+        </nav>
+
+        <aside className="creatorInspector">
+          {activeTab === 'appearance' && (
+            <>
+              <div className="inspectorHeading"><div><h1>形象设置</h1><p>上传照片并通过对话调整视觉风格</p></div><Sparkles size={19} /></div>
+              <button className={`creatorUpload ${image ? 'hasImage' : ''}`} type="button" onClick={() => fileRef.current?.click()}>
+                {image ? <><img src={image} alt="当前数字人形象" style={{ filter: imageFilter }} /><span>更换图片</span></> : <><ImagePlus size={28} /><strong>上传人物图片</strong><small>JPG / PNG / WebP，建议正脸、无遮挡</small></>}
+              </button>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => void loadImage(event.target.files?.[0])} />
+
+              <section className="imageChat">
+                <div className="imageChatTitle"><MessageSquareText size={16} /><span><strong>对话修改形象</strong><small>当前支持本地画面风格指令</small></span></div>
+                <div className="imageChatMessages">
+                  {chat.slice(-4).map((message, index) => <p className={message.role} key={`${message.role}-${index}`}>{message.text}</p>)}
+                </div>
+                <form className="imagePrompt" onSubmit={modifyImage}>
+                  <input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：整体亮一点" />
+                  <button aria-label="发送修改要求" disabled={!prompt.trim()}><Send size={15} /></button>
+                </form>
+                <div className="apiBoundary"><Sparkles size={13} />复杂重绘已预留图像编辑 API 接入位置</div>
+              </section>
+            </>
+          )}
+
+          {activeTab === 'voice' && (
+            <>
+              <div className="inspectorHeading"><div><h1>声音设置</h1><p>为数字人选择默认播报声音</p></div><Volume2 size={19} /></div>
+              <div className="voiceOptions">
+                {['温暖自然 · 中文女声', '清晰专业 · 中文女声', '沉稳可信 · 中文男声'].map((item) => <button className={voice === item ? 'active' : ''} type="button" key={item} onClick={() => setVoice(item)}><span><strong>{item.split(' · ')[0]}</strong><small>{item.split(' · ')[1]}</small></span>{voice === item && <Check size={16} />}</button>)}
+              </div>
+              <div className="creatorInfoNote"><Volume2 size={16} /><span><strong>实时语音驱动</strong><small>进入互动或直播后，可通过项目现有 MuseTalk 流程生成音视频。</small></span></div>
+            </>
+          )}
+
+          {activeTab === 'background' && (
+            <>
+              <div className="inspectorHeading"><div><h1>背景设置</h1><p>选择预览和直播画布背景</p></div><Palette size={19} /></div>
+              <div className="backgroundOptions">
+                {BACKGROUNDS.map((item) => <button key={item.id} className={background === item.id ? 'active' : ''} type="button" onClick={() => setBackground(item.id)}><i className={item.className} /> <span>{item.label}</span>{background === item.id && <Check size={14} />}</button>)}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'persona' && (
+            <>
+              <div className="inspectorHeading"><div><h1>人设设置</h1><p>定义数字人的身份与开场方式</p></div><Bot size={19} /></div>
+              <div className="personaFields">
+                <label><span>数字人名称</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：小岚" maxLength={16} /></label>
+                <label><span>角色定位</span><input value={role} onChange={(event) => setRole(event.target.value)} placeholder="例如：品牌讲解员" maxLength={24} /></label>
+                <label><span>开场问候</span><textarea value={greeting} onChange={(event) => setGreeting(event.target.value)} rows={5} maxLength={120} /></label>
+              </div>
+            </>
+          )}
+
+          {error && <div className="inlineError creatorError">{error}</div>}
+        </aside>
+
+        <main className="creatorStage">
+          <div className="creatorNotice"><Sparkles size={15} /><span>{background === 'transparent' ? '当前为透明背景预览，保存后可在互动与直播场景中继续配置。' : '当前背景仅用于构图预览，形象会以原始比例完整显示。'}</span></div>
+          <div className={`creatorCanvas background-${background}`}>
+            {image ? <img src={image} alt="数字人预览" style={{ filter: imageFilter }} /> : <button type="button" onClick={() => fileRef.current?.click()}><ImagePlus size={30} /><strong>上传一张图片开始创建</strong><span>人物会在这里以原始比例预览</span></button>}
+            {image && <span className="creatorAiBadge"><Sparkles size={12} />图片数字人</span>}
+          </div>
+          <div className="creatorStageActions">
+            <button type="button" onClick={() => setImageFilter('none')} disabled={!image || imageFilter === 'none'}><RotateCcw size={16} />恢复原图</button>
+            <span>{voice}</span>
+          </div>
+        </main>
+      </div>
+    </div>
   );
 }

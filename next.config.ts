@@ -2,6 +2,8 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Hide Next.js development-only toolbar and its diagnostics panel.
+  devIndicators: false,
   turbopack: {
     root: process.cwd(),
   },
