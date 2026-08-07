@@ -34,7 +34,7 @@ import { MuseTalkAvatarProfile, MuseTalkTotalStream } from '@/lib/musetalk-total
 import { ProductShell } from '@/components/product-shell';
 
 const AVATARS = [
-  { id: 'chinese', name: '林汐', role: '亲和型主播', image: '/assets/digital-humans/linxi.webp', type: '真人', gender: '女', age: '青年' },
+  { id: 'chinese', name: '林汐', role: '亲和型主播', image: '/assets/musetalk-avatars/chinese.jpg', type: '真人', gender: '女', age: '青年' },
   { id: 'business_male_1', name: '商务男1', role: '专业型主播', image: '/assets/musetalk-avatars/business-male-1.jpg', type: '真人', gender: '男', age: '青年' },
   { id: 'casual_male', name: '休闲风', role: '生活方式主播', image: '/assets/musetalk-avatars/casual-male.jpg', type: '真人', gender: '男', age: '青年' },
   { id: 'middle_aged_male', name: '中年男士', role: '资深行业顾问', image: '/assets/musetalk-avatars/middle-aged-male.jpg', type: '真人', gender: '男', age: '中年' },
@@ -342,11 +342,6 @@ export function LiveStudio() {
       onMediaActive: setMediaActive,
     });
     streamRef.current = stream;
-    void stream.startLive().catch((cause) => {
-      if (streamRef.current !== stream) return;
-      setStage('error');
-      setError(cause instanceof Error ? cause.message : String(cause));
-    });
     return () => {
       void stream.stopLive();
       if (streamRef.current === stream) streamRef.current = null;
@@ -765,7 +760,7 @@ export function LiveStudio() {
     );
   }
 
-  const previewHost = avatarId === 'chinese' ? '/assets/xiling-live/host.png' : avatar.image;
+  const previewHost = avatar.image;
 
   return (
     <main className="xilingLive">

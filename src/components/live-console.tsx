@@ -984,19 +984,6 @@ export function LiveConsole() {
     },
   });
 
-  useEffect(() => {
-    const canvas = museTalkTotalCanvasRef.current;
-    if (mode !== 'musetalk' || museTalkTotalUp !== true || !canvas || museTalkTotalRef.current) return;
-    const total = createMuseTalkTotal(canvas);
-    museTalkTotalRef.current = total;
-    void total.startLive().catch((cause) => {
-      if (museTalkTotalRef.current !== total || modeRef.current !== 'musetalk') return;
-      setMuseTalkTotalStage('error');
-      setMuseTalkMediaSource(null);
-      setBroadcastErr(`MuseTalk 静息流启动失败：${cause instanceof Error ? cause.message : String(cause)}`);
-    });
-  }, [mode, museTalkTotalUp]);
-
   const monitorMuseTalkPlayback = async (requestId: number, generation: number) => {
     let observed = false;
     for (let attempt = 0; attempt < 2400; attempt += 1) {
@@ -1517,7 +1504,7 @@ export function LiveConsole() {
             onClick={() => void switchMode('musetalk')}
             hint={
               museTalkTotalUp
-                ? 'MuseTalk 总流程已就绪 · :8080 · 空闲视频/流式媒体自动切换'
+                ? 'MuseTalk 总流程已就绪 · :8080 · 首帧待机/问答流式媒体自动切换'
                 : museTalkUp
                 ? mounted
                   ? `MuseTalk ${museTalkHealth?.model_version || '1.5'} 已就绪 · ${MUSETALK_URL}`
@@ -1658,7 +1645,7 @@ export function LiveConsole() {
               }}
             />
             <img
-              src="/assets/digital-humans/linxi.webp"
+              src="/assets/musetalk-avatars/chinese.jpg"
               alt="MuseTalk 数字人待机画面"
               aria-hidden={!showMuseTalkIdle}
               style={{
@@ -1724,7 +1711,7 @@ export function LiveConsole() {
                 : isMuseTalk && museTalkMediaSource === 'total'
                   ? `MuseTalk 总流程 · ${museTalkTotalStage}`
                   : isMuseTalk && museTalkMediaSource === null
-                    ? 'MuseTalk 默认人物 · 前 1 秒静音循环待机'
+                    ? 'MuseTalk 默认人物 · 首帧静态待机'
                 : avatarConnected
                   ? isFlashHead
                     ? flashHeadBodyEnabled

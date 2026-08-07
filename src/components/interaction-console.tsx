@@ -24,97 +24,25 @@ type Message = { role: 'user' | 'avatar'; text: string };
 
 const DEFAULT_AVATARS: Avatar[] = [
   {
-    id: 'linxi',
+    id: 'chinese',
     profile: 'chinese',
     language: 'ZH',
-    name: '林汐',
+    name: '中文女',
     role: '品牌咨询顾问',
-    description: '亲和专业，擅长品牌接待',
-    image: '/assets/digital-humans/linxi.webp',
+    description: '默认中文数字人，适合品牌接待与内容讲解',
+    image: '/assets/musetalk-avatars/chinese.jpg',
   },
   {
-    id: 'avery',
-    profile: 'chinese',
-    language: 'EN',
-    name: 'Avery',
-    role: '双语数字助理',
-    description: '自然自信，服务国际业务',
-    image: '/assets/digital-humans/avery.webp',
-  },
-  {
-    id: 'chenyu',
+    id: 'business_male_1',
     profile: 'business_male_1',
     language: 'ZH',
-    name: '陈屿',
+    name: '商务男1',
     role: '企业服务顾问',
-    description: '沉稳可靠，擅长企业服务',
-    image: '/assets/digital-humans/chenyu.webp',
+    description: '沉稳专业，适合企业服务与商务沟通',
+    image: '/assets/musetalk-avatars/business-male-1.jpg',
   },
   {
-    id: 'maya',
-    profile: 'chinese',
-    language: 'EN',
-    name: 'Maya',
-    role: '产品解决方案顾问',
-    description: '清晰敏锐，专注产品咨询',
-    image: '/assets/digital-humans/maya.webp',
-  },
-  {
-    id: 'zhoulan',
-    profile: 'chinese',
-    language: 'ZH',
-    name: '周岚',
-    role: '资深服务顾问',
-    description: '温和可信，善于深度沟通',
-    image: '/assets/digital-humans/zhoulan.webp',
-  },
-  {
-    id: 'noah',
-    profile: 'business_male_1',
-    language: 'EN',
-    name: 'Noah',
-    role: '国际业务顾问',
-    description: '活力友好，熟悉国际业务',
-    image: '/assets/digital-humans/noah.webp',
-  },
-  {
-    id: 'suqing',
-    profile: 'chinese',
-    language: 'ZH',
-    name: '苏晴',
-    role: '生活方式顾问',
-    description: '温暖松弛，擅长生活分享',
-    image: '/assets/digital-humans/suqing.webp',
-  },
-  {
-    id: 'guyan',
-    profile: 'business_male_1',
-    language: 'ZH',
-    name: '顾言',
-    role: '科技产品顾问',
-    description: '理性清晰，善于产品演示',
-    image: '/assets/digital-humans/guyan.webp',
-  },
-  {
-    id: 'tangyue',
-    profile: 'chinese',
-    language: 'ZH',
-    name: '唐悦',
-    role: '文化内容顾问',
-    description: '知性自然，专注内容讲解',
-    image: '/assets/digital-humans/tangyue.webp',
-  },
-  {
-    id: 'liangchuan',
-    profile: 'business_male_1',
-    language: 'ZH',
-    name: '梁川',
-    role: '商务沟通顾问',
-    description: '成熟从容，擅长商务沟通',
-    image: '/assets/digital-humans/liangchuan.webp',
-  },
-  {
-    id: 'casual-male',
+    id: 'casual_male',
     profile: 'casual_male',
     language: 'ZH',
     name: '休闲风',
@@ -123,16 +51,16 @@ const DEFAULT_AVATARS: Avatar[] = [
     image: '/assets/musetalk-avatars/casual-male.jpg',
   },
   {
-    id: 'middle-aged-male',
+    id: 'middle_aged_male',
     profile: 'middle_aged_male',
     language: 'ZH',
-    name: '中年男士',
+    name: '中年',
     role: '资深行业顾问',
     description: '成熟稳重，适合专业解读与经验分享',
     image: '/assets/musetalk-avatars/middle-aged-male.jpg',
   },
   {
-    id: 'casual-conversation',
+    id: 'casual_conversation',
     profile: 'casual_conversation',
     language: 'ZH',
     name: '休闲交流',
@@ -141,10 +69,10 @@ const DEFAULT_AVATARS: Avatar[] = [
     image: '/assets/musetalk-avatars/casual-conversation.jpg',
   },
   {
-    id: 'casual-female',
+    id: 'casual_female',
     profile: 'casual_female',
     language: 'ZH',
-    name: '休闲女主播',
+    name: '休闲女',
     role: '内容分享主播',
     description: '知性自然，适合知识分享与产品介绍',
     image: '/assets/musetalk-avatars/casual-female.jpg',
@@ -192,11 +120,6 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
       },
     });
     streamRef.current = stream;
-    void stream.startLive().catch((cause) => {
-      if (streamRef.current !== stream) return;
-      setStage('error');
-      setError(cause instanceof Error ? cause.message : String(cause));
-    });
     return () => {
       void stream.stopLive();
       if (streamRef.current === stream) streamRef.current = null;

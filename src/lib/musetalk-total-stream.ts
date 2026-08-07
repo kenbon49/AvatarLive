@@ -142,6 +142,8 @@ export class MuseTalkTotalStream {
   private scheduledTextUnits = new Set<number>();
   private textTimers = new Set<number>();
   private videoTimers = new Set<number>();
+  private playbackEndTimer: number | null = null;
+  private videoScheduledUntilWall = 0;
   private activeRequest: ActiveRequest | null = null;
 
   constructor(
@@ -154,10 +156,9 @@ export class MuseTalkTotalStream {
   }
 
   private setMediaActive(active: boolean) {
-    if (active) {
-      this.mediaVisible = true;
-      this.options.onMediaActive?.(true);
-    }
+    if (this.mediaVisible === active) return;
+    this.mediaVisible = active;
+    this.options.onMediaActive?.(active);
   }
 
   private failConnecting(error: Error) {
@@ -233,7 +234,9 @@ export class MuseTalkTotalStream {
       bitmap.close();
       return;
     }
-    const delay = Math.max(0, this.mediaStartWall + ptsSeconds * 1000 - performance.now());
+    const scheduledAt = this.mediaStartWall + ptsSeconds * 1000;
+    this.videoScheduledUntilWall = Math.max(this.videoScheduledUntilWall, scheduledAt);
+    const delay = Math.max(0, scheduledAt - performance.now());
     const timer = window.setTimeout(() => {
       this.videoTimers.delete(timer);
       if (generation !== this.sessionGeneration) {
@@ -300,6 +303,10 @@ export class MuseTalkTotalStream {
   }
 
   private async closeAudio() {
+    if (this.playbackEndTimer !== null) {
+      window.clearTimeout(this.playbackEndTimer);
+      this.playbackEndTimer = null;
+    }
     for (const source of this.audioSources) {
       try {
         source.stop();
@@ -314,6 +321,31 @@ export class MuseTalkTotalStream {
     if (this.audioContext && this.audioContext.state !== 'closed') await this.audioContext.close();
     this.audioContext = null;
     this.mediaTimelineStarted = false;
+    this.videoScheduledUntilWall = 0;
+  }
+
+  private finishAfterPlayback(active: ActiveRequest, result: MuseTalkTotalResult) {
+    const audioDelay = this.audioContext
+      ? Math.max(0, this.audioScheduledUntil - this.audioContext.currentTime) * 1000
+      : 0;
+    const videoDelay = Math.max(0, this.videoScheduledUntilWall - performance.now());
+    const delay = Math.max(audioDelay, videoDelay);
+    const finish = () => {
+      this.playbackEndTimer = null;
+      if (this.activeRequest !== active) return;
+      this.activeRequest = null;
+      this.mediaTimelineStarted = false;
+      this.audioScheduledUntil = 0;
+      this.videoScheduledUntilWall = 0;
+      this.setMediaActive(false);
+      this.setStage('idle');
+      active.resolve(result);
+    };
+    if (delay <= 0) {
+      finish();
+      return;
+    }
+    this.playbackEndTimer = window.setTimeout(finish, delay + 50);
   }
 
   private startMediaTimeline(): boolean {
@@ -332,29 +364,11 @@ export class MuseTalkTotalStream {
     if (generation !== this.sessionGeneration) return;
     const type = String(message.type || 'unknown');
     if (type === 'ready') {
-      this.websocket?.send(
-        JSON.stringify({
-          type: 'idle_start',
-          profile: this.options.profile || 'chinese',
-        }),
-      );
-      return;
-    }
-    if (type === 'idle_started' || type === 'idle_chunk') {
-      this.startMediaTimeline();
-      if (!this.activeRequest) this.setStage('idle');
-      if (type === 'idle_started') this.resolveConnecting();
-      return;
-    }
-    if (type === 'idle_stopped') {
-      return;
-    }
-    if (type === 'idle_error') {
-      if (!this.activeRequest) this.setStage('idle_reconnecting');
+      this.resolveConnecting();
       return;
     }
     const requestId = message.request_id === undefined ? null : String(message.request_id);
-    if (requestId && requestId !== 'idle' && requestId !== this.activeRequest?.requestId) {
+    if (requestId && requestId !== this.activeRequest?.requestId) {
       return;
     }
     if (type === 'llm_start' || type === 'llm_delta') {
@@ -410,9 +424,8 @@ export class MuseTalkTotalStream {
       if (active && active.requestId === requestId) {
         const answer = String(message.answer || active.streamedText || active.answer);
         this.ensureAnswerVisible(answer, this.textGeneration);
-        this.activeRequest = null;
         this.setStage('playing');
-        active.resolve({
+        this.finishAfterPlayback(active, {
           answer,
           llmLatencyMs: active.llmLatencyMs,
           totalLatencyMs: Number(message.elapsed_ms || Math.round(performance.now() - active.startedAt)),
@@ -511,6 +524,9 @@ export class MuseTalkTotalStream {
     const startedAt = performance.now();
     this.textGeneration += 1;
     this.resetTextTimeline();
+    this.mediaTimelineStarted = false;
+    this.audioScheduledUntil = 0;
+    this.videoScheduledUntilWall = 0;
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
       this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
       websocket.send(
@@ -535,6 +551,9 @@ export class MuseTalkTotalStream {
     const startedAt = performance.now();
     this.textGeneration += 1;
     this.resetTextTimeline();
+    this.mediaTimelineStarted = false;
+    this.audioScheduledUntil = 0;
+    this.videoScheduledUntilWall = 0;
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
       this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
       websocket.send(
@@ -564,6 +583,8 @@ export class MuseTalkTotalStream {
         JSON.stringify({ type: 'cancel', request_id: requestId }),
       );
     }
+    await this.closeAudio();
+    this.setMediaActive(false);
     if (websocket && websocket.readyState === WebSocket.OPEN) this.setStage('idle');
   }
 
@@ -577,17 +598,9 @@ export class MuseTalkTotalStream {
     this.resetTextTimeline();
     const websocket = this.websocket;
     this.websocket = null;
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-      try {
-        websocket.send(JSON.stringify({ type: 'idle_stop' }));
-      } catch {
-        // The connection may already be gone.
-      }
-    }
     websocket?.close();
-    this.mediaVisible = false;
     this.mediaTimelineStarted = false;
-    this.options.onMediaActive?.(false);
+    this.setMediaActive(false);
     this.setStage('idle');
     await this.closeAudio();
   }
