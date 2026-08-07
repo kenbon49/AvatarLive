@@ -1094,6 +1094,17 @@ export function LiveConsole() {
           onStage: (stage) => {
             if (interactionIsCurrent(generation, operationMode)) setMuseTalkTotalStage(stage);
           },
+          onTextUnit: (_unit, text) => {
+            if (!interactionIsCurrent(generation, operationMode)) return;
+            setQaResult((current) => ({
+              session_id: current?.session_id || session?.id || 'server-total',
+              question,
+              answer: text,
+              model_id: current?.model_id || 'server_total/LiteLLM',
+              llm_latency_ms: current?.llm_latency_ms || 0,
+              livetalking: null,
+            }));
+          },
         });
         const previousTotal = museTalkTotalRef.current;
         museTalkTotalRef.current = total;
@@ -1136,7 +1147,12 @@ export function LiveConsole() {
         // 兼容 UE 路径仍由 datachannel 注入后端返回的语音。
         driveAvatar(res.answer, res.livetalking.audio);
       }
-      setQaResult(res);
+      setQaResult((current) => {
+        if (operationMode === 'musetalk') {
+          return { ...res, answer: current?.answer || '' };
+        }
+        return res;
+      });
       setHistory((h) =>
         [
           { question: res.question, answer: res.answer, llmMs: res.llm_latency_ms, model: res.model_id },

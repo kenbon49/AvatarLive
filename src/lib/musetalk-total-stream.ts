@@ -4,18 +4,68 @@ export interface MuseTalkTotalResult {
   totalLatencyMs: number;
 }
 
+export type MuseTalkAvatarProfile = 'chinese' | 'business_male_1';
+type MuseTalkStreamProfile = MuseTalkAvatarProfile | 'american';
+
+export interface MuseTalkAvatarCatalogEntry {
+  id: MuseTalkAvatarProfile;
+  name: string;
+  default: boolean;
+}
+
+export interface MuseTalkAvatarCatalog {
+  default: MuseTalkAvatarProfile;
+  avatars: MuseTalkAvatarCatalogEntry[];
+}
+
 interface MuseTalkTotalOptions {
-  profile?: 'american' | 'chinese';
+  profile?: MuseTalkStreamProfile;
   language?: 'ZH' | 'EN';
   speed?: number;
   onMediaActive?: (active: boolean) => void;
   onStage?: (stage: string) => void;
+  onTextUnit?: (unit: string, text: string) => void;
 }
 
 type ControlMessage = Record<string, unknown> & { type?: string };
 
 const PACKET_HEADER_BYTES = 24;
 const PCM_CHUNK_BYTES = 64 * 1024;
+const SUPPORTED_AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
+  'chinese',
+  'business_male_1',
+]);
+
+function isAvatarProfile(value: unknown): value is MuseTalkAvatarProfile {
+  return typeof value === 'string' && SUPPORTED_AVATAR_PROFILES.has(value as MuseTalkAvatarProfile);
+}
+
+export async function fetchMuseTalkAvatarCatalog(): Promise<MuseTalkAvatarCatalog> {
+  const response = await fetch('/musetalk-total-api/v1/avatars', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`MuseTalk 数字人目录加载失败（HTTP ${response.status}）`);
+  }
+
+  const payload = (await response.json()) as {
+    default?: unknown;
+    avatars?: Array<{ id?: unknown; name?: unknown; default?: unknown }>;
+  };
+  const avatars = (Array.isArray(payload.avatars) ? payload.avatars : [])
+    .filter((item): item is { id: MuseTalkAvatarProfile; name?: unknown; default?: unknown } =>
+      isAvatarProfile(item?.id),
+    )
+    .map((item) => ({
+      id: item.id,
+      name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : item.id,
+      default: item.default === true,
+    }));
+  if (!avatars.length) throw new Error('MuseTalk 服务没有返回可用的数字人');
+
+  const defaultProfile = isAvatarProfile(payload.default) && avatars.some((item) => item.id === payload.default)
+    ? payload.default
+    : avatars.find((item) => item.default)?.id || avatars[0].id;
+  return { default: defaultProfile, avatars };
+}
 
 function conversationUrl(): string {
   const configured = process.env.NEXT_PUBLIC_MUSETALK_TOTAL_URL?.trim();
@@ -66,6 +116,10 @@ export class MuseTalkTotalStream {
   private mediaEndSeconds = 0;
   private mediaVisible = false;
   private mediaTimelineStarted = false;
+  private displayedText = '';
+  private pendingTextUnits = new Map<number, { text: string; ptsSeconds: number }>();
+  private scheduledTextUnits = new Set<number>();
+  private textTimers = new Set<number>();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -148,6 +202,36 @@ export class MuseTalkTotalStream {
     }, delay + 80);
   }
 
+  private queueTextUnit(sequence: number, text: string, ptsSeconds: number, generation: number) {
+    if (!text || this.scheduledTextUnits.has(sequence)) return;
+    this.pendingTextUnits.set(sequence, { text, ptsSeconds });
+    if (this.mediaTimelineStarted) this.scheduleTextUnits(generation);
+  }
+
+  private scheduleTextUnits(generation: number) {
+    if (!this.mediaTimelineStarted) return;
+    for (const [sequence, unit] of [...this.pendingTextUnits.entries()].sort(([a], [b]) => a - b)) {
+      if (this.scheduledTextUnits.has(sequence)) continue;
+      this.scheduledTextUnits.add(sequence);
+      const delay = Math.max(0, this.mediaStartWall + unit.ptsSeconds * 1000 - performance.now());
+      const timer = window.setTimeout(() => {
+        this.textTimers.delete(timer);
+        if (generation !== this.generation) return;
+        this.displayedText += unit.text;
+        this.options.onTextUnit?.(unit.text, this.displayedText);
+      }, delay);
+      this.textTimers.add(timer);
+    }
+  }
+
+  private resetTextTimeline() {
+    for (const timer of this.textTimers) window.clearTimeout(timer);
+    this.textTimers.clear();
+    this.pendingTextUnits.clear();
+    this.scheduledTextUnits.clear();
+    this.displayedText = '';
+  }
+
   private async closeAudio() {
     for (const source of this.audioSources) {
       try {
@@ -172,6 +256,7 @@ export class MuseTalkTotalStream {
     this.mediaTimelineStarted = true;
     this.mediaStartAudio = audioContext.currentTime + 0.65;
     this.mediaStartWall = performance.now() + 650;
+    this.scheduleTextUnits(this.generation);
   }
 
   async prepareAudio(): Promise<void> {
@@ -188,6 +273,7 @@ export class MuseTalkTotalStream {
     this.mediaEndSeconds = 0;
     this.mediaVisible = false;
     this.mediaTimelineStarted = false;
+    this.resetTextTimeline();
     await this.prepareAudio();
     this.setStage('connecting');
 
@@ -196,6 +282,7 @@ export class MuseTalkTotalStream {
       websocket.binaryType = 'arraybuffer';
       this.websocket = websocket;
       let answer = '';
+      let streamedText = '';
       let llmLatencyMs = 0;
       let settled = false;
 
@@ -206,6 +293,7 @@ export class MuseTalkTotalStream {
         this.setStage('error');
         this.websocket = null;
         websocket.close();
+        this.resetTextTimeline();
         void this.closeAudio();
         reject(error instanceof Error ? error : new Error(String(error)));
       };
@@ -239,8 +327,24 @@ export class MuseTalkTotalStream {
               speed: this.options.speed || 1,
             }),
           );
+        } else if (type === 'llm_delta') {
+          const delta = String(message.delta || '');
+          if (delta) streamedText += delta;
+        } else if (type === 'text_unit') {
+          const sequence = Number(message.seq);
+          const ptsUs = Number(message.pts_us);
+          if (Number.isInteger(sequence) && Number.isFinite(ptsUs)) {
+            this.queueTextUnit(sequence, String(message.text || ''), ptsUs / 1_000_000, generation);
+          }
+        } else if (type === 'segment_start') {
+          // Compatibility with older server_total versions that emitted text_unit before media PTS existed.
+          const sequence = Number(message.seq);
+          const ptsUs = Number(message.pts_us);
+          if (Number.isInteger(sequence) && Number.isFinite(ptsUs)) {
+            this.queueTextUnit(sequence, String(message.text || ''), ptsUs / 1_000_000, generation);
+          }
         } else if (type === 'llm_result') {
-          answer = String(message.answer || '');
+          answer = String(message.answer || streamedText);
           llmLatencyMs = Number(message.elapsed_ms || 0);
         } else if (type === 'stream_start') {
           try {
@@ -251,6 +355,8 @@ export class MuseTalkTotalStream {
         } else if (type === 'error') {
           fail(new Error(String(message.message || 'MuseTalk 总流程失败')));
         } else if (type === 'conversation_end') {
+          answer = String(message.answer || answer || streamedText);
+          this.setStage('playing');
           this.scheduleIdle(generation);
           settled = true;
           this.websocket = null;
@@ -272,6 +378,7 @@ export class MuseTalkTotalStream {
     this.mediaEndSeconds = 0;
     this.mediaVisible = false;
     this.mediaTimelineStarted = false;
+    this.resetTextTimeline();
     await this.prepareAudio();
     this.setStage('tts_start');
 
@@ -369,6 +476,7 @@ export class MuseTalkTotalStream {
     websocket?.close();
     this.mediaVisible = false;
     this.options.onMediaActive?.(false);
+    this.resetTextTimeline();
     await this.closeAudio();
   }
 }
