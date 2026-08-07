@@ -1,7 +1,8 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Headphones, Mic, MicOff, PhoneCall, Send, Sparkles } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowLeft, Headphones, ImagePlus, Mic, MicOff, PhoneCall, Send, Sparkles } from 'lucide-react';
 import {
   fetchMuseTalkAvatarCatalog,
   MuseTalkAvatarProfile,
@@ -10,7 +11,9 @@ import {
 import { ProductShell } from '@/components/product-shell';
 
 type Avatar = {
-  id: MuseTalkAvatarProfile;
+  id: string;
+  profile: MuseTalkAvatarProfile;
+  language: 'ZH' | 'EN';
   name: string;
   role: string;
   description: string;
@@ -19,24 +22,98 @@ type Avatar = {
 
 type Message = { role: 'user' | 'avatar'; text: string };
 
-const AVATAR_PRESETS: Record<MuseTalkAvatarProfile, Avatar> = {
-  chinese: {
-    id: 'chinese',
+const DEFAULT_AVATARS: Avatar[] = [
+  {
+    id: 'linxi',
+    profile: 'chinese',
+    language: 'ZH',
     name: '林汐',
     role: '品牌咨询顾问',
-    description: '亲和自然，适合产品讲解与客户接待',
-    image: '/assets/musetalk-avatars/chinese.jpg',
+    description: '亲和专业，擅长品牌接待',
+    image: '/assets/digital-humans/linxi.webp',
   },
-  business_male_1: {
-    id: 'business_male_1',
-    name: '商务男1',
+  {
+    id: 'avery',
+    profile: 'chinese',
+    language: 'EN',
+    name: 'Avery',
+    role: '双语数字助理',
+    description: '自然自信，服务国际业务',
+    image: '/assets/digital-humans/avery.webp',
+  },
+  {
+    id: 'chenyu',
+    profile: 'business_male_1',
+    language: 'ZH',
+    name: '陈屿',
     role: '企业服务顾问',
-    description: '沉稳专业，适合方案讲解与客户沟通',
-    image: '/assets/musetalk-avatars/business-male-1.jpg',
+    description: '沉稳可靠，擅长企业服务',
+    image: '/assets/digital-humans/chenyu.webp',
   },
-};
-
-const DEFAULT_AVATARS = Object.values(AVATAR_PRESETS);
+  {
+    id: 'maya',
+    profile: 'chinese',
+    language: 'EN',
+    name: 'Maya',
+    role: '产品解决方案顾问',
+    description: '清晰敏锐，专注产品咨询',
+    image: '/assets/digital-humans/maya.webp',
+  },
+  {
+    id: 'zhoulan',
+    profile: 'chinese',
+    language: 'ZH',
+    name: '周岚',
+    role: '资深服务顾问',
+    description: '温和可信，善于深度沟通',
+    image: '/assets/digital-humans/zhoulan.webp',
+  },
+  {
+    id: 'noah',
+    profile: 'business_male_1',
+    language: 'EN',
+    name: 'Noah',
+    role: '国际业务顾问',
+    description: '活力友好，熟悉国际业务',
+    image: '/assets/digital-humans/noah.webp',
+  },
+  {
+    id: 'suqing',
+    profile: 'chinese',
+    language: 'ZH',
+    name: '苏晴',
+    role: '生活方式顾问',
+    description: '温暖松弛，擅长生活分享',
+    image: '/assets/digital-humans/suqing.webp',
+  },
+  {
+    id: 'guyan',
+    profile: 'business_male_1',
+    language: 'ZH',
+    name: '顾言',
+    role: '科技产品顾问',
+    description: '理性清晰，善于产品演示',
+    image: '/assets/digital-humans/guyan.webp',
+  },
+  {
+    id: 'tangyue',
+    profile: 'chinese',
+    language: 'ZH',
+    name: '唐悦',
+    role: '文化内容顾问',
+    description: '知性自然，专注内容讲解',
+    image: '/assets/digital-humans/tangyue.webp',
+  },
+  {
+    id: 'liangchuan',
+    profile: 'business_male_1',
+    language: 'ZH',
+    name: '梁川',
+    role: '商务沟通顾问',
+    description: '成熟从容，擅长商务沟通',
+    image: '/assets/digital-humans/liangchuan.webp',
+  },
+];
 
 function AvatarMedia({ avatar, className = '' }: { avatar: Avatar; className?: string }) {
   return <img className={className} src={avatar.image} alt={`${avatar.name} 数字人形象`} />;
@@ -64,8 +141,8 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   useEffect(() => {
     if (!canvasRef.current) return;
     streamRef.current = new MuseTalkTotalStream(canvasRef.current, {
-      profile: avatar.id,
-      language: 'ZH',
+      profile: avatar.profile,
+      language: avatar.language,
       onStage: setStage,
       onMediaActive: setMediaActive,
       onTextUnit: (_unit, text) => {
@@ -115,7 +192,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
       return;
     }
     const recognition = new SpeechRecognition();
-    recognition.lang = 'zh-CN';
+    recognition.lang = avatar.language === 'EN' ? 'en-US' : 'zh-CN';
     recognition.interimResults = true;
     recognition.onresult = (event: any) => {
       const transcript = Array.from(event.results)
@@ -205,9 +282,8 @@ export function InteractionConsole() {
     void fetchMuseTalkAvatarCatalog()
       .then((catalog) => {
         if (!active) return;
-        const available = catalog.avatars
-          .map((item) => AVATAR_PRESETS[item.id])
-          .filter((item): item is Avatar => Boolean(item));
+        const availableProfiles = new Set(catalog.avatars.map((item) => item.id));
+        const available = DEFAULT_AVATARS.filter((item) => availableProfiles.has(item.profile));
         if (available.length) setAvatars(available);
         setDefaultProfile(catalog.default);
         setCatalogError('');
@@ -227,7 +303,7 @@ export function InteractionConsole() {
 
   if (selected) return <Conversation avatar={selected} onBack={() => setSelected(null)} />;
 
-  const featuredAvatar = avatars.find((avatar) => avatar.id === defaultProfile) || avatars[0];
+  const featuredAvatar = avatars.find((avatar) => avatar.profile === defaultProfile) || avatars[0];
 
   return (
     <ProductShell>
@@ -253,11 +329,15 @@ export function InteractionConsole() {
           </header>
           {catalogError && <div className="inlineError">{catalogError}，当前显示内置目录，请确认 server_total :8080 已启动。</div>}
           <div className="avatarCatalogGrid">
+            <Link className="createAvatarCard" href="/design">
+              <span className="createAvatarIcon"><ImagePlus size={27} /></span>
+              <span><strong>创建自己的数字人</strong><small>上传图片或通过对话修改形象</small></span>
+            </Link>
             {avatars.map((avatar) => (
               <button className="avatarProductCard" type="button" key={avatar.id} onClick={() => setSelected(avatar)}>
-                <span className="avatarProductMedia"><AvatarMedia avatar={avatar} /><span className="cardOnline"><i />可体验</span></span>
+                <span className="avatarProductMedia"><AvatarMedia avatar={avatar} /></span>
                 <span className="avatarProductInfo">
-                  <span><strong>{avatar.name}</strong><small>{avatar.role}</small></span>
+                  <span><strong>{avatar.name}</strong><small>{avatar.description || avatar.role}</small></span>
                 </span>
               </button>
             ))}

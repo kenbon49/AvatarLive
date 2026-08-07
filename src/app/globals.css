@@ -81,21 +81,21 @@ img, video, canvas { display: block; }
 .catalogTabs { display: flex; align-items: center; gap: 15px; }
 .catalogTabs button { padding: 0 0 6px; border: 0; border-bottom: 2px solid var(--blue); background: transparent; color: var(--blue); font-size: 11px; font-weight: 700; }
 .catalogTabs span { color: #979caf; font-size: 10px; }
-.avatarCatalogGrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
-.avatarProductCard { height: 284px; min-width: 0; padding: 0; overflow: hidden; border: 1px solid #e6e8ed; border-radius: 12px; display: flex; flex-direction: column; background: white; text-align: left; cursor: pointer; box-shadow: none; transition: border .2s, transform .2s, box-shadow .2s; }
+.avatarCatalogGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 176px)); gap: 16px; align-items: stretch; justify-content: start; }
+.avatarProductCard { min-width: 0; padding: 0; overflow: hidden; aspect-ratio: 9 / 16; border: 1px solid #e6e8ed; border-radius: 12px; display: flex; flex-direction: column; background: white; text-align: left; cursor: pointer; box-shadow: none; transition: border .2s, transform .2s, box-shadow .2s; }
 .avatarProductCard:hover { border-color: #aeb8ff; transform: translateY(-2px); box-shadow: 0 10px 25px rgba(35, 43, 79, .08); }
-.avatarProductMedia { height: 226px; flex: 0 0 226px; display: block; overflow: hidden; position: relative; background: #e9ebf7; }
-.avatarProductMedia img { width: 100%; height: 100%; object-fit: cover; object-position: center 27%; transition: transform .45s; }
-.avatarProductCard:hover img { transform: scale(1.025); }
+.avatarProductMedia { width: 100%; aspect-ratio: 2 / 3; flex: 0 0 auto; display: block; overflow: hidden; position: relative; background: white; }
+.avatarProductMedia img { width: 100%; height: 100%; object-fit: contain; object-position: center; transition: filter .25s; }
+.avatarProductCard:hover img { filter: brightness(1.025); }
 .cardOnline { position: absolute; left: 12px; top: 12px; padding: 6px 9px; border-radius: 999px; display: flex; align-items: center; gap: 7px; color: white; background: rgba(17, 26, 55, .68); backdrop-filter: blur(10px); font-size: 8px; }
 .cardOnline i { width: 5px; height: 5px; box-shadow: none; }
-.avatarProductInfo { min-height: 57px; padding: 10px 13px; display: flex; align-items: center; justify-content: space-between; }
+.avatarProductInfo { min-height: 57px; padding: 9px 13px; flex: 1; display: flex; align-items: center; justify-content: space-between; }
 .avatarProductInfo > span { display: flex; flex-direction: column; gap: 3px; }
 .avatarProductInfo strong { font-size: 14px; }
-.avatarProductInfo small { color: var(--muted); font-size: 9px; }
+.avatarProductInfo small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .enterArrow { width: 31px; height: 31px; border-radius: 8px; display: grid; place-items: center; color: var(--blue); background: var(--blue-soft); transition: color .2s, background .2s; }
 .avatarProductCard:hover .enterArrow { color: white; background: var(--blue); }
-.createAvatarCard { height: 284px; min-width: 0; padding: 22px; border: 1px dashed #aeb8eb; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; text-align: center; background: linear-gradient(145deg, #fbfcff, #f0f2ff); transition: border .2s, transform .2s, box-shadow .2s; }
+.createAvatarCard { min-width: 0; padding: 22px; aspect-ratio: 9 / 16; border: 1px dashed #aeb8eb; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; text-align: center; background: linear-gradient(145deg, #fbfcff, #f0f2ff); transition: border .2s, transform .2s, box-shadow .2s; }
 .createAvatarCard::after { content: ''; position: absolute; width: 145px; height: 145px; right: -60px; bottom: -60px; border-radius: 50%; border: 26px solid rgba(61, 90, 254, .04); }
 .createAvatarCard:hover { border-color: var(--blue); transform: translateY(-2px); box-shadow: 0 10px 25px rgba(35, 43, 79, .08); }
 .createAvatarIcon { width: 46px; height: 46px; margin-bottom: 18px; border-radius: 12px; display: grid; place-items: center; color: white; background: var(--blue); box-shadow: 0 10px 22px rgba(61, 90, 254, .2); }
@@ -274,6 +274,506 @@ img, video, canvas { display: block; }
 .landingGlow { width: 80px; height: 80px; position: absolute; right: 12%; top: 6%; border-radius: 50%; background: linear-gradient(145deg, rgba(111, 132, 255, .25), rgba(255, 255, 255, .2)); filter: blur(2px); }
 .liveBackLanding { margin-bottom: 9px; padding: 0; border: 0; display: flex; align-items: center; gap: 5px; color: #7b8297; background: transparent; font-size: 9px; cursor: pointer; }
 
+/* Live editor follows the dense, full-screen structure of the Xiling live room. */
+.xilingLive {
+  --xl-bg: #0e0f0f;
+  --xl-panel: #1d1e1f;
+  --xl-panel-soft: #252627;
+  --xl-panel-raised: #2d2e2e;
+  --xl-border: #0e0f0f;
+  --xl-line: #28292a;
+  --xl-text: #f0f0f0;
+  --xl-muted: #ababab;
+  --xl-dim: #8b8b8c;
+  --xl-accent: #14ccc9;
+  width: 100%;
+  height: 100vh;
+  min-height: 680px;
+  overflow: hidden;
+  color: var(--xl-text);
+  background: var(--xl-bg);
+  font-family: 'Noto Sans SC', sans-serif;
+  font-size: 12px;
+}
+.xilingLive button { border: 0; color: inherit; background: transparent; cursor: pointer; }
+.xilingLive button:disabled { cursor: not-allowed; opacity: .38; }
+.xlTopbar { height: 56px; padding: 0 14px; border-bottom: 1px solid var(--xl-border); display: flex; align-items: center; position: relative; z-index: 30; background: var(--xl-panel); }
+.xlTitleGroup { flex: 0 0 auto; display: flex; align-items: center; }
+.xlBack { width: 28px; height: 28px; padding: 0; border-radius: 6px; display: grid; place-items: center; color: #d8d8d8 !important; }
+.xlBack:hover { background: var(--xl-panel-raised); }
+.xlTitleGroup > div { margin-left: 12px; display: flex; flex-direction: column; }
+.xlTitleGroup strong { color: #f7f7f9; font-size: 14px; line-height: 20px; font-weight: 500; }
+.xlTitleGroup span { color: var(--xl-muted); font-size: 12px; line-height: 20px; }
+.xlTopActions { min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.xlDarkButton, .xlLiveButton { height: 32px; padding: 0 12px !important; border-radius: 6px !important; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; font-weight: 500; }
+.xlDarkButton { background: #3d3d3d !important; }
+.xlDarkButton:hover { background: #515152 !important; }
+.xlDarkButton.active { color: var(--xl-accent) !important; box-shadow: inset 0 0 0 1px rgba(20, 204, 201, .35); }
+.xlLiveButton { min-width: 104px; color: white !important; background: linear-gradient(100deg, #2c65f6, #35b9cc) !important; box-shadow: 0 5px 14px rgba(48, 124, 228, .22); }
+.xlLiveButton.danger { background: #f33e3f !important; box-shadow: none; }
+.xlLiveButton > span { font-size: 10px; opacity: .8; }
+
+.xlProgram { height: calc(100vh - 56px); min-height: 624px; display: grid; grid-template-columns: 136px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.xlGoodsRail { min-width: 0; height: 100%; border: 1px solid var(--xl-border); overflow-x: hidden; overflow-y: auto; background: #141415; scrollbar-width: thin; scrollbar-color: #3d3d3d transparent; }
+.xlGoodsRail h2 { height: 48px; margin: 0; padding-left: 16px; display: flex; align-items: center; color: #f7f7f9; background: var(--xl-panel-raised); font-size: 14px; font-weight: 500; }
+.xlGoodsTools { height: 48px; padding: 0 8px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; background: var(--xl-panel); }
+.xlGoodsTools button { height: 28px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; color: #c4c4c4; font-size: 12px; }
+.xlGoodsTools button:hover { border-radius: 6px; background: var(--xl-panel-raised); }
+.xlMenuAnchor { position: relative; }
+.xlPopMenu { width: 154px; padding: 5px; position: absolute; z-index: 60; right: 0; top: calc(100% + 5px); border: 1px solid #3a3b3c; border-radius: 7px; display: grid; gap: 2px; color: #d8d8d8; background: #292a2b; box-shadow: 0 12px 30px rgba(0, 0, 0, .38); }
+.xlPopMenu button { width: 100% !important; height: 30px !important; padding: 0 9px !important; border-radius: 5px !important; display: flex !important; align-items: center; justify-content: flex-start !important; gap: 7px !important; color: #d8d8d8 !important; font-size: 11px !important; white-space: nowrap; }
+.xlPopMenu button:hover, .xlPopMenu button.active { color: white !important; background: #3a3b3c !important; }
+.xlPopMenu button.active { color: var(--xl-accent) !important; }
+.xlPopMenu button:disabled { opacity: .35; }
+.xlPopMenu.compact { width: 104px; left: 0; right: auto; }
+.xlPopMenu.goods { width: 128px; left: auto; right: 0; }
+.xlGoodsList { min-width: 0; }
+.xlGoodsCard { width: 112px; margin: 16px 11px 0; padding: 0 !important; display: flex; flex-direction: column; align-items: stretch; text-align: left; position: relative; }
+.xlGoodsScene { width: 112px; height: 112px; border: 2px solid transparent; border-radius: 12px; overflow: hidden; position: relative; display: block; background: var(--xl-panel-raised); }
+.xlGoodsCard.selected .xlGoodsScene, .xlGoodsCard:hover .xlGoodsScene { border-color: var(--xl-accent); box-shadow: inset 0 0 0 1px #0e0f0f; }
+.xlGoodsScene img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.xlGoodsScene img:nth-child(2) { object-fit: contain; object-position: center bottom; }
+.xlGoodsScene em { position: absolute; z-index: 3; left: 6px; bottom: 6px; padding: 2px 5px; border-radius: 4px; color: var(--xl-accent); background: rgba(0, 0, 0, .55); font-size: 10px; font-style: normal; }
+.xlGoodsIndex { position: absolute; z-index: 4; left: 6px; top: 6px; width: 20px; height: 20px; border-radius: 4px; display: grid; place-items: center; color: #c4c4c4; background: rgba(0, 0, 0, .65); }
+.xlGoodsCard > strong { width: 100%; margin-top: 10px; overflow: hidden; color: #dfdfdf; font-size: 11px; line-height: 20px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+
+.xlProgramContent { min-width: 0; min-height: 0; height: 100%; border: 1px solid var(--xl-border); overflow: hidden; background: var(--xl-bg); }
+.xlProductHeader { height: 48px; padding: 0 16px; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; background: var(--xl-panel); }
+.xlProductName { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.xlProductName > span { padding: 4px 8px; border-radius: 4px; color: var(--xl-dim); background: var(--xl-panel-raised); }
+.xlProductName strong { overflow: hidden; color: #dfdfdf; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.xlModeSwitch { width: 164px; height: 32px; padding: 2px; border-radius: 7px; display: grid; grid-template-columns: 1fr 1fr; background: #0e0f0f; }
+.xlModeSwitch button { border-radius: 6px; color: var(--xl-dim); }
+.xlModeSwitch button.active { color: var(--xl-text); background: var(--xl-panel-raised); box-shadow: 0 2px 6px rgba(0, 0, 0, .24); }
+.xlSaveScript { justify-self: end; height: 32px; padding: 0 13px !important; border-radius: 6px !important; display: inline-flex; align-items: center; gap: 6px; color: #c4c4c4 !important; background: var(--xl-panel-raised) !important; }
+.xlSaveScript:hover { color: white !important; background: #3d3d3d !important; }
+.xlEditorGrid { height: calc(100% - 48px); min-height: 0; display: grid; grid-template-columns: 526px minmax(250px, 1fr) 364px; grid-template-rows: minmax(0, 1fr); background: #1e1f1f; }
+
+.xlScriptPanel { min-width: 0; height: 100%; overflow: hidden; background: var(--xl-panel); }
+.xlPanelToolbar { height: 48px; padding: 0 16px; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: 1fr auto 104px; align-items: center; }
+.xlPanelToolbar > div:first-child { display: flex; align-items: center; gap: 8px; }
+.xlPanelToolbar strong { color: #f7f7f9; font-size: 14px; font-weight: 500; }
+.xlPanelToolbar span { color: var(--xl-muted); }
+.xlSpeaker { height: 28px; padding: 0 8px !important; border-radius: 6px; display: flex; align-items: center; gap: 7px; color: var(--xl-accent); }
+.xlSpeaker:hover { background: var(--xl-panel-raised); }
+.xlSpeaker img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; object-position: center 24%; background: #cdd7e4; }
+.xlSpeaker span { color: var(--xl-accent); font-size: 11px; }
+.xlScriptTools { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.xlScriptTools button { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; color: #c4c4c4; }
+.xlScriptTools button:hover { background: var(--xl-panel-raised); }
+.xlScriptTools button.active { color: var(--xl-accent); background: #1b3435; }
+.xlScriptTools .xlPopMenu { right: 0; }
+.xlScriptComposer { height: 112px; padding: 10px 12px; border-bottom: 1px solid var(--xl-line); background: #18191a; }
+.xlScriptComposer textarea { width: 100%; height: 58px; padding: 8px 10px; border: 1px solid #3d3d3d; border-radius: 6px; resize: none; outline: 0; color: var(--xl-text); background: #252627; font-size: 11px; line-height: 18px; }
+.xlScriptComposer textarea:focus { border-color: var(--xl-accent); }
+.xlScriptComposer > div { margin-top: 6px; display: flex; align-items: center; justify-content: space-between; }
+.xlScriptComposer > div span { color: var(--xl-dim); font-size: 10px; }
+.xlScriptComposer > div > span:last-child { display: flex; gap: 6px; }
+.xlScriptComposer > div button { height: 26px; padding: 0 9px; border-radius: 5px; display: flex; align-items: center; gap: 5px; color: #0e0f0f; background: var(--xl-accent); font-size: 10px; }
+.xlScriptComposer > div button.secondary { color: #c4c4c4; background: #303132; }
+.xlScriptList { height: calc(100% - 48px); padding: 16px 0 16px 4px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #3d3d3d transparent; }
+.xlScriptComposer + .xlScriptList { height: calc(100% - 160px); }
+.xlScriptItem { min-height: 146px; margin: 0 16px 4px 0; display: grid; grid-template-columns: 40px 40px minmax(0, 1fr); align-items: stretch; position: relative; }
+.xlScriptItem.done { opacity: .6; }
+.xlScriptItem.selected .xlScriptBody, .xlScriptItem.selected .xlScriptCategory { box-shadow: inset 0 0 0 1px var(--xl-accent); }
+.xlScriptNumber { width: 100%; padding: 0; display: grid; place-items: center; color: #c4c4c4; }
+.xlScriptNumber:hover { color: var(--xl-accent); }
+.xlEmptyCheck { width: 14px; height: 14px; border: 1px solid #666; border-radius: 3px; display: block; }
+.xlScriptCategory { margin-right: 2px; border-radius: 6px 0 0 6px; display: grid; place-items: center; color: var(--xl-accent); background: var(--xl-panel-soft); font-size: 11px; }
+.xlScriptCategory.pink { color: #f2447b; }
+.xlScriptCategory.yellow { color: #ffd500; }
+.xlScriptBody { min-width: 0; border-radius: 0 6px 6px 0; overflow: hidden; position: relative; background: var(--xl-panel-soft); }
+.xlScriptBody > header { height: 30px; padding: 0 10px; display: flex; align-items: center; justify-content: space-between; background: #313131; }
+.xlScriptBody > header strong { overflow: hidden; font-size: 11px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.xlScriptBody > header span { color: var(--xl-muted); font-size: 11px; white-space: nowrap; }
+.xlScriptBody p { margin: 0; padding: 7px 10px 11px; color: var(--xl-dim); font-size: 11px; line-height: 20px; text-align: justify; }
+.xlScriptItem:hover .xlScriptBody { background: var(--xl-panel-raised); }
+.xlScriptItem:hover .xlScriptBody > header { background: #3d3d3d; }
+.xlScriptItem.playing .xlScriptBody { box-shadow: inset 0 0 0 1px var(--xl-accent); }
+.xlScriptItem.playing .xlScriptCategory { background: #1b3e41; }
+.xlScriptItemActions { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 5px; opacity: 0; transition: opacity .2s; }
+.xlScriptItem:hover .xlScriptItemActions, .xlScriptItem.playing .xlScriptItemActions { opacity: 1; }
+.xlScriptItemActions button { width: 26px; height: 26px; border-radius: 5px; display: grid; place-items: center; color: #c4c4c4; background: #3d3d3d; }
+.xlScriptItemActions button:first-child { color: #0e0f0f; background: var(--xl-accent); }
+
+.xlPreviewPanel { min-width: 0; height: 100%; border-right: 1px solid var(--xl-border); border-left: 1px solid var(--xl-border); overflow: hidden; background: var(--xl-bg); }
+.xlPreviewHeader { height: 48px; padding: 0 16px; border-bottom: 1px solid var(--xl-border); display: flex; align-items: center; justify-content: space-between; background: var(--xl-panel); }
+.xlPreviewHeader > span:first-child { color: #f7f7f9; font-size: 14px; font-weight: 500; }
+.xlPreviewHeader > span:first-child button { width: 22px; height: 22px; margin-left: 2px; padding: 0; display: inline-grid; place-items: center; vertical-align: middle; color: #888; }
+.xlPreviewHeader > span:first-child button:hover { color: var(--xl-accent); }
+.xlPreviewHeader > span:last-child { color: var(--xl-muted); font-size: 11px; white-space: nowrap; }
+.xlPreviewHeader > span:last-child strong { margin-left: 6px; color: #dfdfdf; font-weight: 400; }
+.xlPreviewStage { height: calc(100% - 48px); padding: 14px 0; display: flex; align-items: center; justify-content: center; position: relative; background: #0e0f0f; }
+.xlPreviewHelp { width: 190px; padding: 8px 10px; position: absolute; z-index: 30; left: 10px; top: 10px; border: 1px solid #3a3b3c; border-radius: 6px; color: #c4c4c4; background: rgba(42, 43, 44, .96); font-size: 10px; line-height: 17px; box-shadow: 0 8px 24px rgba(0, 0, 0, .28); }
+.xlPortraitCanvas { width: min(100%, 340px); max-height: 100%; aspect-ratio: 9 / 16; overflow: hidden; position: relative; background: #7ec9f0; }
+.xlPortraitCanvas > img, .xlStreamCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.xlSceneBackground { z-index: 1; object-fit: cover; }
+.xlSceneHost { z-index: 3; object-fit: contain; object-position: center bottom; transform-origin: center; transition: opacity .2s; }
+.xlStreamCanvas { z-index: 4; opacity: 0; object-fit: contain; }
+.xlStreamCanvas.active { opacity: 1; }
+.xlSceneForeground { z-index: 5; object-fit: cover; pointer-events: none; }
+.xlSceneHeadline { position: absolute; z-index: 2; left: 8%; right: 8%; top: 7%; display: flex; flex-direction: column; align-items: center; color: #27589e; text-align: center; }
+.xlSceneHeadline small { padding: 3px 12px; border-radius: 999px; color: #795c1a; background: #ffd765; font-size: clamp(7px, .75vw, 11px); }
+.xlSceneHeadline strong { width: 100%; margin-top: 10px; padding: 8px 5px; border: 2px solid rgba(255, 255, 255, .65); border-radius: 10px; background: rgba(255, 255, 255, .58); font-size: clamp(12px, 1.5vw, 23px); letter-spacing: 1px; }
+.xlProductPlate { width: 65%; height: 12%; padding: 5px; position: absolute; z-index: 2; left: 17.5%; top: 25%; border-radius: 7px; display: flex; align-items: center; gap: 7px; background: rgba(255, 255, 255, .72); box-shadow: 0 5px 15px rgba(37, 91, 153, .13); }
+.xlProductPlate img { width: 43%; height: 100%; border-radius: 4px; object-fit: cover; }
+.xlProductPlate span { min-width: 0; display: flex; flex-direction: column; }
+.xlProductPlate small { color: #7b8a9b; font-size: clamp(6px, .55vw, 8px); }
+.xlProductPlate strong { color: #e24848; font-size: clamp(9px, .9vw, 14px); }
+.xlSceneFooter { position: absolute; z-index: 6; left: 5%; right: 5%; bottom: 2.4%; display: flex; flex-direction: column; align-items: center; color: #397cb4; text-align: center; }
+.xlSceneFooter span { color: #7291a5; font-size: clamp(6px, .6vw, 9px); }
+.xlSceneFooter strong { margin-top: 6px; font-size: clamp(11px, 1.25vw, 19px); font-weight: 500; }
+.xlOnAir, .xlRenderState { position: absolute; z-index: 8; top: 10px; border-radius: 4px; color: white; background: rgba(13, 20, 34, .65); font-size: 8px; backdrop-filter: blur(7px); }
+.xlOnAir { left: 10px; padding: 5px 7px; background: #f33e3f; font-weight: 700; letter-spacing: .8px; }
+.xlRenderState { right: 10px; padding: 5px 7px; }
+.xlAvatarLoading { position: absolute; z-index: 24; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: white; background: rgba(12, 13, 14, .28); font-size: 9px; backdrop-filter: blur(2px); }
+.xlAvatarLoading i { width: 24px; height: 24px; border: 2px solid rgba(255, 255, 255, .32); border-top-color: white; border-radius: 50%; animation: xlSpin .8s linear infinite; }
+@keyframes xlSpin { to { transform: rotate(360deg); } }
+.xlCanvasText { padding: 3px 7px; position: absolute; z-index: 7; left: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: clamp(7px, .8vw, 11px); overflow: hidden; pointer-events: none; white-space: normal; }
+.xlCanvasText.custom { border-radius: 4px; background: rgba(13, 20, 34, .68); }
+.xlCanvasText.templateTitle, .xlCanvasText.templateTag, .xlCanvasText.templateFooter { border-radius: 4px; background: rgba(14, 20, 18, .08); text-shadow: 0 1px 4px rgba(0, 0, 0, .48); backdrop-filter: blur(3px); }
+.xlCustomSceneAsset { width: 31%; min-height: 10%; position: absolute; z-index: 7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; overflow: hidden; border-radius: 5px; color: white; background: rgba(20, 32, 45, .78); box-shadow: 0 5px 14px rgba(0, 0, 0, .18); pointer-events: none; }
+.xlCustomSceneAsset img { width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; }
+.xlCustomSceneAsset em { max-width: calc(100% - 10px); z-index: 1; overflow: hidden; padding: 2px 4px; border-radius: 3px; color: white; background: rgba(0, 0, 0, .5); font-size: 7px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.xlCustomSceneAsset.video { min-height: 8%; background: linear-gradient(135deg, #263249, #174d50); }
+.xlLayerHitTarget { min-width: 0; min-height: 0; padding: 0; border: 0; position: absolute; opacity: 0; background: transparent; cursor: move; touch-action: none; }
+.xlLayerHitTarget:focus-visible { opacity: 1; outline: 1px solid white; background: rgba(255, 255, 255, .05); }
+.xlPortraitCanvas.interacting { cursor: grabbing; user-select: none; }
+.xlLayerSelectionBox { position: absolute; z-index: 60; border: 1px solid white; cursor: move; touch-action: none; box-shadow: 0 0 0 1px rgba(14, 15, 15, .45); }
+.xlResizeHandle, .xlRotateHandle { width: 18px; height: 18px; position: absolute; z-index: 2; background: transparent; touch-action: none; }
+.xlResizeHandle::after, .xlRotateHandle::after { content: ''; position: absolute; border: 1px solid #686a6d; background: white; }
+.xlResizeHandle::after { width: 7px; height: 7px; left: 5px; top: 5px; }
+.xlResizeHandle.nw { left: -9px; top: -9px; cursor: nwse-resize; }
+.xlResizeHandle.ne { right: -9px; top: -9px; cursor: nesw-resize; }
+.xlResizeHandle.se { right: -9px; bottom: -9px; cursor: nwse-resize; }
+.xlResizeHandle.sw { left: -9px; bottom: -9px; cursor: nesw-resize; }
+.xlRotateHandle { left: calc(50% - 9px); top: -27px; cursor: grab; }
+.xlRotateHandle::after { width: 8px; height: 8px; left: 4px; top: 4px; border-radius: 50%; }
+.xlRotateHandle::before { content: ''; width: 1px; height: 14px; position: absolute; left: 8px; top: 13px; background: white; box-shadow: 1px 0 rgba(14, 15, 15, .4); }
+.xlRotateHandle:active { cursor: grabbing; }
+.xlPreviewError { max-width: 90%; padding: 7px 9px; position: absolute; z-index: 10; left: 50%; bottom: 12px; transform: translateX(-50%); border-radius: 5px; color: #ffb9b9; background: rgba(91, 26, 26, .9); font-size: 9px; }
+
+.xlMaterialsPanel { min-width: 0; height: 100%; overflow: hidden; background: var(--xl-panel); }
+.xlMaterialTabs { height: 48px; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: repeat(5, 1fr); }
+.xlMaterialTabs button { height: 48px; padding: 5px 0 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; position: relative; color: var(--xl-dim); font-size: 10px; }
+.xlMaterialTabs button.active { color: var(--xl-accent); }
+.xlMaterialTabs button.active::after { content: ''; height: 2px; position: absolute; left: 18px; right: 18px; bottom: 0; background: var(--xl-accent); }
+.xlMaterialsWorkspace { height: calc(100% - 48px); min-height: 0; display: grid; grid-template-rows: minmax(230px, 58%) minmax(170px, 42%); }
+.xlMaterialsScroll { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #3d3d3d transparent; }
+.xlHiddenInput { display: none; }
+.xlMaterialSearch { height: 32px; margin: 14px 16px 10px; padding: 0 10px; border-radius: 5px; display: flex; align-items: center; background: #101111; }
+.xlMaterialSearch input { min-width: 0; height: 100%; flex: 1; border: 0; outline: 0; color: var(--xl-text); background: transparent; font-size: 11px; }
+.xlMaterialSearch input::placeholder { color: #68696b; }
+.xlMaterialSearch svg { color: var(--xl-muted); }
+.xlMaterialFilters { margin: 0 16px 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.xlMaterialFilters label { height: 28px; padding: 0 7px; border-radius: 4px; display: flex; align-items: center; color: #c4c4c4; background: var(--xl-panel-raised); }
+.xlMaterialFilters select { min-width: 0; height: 100%; flex: 1; border: 0; outline: 0; appearance: none; color: #c4c4c4; background: transparent; font-size: 10px; cursor: pointer; }
+.xlMaterialFilters option { color: #dfdfdf; background: #2d2e2e; }
+.xlTemplateGrid { padding: 0 16px 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 8px; }
+.xlTemplateGrid button { min-width: 0; padding: 0; }
+.xlTemplateGrid img { width: 100%; aspect-ratio: 9 / 16; border: 1px solid transparent; border-radius: 3px; object-fit: cover; background: #303132; }
+.xlTemplateGrid button:hover img, .xlTemplateGrid button.selected img { border-color: var(--xl-accent); }
+.xlTemplateGrid button.selected img { box-shadow: 0 0 0 2px rgba(20, 204, 201, .18); }
+.xlTemplateGrid span { margin-top: 4px; display: block; overflow: hidden; color: #c4c4c4; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.xlHostPicker { padding: 0 16px 18px; }
+.xlHostPicker .xlMaterialSearch { margin-inline: 0; }
+.xlHostScope { margin-bottom: 10px; padding: 2px; border-radius: 6px; display: grid; grid-template-columns: repeat(3, 1fr); background: #101111; }
+.xlHostScope button { height: 28px; border-radius: 5px; color: #888; font-size: 10px; }
+.xlHostScope button.active { color: white; background: var(--xl-panel-raised); }
+.xlExpandFilters { width: 100%; height: 28px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 5px; color: #aaa; font-size: 10px; }
+.xlExpandFilters[aria-expanded='true'] svg { transform: rotate(180deg); }
+.xlHostFilters { margin-bottom: 10px; padding: 10px; border-radius: 6px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: #161718; }
+.xlHostFilters label { display: grid; gap: 5px; color: #888; font-size: 9px; }
+.xlHostFilters select { min-width: 0; height: 26px; border: 1px solid #363738; border-radius: 4px; color: #c4c4c4; background: #292a2b; font-size: 9px; }
+.xlHostPicker > button:not(.xlExpandFilters) { width: 100%; min-height: 64px; margin-bottom: 8px; padding: 7px; border: 1px solid #353637; border-radius: 6px; display: flex; align-items: center; gap: 10px; text-align: left; background: var(--xl-panel-soft); }
+.xlHostPicker > button:not(.xlExpandFilters).selected { border-color: var(--xl-accent); background: #1b3435; }
+.xlHostPicker > button:disabled { opacity: .55; cursor: not-allowed; }
+.xlHostPicker img { width: 45px; height: 50px; border-radius: 4px; object-fit: cover; object-position: center top; background: #d9e3ee; }
+.xlHostPicker button > span { display: flex; flex: 1; flex-direction: column; gap: 4px; }
+.xlHostPicker strong { font-size: 11px; font-weight: 500; }
+.xlHostPicker small { color: var(--xl-muted); font-size: 9px; }
+.xlHostPicker svg { color: var(--xl-accent); }
+.xlMaterialEmpty { min-height: 290px; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--xl-muted); text-align: center; }
+.xlMaterialEmpty > span { width: 54px; height: 54px; margin-bottom: 12px; border-radius: 50%; display: grid; place-items: center; color: var(--xl-accent); background: var(--xl-panel-raised); }
+.xlMaterialEmpty strong { color: var(--xl-text); font-size: 12px; }
+.xlMaterialEmpty p { max-width: 220px; margin: 7px 0 14px; font-size: 10px; line-height: 17px; }
+.xlMaterialEmpty button { height: 28px; padding: 0 10px; border-radius: 5px; display: flex; align-items: center; gap: 5px; color: #0e0f0f; background: var(--xl-accent); font-size: 10px; }
+.xlMaterialNoResult { min-height: 180px; display: grid; place-items: center; color: var(--xl-muted); font-size: 11px; }
+.xlAssetToolbar { margin: 0 16px 10px; display: flex; align-items: center; justify-content: space-between; }
+.xlAssetToolbar > div { padding: 2px; border-radius: 6px; display: flex; background: #101111; }
+.xlAssetToolbar button { height: 27px; padding: 0 10px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #aaa; font-size: 10px; }
+.xlAssetToolbar > div button.active { color: white; background: var(--xl-panel-raised); }
+.xlAssetToolbar > span { display: flex; gap: 5px; }
+.xlAssetToolbar > span button:first-child { color: #0e0f0f; background: var(--xl-accent); }
+.xlAssetToolbar > span button:last-child { background: #303132; }
+.xlAssetToolbar > span button.active { color: var(--xl-accent); background: #1b3435; }
+.xlAssetBatchToolbar { min-height: 36px; margin: -3px 16px 10px; padding: 0 8px; border-radius: 5px; display: flex; align-items: center; justify-content: space-between; background: #242526; }
+.xlAssetBatchToolbar button { height: 28px; display: inline-flex; align-items: center; gap: 6px; color: #bdbdbd; font-size: 10px; }
+.xlAssetBatchToolbar button:last-child { color: #ff7777; }
+.xlAssetBatchToolbar button:disabled { opacity: .35; }
+.xlAssetBatchToolbar .xlEmptyCheck { width: 14px; height: 14px; }
+.xlAssetCards { padding: 4px 16px 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.xlAssetCards button { min-width: 0; min-height: 82px; padding: 9px; border: 1px solid #353637; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; position: relative; overflow: hidden; color: #c4c4c4; background: var(--xl-panel-soft); }
+.xlAssetCards button:hover, .xlAssetCards button.selected { border-color: var(--xl-accent); }
+.xlAssetCards button > span { color: var(--xl-accent); }
+.xlAssetCards button > img { width: calc(100% + 18px); height: 58px; margin: -9px -9px 0; object-fit: cover; }
+.xlAssetCards strong { max-width: 100%; overflow: hidden; font-size: 10px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.xlAssetCards button > i { width: 17px; height: 17px; position: absolute; right: 5px; top: 5px; border: 1px solid #777; border-radius: 3px; display: grid; place-items: center; color: #101111; background: var(--xl-accent); font-style: normal; }
+.xlTextMaterial { padding: 18px 16px 24px; }
+.xlTextMaterial h3 { margin: 0 0 16px; font-size: 13px; font-weight: 500; }
+.xlTextMaterial label { display: grid; gap: 7px; color: #c4c4c4; font-size: 10px; }
+.xlTextMaterial input { height: 34px; padding: 0 10px; border: 1px solid #3a3b3c; border-radius: 5px; outline: 0; color: white; background: #101111; font-size: 11px; }
+.xlTextMaterial input:focus { border-color: var(--xl-accent); }
+.xlTextPreview { min-height: 70px; margin: 12px 0; border-radius: 6px; display: grid; place-items: center; color: white; background: linear-gradient(135deg, #30405a, #1b5f63); font-size: 14px; }
+.xlTextMaterial > button { height: 30px; padding: 0 10px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; color: #0e0f0f; background: var(--xl-accent); font-size: 10px; }
+.xlLayerInspector { min-height: 100%; }
+.xlInspectorHeader { height: 46px; padding: 0 16px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; }
+.xlInspectorHeader strong { font-size: 13px; font-weight: 500; }
+.xlInspectorHeader button { width: 28px; height: 28px; border-radius: 5px; display: grid; place-items: center; color: #888; }
+.xlInspectorHeader button:hover { color: white; background: #303132; }
+.xlInspectorBody { padding: 2px 16px 18px; }
+.xlInspectorSection { padding: 13px 0; border-bottom: 1px solid #2a2b2c; }
+.xlInspectorSection > strong, .xlInspectorField > strong, .xlOpacityField strong { display: block; margin-bottom: 9px; color: #cfcfcf; font-size: 10px; font-weight: 400; }
+.xlInspectorPosition { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.xlInspectorPosition label, .xlInspectorField > span { height: 30px; padding: 0 8px; border: 1px solid #343536; border-radius: 4px; display: flex; align-items: center; gap: 7px; color: #777; background: #252627; font-size: 10px; }
+.xlInspectorPosition input, .xlInspectorField input { min-width: 0; width: 100%; border: 0; outline: 0; color: #d8d8d8; background: transparent; font-size: 10px; }
+.xlInspectorField > span { width: 50%; }
+.xlInspectorField em { color: #777; font-style: normal; }
+.xlInspectorOrder, .xlInspectorAlign { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.xlInspectorOrder button, .xlInspectorAlign button { height: 29px; border: 1px solid #343536; border-radius: 4px; color: #aaa; background: #292a2b; font-size: 9px; }
+.xlInspectorOrder button:hover, .xlInspectorAlign button:hover { border-color: var(--xl-accent); color: var(--xl-accent); }
+.xlInspectorAlign { grid-template-columns: repeat(6, 1fr); }
+.xlInspectorTextStyle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.xlInspectorTextStyle > strong { grid-column: 1 / -1; margin-bottom: 1px; }
+.xlInspectorTextStyle label { min-width: 0; display: grid; gap: 5px; color: #888; font-size: 9px; }
+.xlInspectorTextStyle .xlInspectorWide { grid-column: 1 / -1; }
+.xlInspectorTextStyle select, .xlInspectorTextStyle input:not([type='color']), .xlInspectorTextStyle textarea { width: 100%; border: 1px solid #343536; border-radius: 4px; color: #c4c4c4; background: #292a2b; font-size: 10px; }
+.xlInspectorTextStyle select, .xlInspectorTextStyle input:not([type='color']) { height: 29px; }
+.xlInspectorTextStyle textarea { min-height: 50px; padding: 7px 8px; outline: 0; resize: vertical; line-height: 16px; }
+.xlInspectorTextStyle textarea:focus { border-color: var(--xl-accent); }
+.xlInspectorTextStyle input[type='color'] { width: 100%; height: 29px; padding: 2px; border: 1px solid #343536; border-radius: 4px; background: #292a2b; }
+.xlTextStyleGroup { min-width: 0; display: grid; gap: 5px; color: #888; font-size: 9px; }
+.xlTextStyleGroup > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.xlTextStyleGroup button { height: 29px; border: 1px solid #343536; border-radius: 4px; color: #aaa; background: #292a2b; font-size: 10px; }
+.xlTextStyleGroup button.active { border-color: var(--xl-accent); color: var(--xl-accent); background: #1b3435; }
+.xlEffectControl { min-width: 0; padding: 8px; border: 1px solid #343536; border-radius: 5px; display: grid; gap: 8px; background: #252627; }
+.xlEffectControl > div:first-child { display: flex; align-items: center; justify-content: space-between; color: #aaa; font-size: 9px; }
+.xlEffectControl > div:first-child > button { width: 28px; height: 16px; padding: 2px; border-radius: 999px; background: #454647; }
+.xlEffectControl > div:first-child > button i { width: 12px; height: 12px; border-radius: 50%; display: block; background: #aaa; transition: transform .15s, background .15s; }
+.xlEffectControl > div:first-child > button.on { background: #176969; }
+.xlEffectControl > div:first-child > button.on i { transform: translateX(12px); background: var(--xl-accent); }
+.xlShadowFields { display: grid !important; grid-template-columns: 36px repeat(3, 1fr); gap: 5px; }
+.xlShadowFields input { min-width: 0; height: 27px !important; }
+.xlOpacityField > span { display: flex; justify-content: space-between; }
+.xlOpacityField > span strong { margin: 0; }
+.xlOpacityField > span em { color: #888; font-size: 9px; font-style: normal; }
+.xlOpacityField > input { width: 100%; accent-color: var(--xl-accent); }
+.xlApplyAllGoods { width: 100%; height: 32px; margin-top: 14px; border-radius: 5px; color: #0e0f0f; background: var(--xl-accent); font-size: 10px; }
+.xlLayers { min-height: 0; border-top: 1px solid var(--xl-border); display: flex; flex-direction: column; overflow: hidden; }
+.xlLayers > header { height: 48px; padding: 0 16px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; }
+.xlLayers > header strong { font-size: 13px; font-weight: 500; }
+.xlLayers > header > span { color: #777; font-size: 10px; }
+.xlLayerRow { height: 44px; padding: 0 10px 0 13px; border-bottom: 1px solid #242526; display: grid; grid-template-columns: 32px minmax(0, 1fr) 28px; align-items: center; color: #c4c4c4; cursor: pointer; }
+.xlLayerRow:hover, .xlLayerRow.selected { background: #292a2b; }
+.xlLayerRow:focus { outline: 0; }
+.xlLayerRow:focus-visible { box-shadow: inset 0 0 0 1px #555; }
+.xlLayerList { min-height: 0; flex: 1; overflow: auto; scrollbar-width: thin; scrollbar-color: #3d3d3d transparent; }
+.xlLayerRow > span { width: 24px; height: 24px; border-radius: 3px; overflow: hidden; display: grid; place-items: center; color: #ababab; background: #343536; }
+.xlLayerRow > span img { width: 100%; height: 100%; object-fit: cover; }
+.xlLayerRow > em { overflow: hidden; color: #c4c4c4; font-size: 10px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.xlLayerRow.selected > span, .xlLayerRow.selected > em { color: var(--xl-accent); }
+.xlLayerDelete { width: 26px; height: 26px; border-radius: 4px; display: grid; place-items: center; opacity: 0; color: #888; transition: opacity .15s; }
+.xlLayerRow:hover .xlLayerDelete, .xlLayerRow.selected .xlLayerDelete { opacity: 1; }
+.xlLayerDelete:hover { color: #ff7777; background: #3a2d2d; }
+
+.xlQaWorkspace { height: calc(100% - 48px); min-height: 0; position: relative; overflow: auto; background: #1b1c1d; }
+.xlQaWorkspace > header { height: 44px; padding: 0 16px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; }
+.xlQaWorkspace > header > div { display: flex; align-items: center; gap: 8px; }
+.xlQaWorkspace > header strong { font-size: 14px; font-weight: 500; }
+.xlQaWorkspace > header span { color: var(--xl-muted); }
+.xlQaWorkspace > header button { height: 30px; padding: 0 12px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #d8d8d8; background: var(--xl-panel-raised); }
+.xlQaWorkspace > header label { width: 240px; height: 30px; padding: 0 9px; border-radius: 5px; display: flex; align-items: center; background: #292a2b; }
+.xlQaWorkspace > header input { min-width: 0; flex: 1; border: 0; outline: 0; color: white; background: transparent; font-size: 10px; }
+.xlQaWorkspace > header svg { color: #8b8b8c; }
+.xlQaComposer { width: min(620px, calc(100% - 40px)); margin: 20px auto; padding: 18px; border: 1px solid #343536; border-radius: 8px; display: grid; gap: 13px; background: var(--xl-panel); box-shadow: 0 12px 32px rgba(0, 0, 0, .18); }
+.xlQaComposer label { display: grid; gap: 7px; }
+.xlQaComposer label span { color: #c4c4c4; font-size: 11px; }
+.xlQaComposer input, .xlQaComposer textarea { width: 100%; padding: 0 10px; border: 1px solid #3a3b3c; border-radius: 6px; outline: 0; resize: none; color: white; background: #292a2b; font-size: 11px; }
+.xlQaComposer input { height: 36px; }
+.xlQaComposer textarea { padding-top: 9px; line-height: 18px; }
+.xlQaComposer input:focus, .xlQaComposer textarea:focus { border-color: var(--xl-accent); }
+.xlQaComposer > div { display: flex; justify-content: flex-end; gap: 8px; }
+.xlQaComposer button { height: 30px; padding: 0 12px; border-radius: 5px; color: #c4c4c4; background: #303132; }
+.xlQaComposer button[type='submit'] { color: #0e0f0f; background: var(--xl-accent); }
+.xlQaList { width: min(780px, calc(100% - 40px)); margin: 20px auto; display: grid; gap: 10px; }
+.xlQaList article { min-height: 86px; padding: 14px; border: 1px solid #303132; border-radius: 7px; display: grid; grid-template-columns: 38px minmax(0, 1fr) 28px; gap: 10px; background: var(--xl-panel); }
+.xlQaList article > span { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; color: #0e0f0f; background: var(--xl-accent); font-weight: 700; }
+.xlQaList article strong { font-size: 12px; font-weight: 500; }
+.xlQaList article p { margin: 7px 0 0; color: var(--xl-dim); font-size: 11px; line-height: 18px; }
+.xlQaList article > button { color: #777; }
+.xlQaList article > button:hover { color: #ff7373; }
+.xlQaEmpty { min-height: calc(100% - 44px); display: flex; flex-direction: column; align-items: center; justify-content: center; color: #505153; text-align: center; }
+.xlQaEmpty strong { margin-top: 15px; color: #8b8b8c; font-size: 13px; font-weight: 400; }
+.xlQaEmpty p { margin: 7px 0 14px; color: #666; font-size: 10px; }
+.xlQaEmpty button { height: 30px; padding: 0 12px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #0e0f0f; background: var(--xl-accent); }
+
+.xlToast { min-height: 38px; padding: 0 14px; position: fixed; z-index: 100; left: 50%; bottom: 24px; transform: translateX(-50%); border: 1px solid rgba(20, 204, 201, .35); border-radius: 7px; display: flex; align-items: center; gap: 7px; color: #e9ffff; background: rgba(24, 54, 55, .96); box-shadow: 0 12px 32px rgba(0, 0, 0, .32); animation: xlToastIn .2s ease-out both; }
+@keyframes xlToastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+.xlModalBackdrop { padding: 28px; position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .72); backdrop-filter: blur(2px); }
+.xlModal { width: min(1050px, 96vw); max-height: min(630px, 90vh); border: 1px solid #343536; border-radius: 12px; overflow: hidden; color: var(--xl-text); background: #1b1c1d; box-shadow: 0 28px 80px rgba(0, 0, 0, .48); animation: xlModalIn .2s ease-out both; }
+@keyframes xlModalIn { from { opacity: 0; transform: translateY(10px) scale(.99); } }
+.xlModal > header { height: 54px; padding: 0 20px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; }
+.xlModal > header strong { font-size: 15px; font-weight: 500; }
+.xlModal > header button { width: 30px; height: 30px; border-radius: 5px; display: grid; place-items: center; color: #8b8b8c; }
+.xlModal > header button:hover { color: white; background: #303132; }
+.xlSettingsBody { height: 520px; display: grid; grid-template-columns: 196px minmax(0, 1fr); }
+.xlSettingsBody > nav { padding: 16px 8px; border-right: 1px solid var(--xl-line); display: flex; flex-direction: column; gap: 6px; }
+.xlSettingsBody > nav button { min-height: 44px; padding: 0 14px; border-radius: 6px; display: flex; align-items: center; gap: 10px; color: #c4c4c4; text-align: left; }
+.xlSettingsBody > nav button.active, .xlSettingsBody > nav button:hover { color: white; background: #292a2b; }
+.xlSettingsBody > nav button.active svg { color: var(--xl-accent); }
+.xlSettingsBody > nav em { margin-left: auto; padding: 2px 4px; border-radius: 3px; color: white; background: #f25f5c; font-size: 8px; font-style: normal; }
+.xlSettingsContent { padding: 30px 36px; overflow: auto; }
+.xlSettingRow { max-width: 760px; padding: 14px 0; display: flex; align-items: center; justify-content: space-between; }
+.xlSettingRow > span { display: flex; flex-direction: column; gap: 5px; }
+.xlSettingRow strong, .xlSettingBlock > strong { font-size: 12px; font-weight: 500; }
+.xlSettingRow small { color: var(--xl-muted); font-size: 10px; }
+.xlSwitch { width: 44px; height: 24px; padding: 2px !important; border-radius: 999px !important; background: #454647 !important; transition: background .2s; }
+.xlSwitch i { width: 20px; height: 20px; border-radius: 50%; display: block; background: white; transition: transform .2s; }
+.xlSwitch.on { background: #2b9d9b !important; }
+.xlSwitch.on i { transform: translateX(20px); }
+.xlSettingBlock { margin-top: 18px; display: flex; align-items: center; gap: 22px; }
+.xlRadioGroup { display: flex; gap: 8px; }
+.xlRadioGroup button { height: 32px; padding: 0 11px; border: 1px solid #3a3b3c; border-radius: 5px; color: #ababab; }
+.xlRadioGroup button.active { border-color: var(--xl-accent); color: var(--xl-accent); background: #193738; }
+.xlStepper { display: flex; align-items: center; }
+.xlStepper button, .xlStepper span { width: 32px; height: 30px; border: 1px solid #3a3b3c; display: grid; place-items: center; color: #c4c4c4; background: #292a2b; }
+.xlStepper button:first-child { border-radius: 5px 0 0 5px; }
+.xlStepper button:nth-child(3) { border-radius: 0 5px 5px 0; }
+.xlStepper em { margin-left: 8px; color: #ababab; font-style: normal; }
+.xlSettingNote { max-width: 700px; margin-top: 22px; padding: 14px; border: 1px solid rgba(20, 204, 201, .15); border-radius: 7px; color: #a9caca; background: rgba(20, 204, 201, .06); font-size: 11px; line-height: 19px; }
+
+.xlLivePlatformModal { width: min(1050px, 92vw); }
+.xlPlatformNotice { margin: 24px; padding: 12px 14px; border: 1px solid #d8ca7b; border-radius: 5px; color: #77692e; background: #fff8d8; font-size: 10px; line-height: 17px; }
+.xlLivePlatformModal h2 { margin: 8px 0 24px; text-align: center; font-size: 16px; font-weight: 400; }
+.xlPlatformGrid { max-width: 660px; margin: 0 auto 28px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.xlPlatformGrid button { min-height: 108px; border: 1px solid transparent !important; border-radius: 8px !important; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; position: relative; background: #202122 !important; }
+.xlPlatformGrid button:hover, .xlPlatformGrid button.selected { border-color: var(--xl-accent) !important; background: #213334 !important; }
+.xlPlatformGrid .xlPlatformLogo { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 5px 14px rgba(0, 0, 0, .2); }
+.xlPlatformLogo img { width: 27px; height: 27px; object-fit: contain; }
+.xlPlatformGrid button strong { font-size: 11px; font-weight: 400; }
+.xlPlatformGrid button em { padding: 2px 5px; position: absolute; right: 5px; top: 5px; border-radius: 3px; color: #d8d8d8; background: #5b5c5d; font-size: 8px; font-style: normal; }
+.xlLivePlatformModal > footer { padding: 15px 24px; border-top: 1px solid var(--xl-line); display: flex; justify-content: flex-end; gap: 8px; }
+.xlLivePlatformModal > footer button { height: 32px; padding: 0 14px; border-radius: 5px; color: #c4c4c4; background: #303132; }
+.xlLivePlatformModal > footer button:last-child { color: #0e0f0f; background: var(--xl-accent); }
+.xlLibraryModal { width: min(720px, 92vw); }
+.xlLibraryList { max-height: 500px; padding: 18px; overflow: auto; display: grid; gap: 9px; }
+.xlLibraryList article { padding: 14px; border: 1px solid #303132; border-radius: 7px; display: flex; align-items: center; gap: 15px; background: #202122; }
+.xlLibraryList article > div { min-width: 0; flex: 1; }
+.xlLibraryList strong { font-size: 12px; font-weight: 500; }
+.xlLibraryList p { margin: 6px 0 0; color: var(--xl-muted); font-size: 10px; line-height: 17px; }
+.xlLibraryList button { height: 30px; padding: 0 10px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #0e0f0f; background: var(--xl-accent); }
+.xlConfirmModal { width: min(430px, 92vw); }
+.xlConfirmModal > p { margin: 0; padding: 28px 24px 25px; color: #c4c4c4; font-size: 12px; line-height: 20px; }
+.xlConfirmModal > footer { padding: 13px 20px; border-top: 1px solid var(--xl-line); display: flex; justify-content: flex-end; gap: 8px; }
+.xlConfirmModal > footer button { min-width: 68px; height: 31px; padding: 0 12px; border-radius: 5px; color: #c4c4c4; background: #303132; }
+.xlConfirmModal > footer button:last-child { color: #0e0f0f; background: var(--xl-accent); }
+
+@media (max-width: 1180px) {
+  .xlEditorGrid { grid-template-columns: minmax(430px, 1.25fr) minmax(260px, .75fr) 320px; }
+}
+
+@media (max-width: 980px) {
+  .xilingLive { height: auto; min-height: 100vh; overflow: auto; }
+  .xlTopbar { position: sticky; top: 0; }
+  .xlTitleGroup span { display: none; }
+  .xlProgram { height: auto; min-height: calc(100vh - 56px); grid-template-columns: 112px minmax(0, 1fr); }
+  .xlGoodsRail { min-height: 100%; }
+  .xlGoodsRail h2 { padding-left: 10px; font-size: 12px; }
+  .xlGoodsCard { width: 92px; margin-inline: 9px; }
+  .xlGoodsScene { width: 92px; height: 92px; }
+  .xlEditorGrid { height: auto; display: grid; grid-template-columns: minmax(420px, 1fr) minmax(260px, .7fr); grid-template-areas: 'script preview' 'materials materials'; }
+  .xlScriptPanel { grid-area: script; height: calc(100vh - 104px); min-height: 620px; }
+  .xlPreviewPanel { grid-area: preview; height: calc(100vh - 104px); min-height: 620px; }
+  .xlMaterialsPanel { grid-area: materials; height: 720px; border-top: 2px solid var(--xl-border); }
+  .xlMaterialTabs button.active::after { left: 32%; right: 32%; }
+}
+
+@media (max-width: 760px) {
+  .xlTopbar { padding-inline: 8px; }
+  .xlTitleGroup > div { margin-left: 5px; }
+  .xlTitleGroup strong { max-width: 134px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .xlDarkButton { width: 34px; padding: 0 !important; font-size: 0; }
+  .xlDarkButton svg { width: 16px; }
+  .xlLiveButton { min-width: 92px; padding-inline: 9px !important; font-size: 11px; }
+  .xlLiveButton > span { display: none; }
+  .xlProgram { display: block; }
+  .xlGoodsRail { height: 154px; min-height: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); grid-template-rows: 48px 106px; overflow: hidden; }
+  .xlGoodsRail h2 { width: 120px; grid-column: 1; grid-row: 1; }
+  .xlGoodsTools { width: 120px; height: 106px; grid-column: 1; grid-row: 2; align-items: flex-start; padding-top: 10px; }
+  .xlGoodsList { grid-column: 2; grid-row: 1 / 3; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #3d3d3d transparent; }
+  .xlGoodsCard { width: 96px; height: 140px; margin: 8px 5px; flex: 0 0 96px; position: relative; }
+  .xlGoodsScene { width: 82px; height: 82px; position: relative; left: auto; top: auto; }
+  .xlGoodsCard > strong { width: 92px; margin: 7px 0 0; }
+  .xlProgramContent { height: auto; }
+  .xlProductHeader { padding-inline: 10px; grid-template-columns: minmax(0, 1fr) auto; }
+  .xlModeSwitch { width: 130px; }
+  .xlSaveScript { display: none; }
+  .xlEditorGrid { display: block; }
+  .xlScriptPanel { height: auto; min-height: 0; }
+  .xlScriptList, .xlScriptComposer + .xlScriptList { height: auto; overflow: clip; }
+  .xlPanelToolbar { padding-inline: 10px; grid-template-columns: 1fr auto; }
+  .xlSpeaker { display: none; }
+  .xlPreviewPanel { height: 760px; min-height: 0; }
+  .xlPortraitCanvas { width: min(100%, 380px); }
+  .xlMaterialsPanel { height: auto; }
+  .xlMaterialsWorkspace { height: auto; display: block; }
+  .xlMaterialsScroll { height: auto; overflow: visible; }
+  .xlLayers { max-height: 360px; }
+  .xlTemplateGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .xlLayerInspector { min-height: 0; }
+  .xlInspectorBody { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  .xlApplyAllGoods { align-self: end; }
+  .xlQaWorkspace { height: auto; min-height: calc(100vh - 104px); }
+  .xlQaWorkspace > header { height: auto; min-height: 76px; padding-block: 9px; align-items: flex-start; gap: 8px; }
+  .xlQaWorkspace > header > div:last-child { flex-wrap: wrap; justify-content: flex-end; }
+  .xlQaWorkspace > header label { width: min(240px, 65vw); }
+  .xlQaEmpty { min-height: 520px; }
+  .xlModalBackdrop { padding: 10px; }
+  .xlModal { width: 100%; max-height: 92vh; overflow: auto; }
+  .xlSettingsBody { height: auto; min-height: 560px; grid-template-columns: 138px minmax(0, 1fr); }
+  .xlSettingsBody > nav button { padding-inline: 9px; font-size: 10px; }
+  .xlSettingsContent { padding: 20px 16px; }
+  .xlSettingRow { align-items: flex-start; gap: 15px; }
+  .xlSettingBlock { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .xlRadioGroup { flex-direction: column; }
+  .xlPlatformGrid { padding-inline: 14px; grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .xlTitleGroup strong { max-width: 105px; }
+  .xlTopActions { gap: 5px; }
+  .xlLiveButton { min-width: 82px; }
+  .xlProductName > span { display: none; }
+  .xlProductName strong { font-size: 11px; }
+  .xlModeSwitch { width: 112px; }
+  .xlScriptItem { margin-right: 8px; grid-template-columns: 28px 34px minmax(0, 1fr); }
+  .xlScriptBody p { font-size: 10px; line-height: 18px; }
+  .xlTemplateGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .xlInspectorBody { display: block; }
+  .xlInspectorAlign { grid-template-columns: repeat(3, 1fr); }
+  .xlHostFilters { grid-template-columns: 1fr; }
+  .xlQaWorkspace > header { flex-direction: column; }
+  .xlQaWorkspace > header > div:last-child { width: 100%; justify-content: flex-start; }
+  .xlQaWorkspace > header label { flex: 1; }
+  .xlQaComposer, .xlQaList { width: calc(100% - 20px); }
+  .xlSettingsBody { display: block; }
+  .xlSettingsBody > nav { border-right: 0; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: repeat(2, 1fr); }
+  .xlSettingsContent { min-height: 360px; }
+  .xlPlatformNotice { margin: 14px; }
+  .xlLivePlatformModal h2 { padding-inline: 16px; font-size: 14px; }
+}
+
 .creatorShell { min-height: 100vh; overflow: hidden; background: #f5f6f8; color: var(--ink); }
 .creatorTopbar { height: 56px; padding: 0 18px; border-bottom: 1px solid #e7e8ed; display: flex; align-items: center; gap: 14px; background: white; }
 .creatorBack { width: 32px; height: 32px; padding: 0; border: 0; border-radius: 7px; display: grid; place-items: center; color: #5f667b; background: #f3f4f7; cursor: pointer; }
@@ -397,7 +897,7 @@ img, video, canvas { display: block; }
   .consoleShell { grid-template-columns: 194px minmax(0, 1fr); }
   .catalogHero { padding: 36px 42px; grid-template-columns: minmax(0, 1fr) 300px; }
   .heroShowcase { min-width: 280px; }
-  .avatarCatalogGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .avatarCatalogGrid { grid-template-columns: repeat(auto-fill, minmax(154px, 170px)); }
   .conversationWorkbench { grid-template-columns: minmax(440px, 1fr) 340px; }
   .studioGrid { grid-template-columns: minmax(340px, .8fr) minmax(430px, 1.2fr); }
   .liveLanding { padding: 55px 34px; grid-template-columns: 320px minmax(0, 1fr); }
@@ -409,7 +909,7 @@ img, video, canvas { display: block; }
 }
 
 @media (max-width: 1000px) {
-  .avatarCatalogGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .avatarCatalogGrid { grid-template-columns: repeat(auto-fill, minmax(150px, 164px)); }
   .heroCopy h1 { font-size: 30px; }
   .heroShowcase { min-width: 0; }
   .conversationWorkbench { height: auto; min-height: 0; grid-template-columns: 1fr; }
@@ -446,7 +946,7 @@ img, video, canvas { display: block; }
 }
 
 @media (max-width: 700px) {
-  .avatarCatalogGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .avatarCatalogGrid { grid-template-columns: repeat(auto-fit, minmax(148px, 164px)); justify-content: center; gap: 14px; }
   .catalogHero { height: 450px; padding: 30px 26px; grid-template-columns: 1fr; }
   .heroCopy { align-self: end; }
   .heroShowcase { height: 190px; grid-row: 1; }
@@ -492,10 +992,11 @@ img, video, canvas { display: block; }
   .catalogHeader p { display: none; }
   .catalogTabs { margin-top: 4px; }
   .avatarCatalog { padding: 24px 14px; }
-  .avatarCatalogGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .avatarProductCard, .createAvatarCard { height: 242px; }
-  .avatarProductMedia { height: 187px; flex-basis: 187px; }
+  .avatarCatalogGrid { grid-template-columns: repeat(2, minmax(0, 154px)); gap: 12px; }
   .createAvatarCard { padding: 13px; }
+  .avatarProductInfo { min-height: 47px; padding: 7px 9px; }
+  .avatarProductInfo strong { font-size: 12px; }
+  .avatarProductInfo small { font-size: 8px; }
   .createAvatarIcon { width: 41px; height: 41px; margin-bottom: 13px; }
   .createAvatarCard strong { font-size: 11px; }
   .createAvatarCard small { font-size: 8px; }
