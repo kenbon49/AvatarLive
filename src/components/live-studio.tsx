@@ -30,13 +30,25 @@ import {
   WandSparkles,
   X,
 } from 'lucide-react';
-import { MuseTalkTotalStream } from '@/lib/musetalk-total-stream';
+import { MuseTalkAvatarProfile, MuseTalkTotalStream } from '@/lib/musetalk-total-stream';
 import { ProductShell } from '@/components/product-shell';
 
 const AVATARS = [
   { id: 'chinese', name: '林汐', role: '亲和型主播', image: '/assets/digital-humans/linxi.webp', type: '真人', gender: '女', age: '青年' },
-  { id: 'american', name: 'Avery', role: '双语型主播', image: '/assets/digital-humans/avery-transparent.png', type: '真人', gender: '女', age: '青年' },
-] as const;
+  { id: 'business_male_1', name: '商务男1', role: '专业型主播', image: '/assets/musetalk-avatars/business-male-1.jpg', type: '真人', gender: '男', age: '青年' },
+  { id: 'casual_male', name: '休闲风', role: '生活方式主播', image: '/assets/musetalk-avatars/casual-male.jpg', type: '真人', gender: '男', age: '青年' },
+  { id: 'middle_aged_male', name: '中年男士', role: '资深行业顾问', image: '/assets/musetalk-avatars/middle-aged-male.jpg', type: '真人', gender: '男', age: '中年' },
+  { id: 'casual_conversation', name: '休闲交流', role: '生活交流顾问', image: '/assets/musetalk-avatars/casual-conversation.jpg', type: '真人', gender: '女', age: '青年' },
+  { id: 'casual_female', name: '休闲女主播', role: '内容分享主播', image: '/assets/musetalk-avatars/casual-female.jpg', type: '真人', gender: '女', age: '中年' },
+] satisfies Array<{
+  id: MuseTalkAvatarProfile;
+  name: string;
+  role: string;
+  image: string;
+  type: string;
+  gender: string;
+  age: string;
+}>;
 
 type ScriptItem = {
   id: number;
@@ -235,7 +247,7 @@ const PLATFORMS = [
 
 export function LiveStudio() {
   const [entered, setEntered] = useState(false);
-  const [avatarId, setAvatarId] = useState<'chinese' | 'american'>('chinese');
+  const [avatarId, setAvatarId] = useState<MuseTalkAvatarProfile>('chinese');
   const avatar = AVATARS.find((item) => item.id === avatarId) ?? AVATARS[0];
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLDivElement>(null);
@@ -265,7 +277,7 @@ export function LiveStudio() {
   const [templateCategory, setTemplateCategory] = useState('全部');
   const [templateColor, setTemplateColor] = useState('全部');
   const [selectedTemplateId, setSelectedTemplateId] = useState('food');
-  const [pendingAvatarId, setPendingAvatarId] = useState<'chinese' | 'american' | null>(null);
+  const [pendingAvatarId, setPendingAvatarId] = useState<MuseTalkAvatarProfile | null>(null);
   const [avatarSwitching, setAvatarSwitching] = useState(false);
   const [hostQuery, setHostQuery] = useState('');
   const [hostScope, setHostScope] = useState<'mine' | 'square' | 'favorite'>('mine');
@@ -316,22 +328,28 @@ export function LiveStudio() {
   const hostLayer = layers.find((item) => item.sceneKey === 'host') ?? null;
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
   const previewBackground = backgroundLayer?.preview ?? selectedTemplate.image;
-  const estimatedTime = avatarId === 'american' ? '03:16' : '02:59';
+  const estimatedTime = avatarId === 'middle_aged_male' ? '03:16' : '02:59';
   const currentAssets = materialTab === 'image' || materialTab === 'video'
     ? (assetScope === 'mine' ? assets[materialTab] : SQUARE_ASSETS[materialTab]).filter((item) => item.name.includes(assetQuery.trim()))
     : [];
 
   useEffect(() => {
     if (!entered || workspaceMode !== 'script' || !canvasRef.current) return;
-    streamRef.current = new MuseTalkTotalStream(canvasRef.current, {
+    const stream = new MuseTalkTotalStream(canvasRef.current, {
       profile: avatarId,
-      language: avatarId === 'american' ? 'EN' : 'ZH',
+      language: 'ZH',
       onStage: setStage,
       onMediaActive: setMediaActive,
     });
+    streamRef.current = stream;
+    void stream.startLive().catch((cause) => {
+      if (streamRef.current !== stream) return;
+      setStage('error');
+      setError(cause instanceof Error ? cause.message : String(cause));
+    });
     return () => {
-      void streamRef.current?.cancel();
-      streamRef.current = null;
+      void stream.stopLive();
+      if (streamRef.current === stream) streamRef.current = null;
     };
   }, [avatarId, entered, workspaceMode]);
 
@@ -419,7 +437,7 @@ export function LiveStudio() {
   };
 
   const stopLive = async () => {
-    await streamRef.current?.cancel();
+    await streamRef.current?.stopLive();
     setStage('idle');
     setMediaActive(false);
     setOnAir(false);
@@ -699,14 +717,14 @@ export function LiveStudio() {
     if (!nextAvatar) return;
     setAvatarSwitching(true);
     setAvatarId(nextAvatar.id);
-    const nextDurations = nextAvatar.id === 'american' ? ['00:46', '00:51', '00:56', '00:43'] : ['00:42', '00:47', '00:50', '00:40'];
+    const nextDurations = nextAvatar.id === 'middle_aged_male' ? ['00:46', '00:51', '00:56', '00:43'] : ['00:42', '00:47', '00:50', '00:40'];
     setScripts((items) => items.map((item, index) => ({ ...item, duration: nextDurations[index] ?? item.duration })));
     setLayers((items) => items.map((item) => item.sceneKey === 'host' ? {
       ...item,
       value: nextAvatar.name,
-      width: nextAvatar.id === 'american' ? 100 : 76,
-      height: nextAvatar.id === 'american' ? 72 : 70,
-      y: nextAvatar.id === 'american' ? 64 : 64,
+        width: 76,
+        height: 70,
+        y: 64,
     } : item));
     setPendingAvatarId(null);
     setDialog(null);

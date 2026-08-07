@@ -4,8 +4,14 @@ export interface MuseTalkTotalResult {
   totalLatencyMs: number;
 }
 
-export type MuseTalkAvatarProfile = 'chinese' | 'business_male_1';
-type MuseTalkStreamProfile = MuseTalkAvatarProfile | 'american';
+export type MuseTalkAvatarProfile =
+  | 'chinese'
+  | 'business_male_1'
+  | 'casual_male'
+  | 'middle_aged_male'
+  | 'casual_conversation'
+  | 'casual_female';
+type MuseTalkStreamProfile = MuseTalkAvatarProfile;
 
 export interface MuseTalkAvatarCatalogEntry {
   id: MuseTalkAvatarProfile;
@@ -29,15 +35,35 @@ interface MuseTalkTotalOptions {
 
 type ControlMessage = Record<string, unknown> & { type?: string };
 
+interface ActiveRequest {
+  requestId: string;
+  startedAt: number;
+  answer: string;
+  streamedText: string;
+  llmLatencyMs: number;
+  resolve: (value: MuseTalkTotalResult) => void;
+  reject: (error: Error) => void;
+}
+
 const PACKET_HEADER_BYTES = 24;
-const PCM_CHUNK_BYTES = 64 * 1024;
 const SUPPORTED_AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
   'chinese',
   'business_male_1',
+  'casual_male',
+  'middle_aged_male',
+  'casual_conversation',
+  'casual_female',
 ]);
 
 function isAvatarProfile(value: unknown): value is MuseTalkAvatarProfile {
   return typeof value === 'string' && SUPPORTED_AVATAR_PROFILES.has(value as MuseTalkAvatarProfile);
+}
+
+function nextRequestId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export async function fetchMuseTalkAvatarCatalog(): Promise<MuseTalkAvatarCatalog> {
@@ -77,16 +103,6 @@ function conversationUrl(): string {
   return url.toString();
 }
 
-function acceleratedStreamUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_MUSETALK_STREAM_URL?.trim();
-  const host = typeof window === 'undefined' ? 'localhost' : window.location.hostname;
-  const sameOrigin = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  const value = configured || (sameOrigin ? '/musetalk-stream-api/v1/stream' : `ws://${host}:8083/v1/stream`);
-  const url = new URL(value, window.location.href);
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  return url.toString();
-}
-
 export async function pingMuseTalkTotal(): Promise<boolean> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 4000);
@@ -107,19 +123,26 @@ export async function pingMuseTalkTotal(): Promise<boolean> {
 
 export class MuseTalkTotalStream {
   private websocket: WebSocket | null = null;
+  private connecting: Promise<void> | null = null;
+  private connectResolve: (() => void) | null = null;
+  private connectReject: ((error: Error) => void) | null = null;
+  private closedByUser = false;
   private audioContext: AudioContext | null = null;
   private audioSources = new Set<AudioBufferSourceNode>();
-  private finishTimer: number | null = null;
-  private generation = 0;
+  private audioScheduledUntil = 0;
+  private sessionGeneration = 0;
+  private textGeneration = 0;
   private mediaStartAudio = 0;
   private mediaStartWall = 0;
-  private mediaEndSeconds = 0;
   private mediaVisible = false;
   private mediaTimelineStarted = false;
   private displayedText = '';
   private pendingTextUnits = new Map<number, { text: string; ptsSeconds: number }>();
+  private unpositionedTextUnits = new Map<number, string>();
   private scheduledTextUnits = new Set<number>();
   private textTimers = new Set<number>();
+  private videoTimers = new Set<number>();
+  private activeRequest: ActiveRequest | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -130,8 +153,46 @@ export class MuseTalkTotalStream {
     this.options.onStage?.(stage);
   }
 
+  private setMediaActive(active: boolean) {
+    if (active) {
+      this.mediaVisible = true;
+      this.options.onMediaActive?.(true);
+    }
+  }
+
+  private failConnecting(error: Error) {
+    this.connectReject?.(error);
+    this.connectReject = null;
+    this.connectResolve = null;
+    this.connecting = null;
+  }
+
+  private resolveConnecting() {
+    this.connectResolve?.();
+    this.connectReject = null;
+    this.connectResolve = null;
+    this.connecting = null;
+  }
+
+  private rejectActive(error: Error) {
+    const active = this.activeRequest;
+    this.activeRequest = null;
+    if (active) {
+      this.setStage('error');
+      active.reject(error);
+    }
+  }
+
+  private requireLive(): WebSocket {
+    const websocket = this.websocket;
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+      throw new Error('MuseTalk 直播连接尚未就绪');
+    }
+    return websocket;
+  }
+
   private async handlePacket(buffer: ArrayBuffer, generation: number): Promise<void> {
-    if (generation !== this.generation || buffer.byteLength < PACKET_HEADER_BYTES) return;
+    if (generation !== this.sessionGeneration || buffer.byteLength < PACKET_HEADER_BYTES) return;
     const view = new DataView(buffer);
     const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 4));
     if (magic !== 'MSTK' || view.getUint8(4) !== 1) throw new Error('收到无效的 MSTK/1 媒体包');
@@ -147,9 +208,7 @@ export class MuseTalkTotalStream {
         throw new Error('收到无效的 PCM 音频包');
       }
       const audioContext = this.audioContext;
-      if (!audioContext || audioContext.state === 'closed') {
-        throw new Error('PCM 音频包有效，但音频播放上下文不可用');
-      }
+      if (!audioContext || audioContext.state !== 'running') return;
       const samples = new Int16Array(payload);
       const audioBuffer = audioContext.createBuffer(1, samples.length, 16_000);
       const channel = audioBuffer.getChannelData(0);
@@ -159,20 +218,25 @@ export class MuseTalkTotalStream {
       source.connect(audioContext.destination);
       source.onended = () => this.audioSources.delete(source);
       this.audioSources.add(source);
-      source.start(Math.max(audioContext.currentTime, this.mediaStartAudio + ptsSeconds));
-      this.mediaEndSeconds = Math.max(this.mediaEndSeconds, ptsSeconds + samples.length / 16_000);
+      const startAt = Math.max(
+        audioContext.currentTime + 0.01,
+        this.mediaStartAudio + ptsSeconds,
+        this.audioScheduledUntil,
+      );
+      source.start(startAt);
+      this.audioScheduledUntil = startAt + audioBuffer.duration;
       return;
     }
     if (packetType !== 1) return;
-    this.mediaEndSeconds = Math.max(this.mediaEndSeconds, ptsSeconds + 1 / 25);
     const bitmap = await createImageBitmap(new Blob([payload], { type: 'image/jpeg' }));
-    if (generation !== this.generation) {
+    if (generation !== this.sessionGeneration) {
       bitmap.close();
       return;
     }
     const delay = Math.max(0, this.mediaStartWall + ptsSeconds * 1000 - performance.now());
-    window.setTimeout(() => {
-      if (generation !== this.generation) {
+    const timer = window.setTimeout(() => {
+      this.videoTimers.delete(timer);
+      if (generation !== this.sessionGeneration) {
         bitmap.close();
         return;
       }
@@ -181,25 +245,10 @@ export class MuseTalkTotalStream {
         this.canvas.height = bitmap.height;
       }
       this.canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
-      if (!this.mediaVisible) {
-        this.mediaVisible = true;
-        this.options.onMediaActive?.(true);
-      }
+      this.setMediaActive(true);
       bitmap.close();
     }, delay);
-  }
-
-  private scheduleIdle(generation: number) {
-    if (this.finishTimer !== null) window.clearTimeout(this.finishTimer);
-    const delay = Math.max(0, this.mediaStartWall + this.mediaEndSeconds * 1000 - performance.now());
-    this.finishTimer = window.setTimeout(() => {
-      if (generation !== this.generation) return;
-      this.mediaVisible = false;
-      this.mediaTimelineStarted = false;
-      this.options.onMediaActive?.(false);
-      this.setStage('idle');
-      void this.closeAudio();
-    }, delay + 80);
+    this.videoTimers.add(timer);
   }
 
   private queueTextUnit(sequence: number, text: string, ptsSeconds: number, generation: number) {
@@ -216,7 +265,7 @@ export class MuseTalkTotalStream {
       const delay = Math.max(0, this.mediaStartWall + unit.ptsSeconds * 1000 - performance.now());
       const timer = window.setTimeout(() => {
         this.textTimers.delete(timer);
-        if (generation !== this.generation) return;
+        if (generation !== this.textGeneration) return;
         this.displayedText += unit.text;
         this.options.onTextUnit?.(unit.text, this.displayedText);
       }, delay);
@@ -224,10 +273,28 @@ export class MuseTalkTotalStream {
     }
   }
 
+  private ensureAnswerVisible(answer: string, generation: number) {
+    if (!answer || this.displayedText) return;
+    const reveal = () => {
+      if (generation !== this.textGeneration || this.displayedText) return;
+      this.displayedText = answer;
+      this.options.onTextUnit?.(answer, answer);
+    };
+    const delay = this.mediaTimelineStarted
+      ? Math.max(0, this.mediaStartWall - performance.now())
+      : 0;
+    const timer = window.setTimeout(() => {
+      this.textTimers.delete(timer);
+      reveal();
+    }, delay);
+    this.textTimers.add(timer);
+  }
+
   private resetTextTimeline() {
     for (const timer of this.textTimers) window.clearTimeout(timer);
     this.textTimers.clear();
     this.pendingTextUnits.clear();
+    this.unpositionedTextUnits.clear();
     this.scheduledTextUnits.clear();
     this.displayedText = '';
   }
@@ -241,242 +308,287 @@ export class MuseTalkTotalStream {
       }
     }
     this.audioSources.clear();
+    this.audioScheduledUntil = 0;
+    for (const timer of this.videoTimers) window.clearTimeout(timer);
+    this.videoTimers.clear();
     if (this.audioContext && this.audioContext.state !== 'closed') await this.audioContext.close();
     this.audioContext = null;
     this.mediaTimelineStarted = false;
   }
 
-  private startMediaTimeline(): void {
+  private startMediaTimeline(): boolean {
     const audioContext = this.audioContext;
-    if (!audioContext || audioContext.state === 'closed') {
-      throw new Error('音频播放上下文不可用');
-    }
-    // server_total remaps every text segment onto one conversation-wide PTS timeline.
-    if (this.mediaTimelineStarted) return;
+    if (!audioContext || audioContext.state === 'closed') return false;
+    if (this.mediaTimelineStarted) return true;
     this.mediaTimelineStarted = true;
     this.mediaStartAudio = audioContext.currentTime + 0.65;
+    this.audioScheduledUntil = this.mediaStartAudio;
     this.mediaStartWall = performance.now() + 650;
-    this.scheduleTextUnits(this.generation);
+    this.scheduleTextUnits(this.textGeneration);
+    return true;
+  }
+
+  private handleControlMessage(message: ControlMessage, generation: number) {
+    if (generation !== this.sessionGeneration) return;
+    const type = String(message.type || 'unknown');
+    if (type === 'ready') {
+      this.websocket?.send(
+        JSON.stringify({
+          type: 'idle_start',
+          profile: this.options.profile || 'chinese',
+        }),
+      );
+      return;
+    }
+    if (type === 'idle_started' || type === 'idle_chunk') {
+      this.startMediaTimeline();
+      if (!this.activeRequest) this.setStage('idle');
+      if (type === 'idle_started') this.resolveConnecting();
+      return;
+    }
+    if (type === 'idle_stopped') {
+      return;
+    }
+    if (type === 'idle_error') {
+      if (!this.activeRequest) this.setStage('idle_reconnecting');
+      return;
+    }
+    const requestId = message.request_id === undefined ? null : String(message.request_id);
+    if (requestId && requestId !== 'idle' && requestId !== this.activeRequest?.requestId) {
+      return;
+    }
+    if (type === 'llm_start' || type === 'llm_delta') {
+      if (type === 'llm_delta' && this.activeRequest) {
+        this.activeRequest.streamedText += String(message.delta || '');
+      }
+      return;
+    }
+    if (type === 'llm_result') {
+      if (this.activeRequest) {
+        this.activeRequest.answer = String(message.answer || '');
+        this.activeRequest.llmLatencyMs = Number(message.elapsed_ms || 0);
+      }
+      return;
+    }
+    if (type === 'speak_start' || type === 'speak_result') {
+      this.setStage(type);
+      return;
+    }
+    if (type === 'tts_start' || type === 'tts_result') {
+      this.setStage(type);
+      return;
+    }
+    if (type === 'text_unit') {
+      const sequence = Number(message.seq);
+      const ptsUs = Number(message.pts_us);
+      const text = String(message.text || '');
+      if (Number.isInteger(sequence) && text) {
+        if (Number.isFinite(ptsUs)) {
+          this.queueTextUnit(sequence, text, ptsUs / 1_000_000, this.textGeneration);
+        } else {
+          this.unpositionedTextUnits.set(sequence, text);
+        }
+      }
+      return;
+    }
+    if (type === 'segment_start') {
+      const sequence = Number(message.seq);
+      const ptsUs = Number(message.pts_us);
+      if (Number.isInteger(sequence) && Number.isFinite(ptsUs)) {
+        const text = String(message.text || this.unpositionedTextUnits.get(sequence) || '');
+        this.queueTextUnit(sequence, text, ptsUs / 1_000_000, this.textGeneration);
+      }
+      return;
+    }
+    if (type === 'stream_start') {
+      this.startMediaTimeline();
+      return;
+    }
+    if (type === 'conversation_end') {
+      const requestId = String(message.request_id || '');
+      const active = this.activeRequest;
+      if (active && active.requestId === requestId) {
+        const answer = String(message.answer || active.streamedText || active.answer);
+        this.ensureAnswerVisible(answer, this.textGeneration);
+        this.activeRequest = null;
+        this.setStage('playing');
+        active.resolve({
+          answer,
+          llmLatencyMs: active.llmLatencyMs,
+          totalLatencyMs: Number(message.elapsed_ms || Math.round(performance.now() - active.startedAt)),
+        });
+      }
+      return;
+    }
+    if (type === 'error') {
+      const requestId = message.request_id === undefined ? null : String(message.request_id);
+      const error = new Error(String(message.message || 'MuseTalk 总流程失败'));
+      if (requestId === null && !this.activeRequest) {
+        this.failConnecting(error);
+      } else if (requestId === null || (this.activeRequest && this.activeRequest.requestId === requestId)) {
+        this.rejectActive(error);
+      }
+    }
+  }
+
+  private async handleMessage(event: MessageEvent, generation: number) {
+    if (generation !== this.sessionGeneration) return;
+    if (event.data instanceof ArrayBuffer) {
+      try {
+        await this.handlePacket(event.data, generation);
+      } catch (error) {
+        this.rejectActive(error instanceof Error ? error : new Error(String(error)));
+      }
+      return;
+    }
+    let message: ControlMessage;
+    try {
+      message = JSON.parse(String(event.data)) as ControlMessage;
+    } catch {
+      this.failConnecting(new Error('MuseTalk 总流程返回了无效 JSON'));
+      return;
+    }
+    this.handleControlMessage(message, generation);
   }
 
   async prepareAudio(): Promise<void> {
     if (!this.audioContext || this.audioContext.state === 'closed') {
       this.audioContext = new AudioContext({ latencyHint: 'interactive' });
     }
-    if (this.audioContext.state !== 'running') await this.audioContext.resume();
+    const wasRunning = this.audioContext.state === 'running';
+    if (!wasRunning) await this.audioContext.resume();
+    if (!wasRunning && this.audioContext.state === 'running' && this.mediaTimelineStarted) {
+      const wallElapsed = Math.max(0, performance.now() - this.mediaStartWall) / 1000;
+      this.mediaStartAudio = this.audioContext.currentTime - wallElapsed;
+      this.audioScheduledUntil = this.audioContext.currentTime;
+    }
   }
 
-  async ask(question: string): Promise<MuseTalkTotalResult> {
-    if (this.websocket) throw new Error('MuseTalk 总流程正在处理上一条问题');
-    const generation = ++this.generation;
-    const startedAt = performance.now();
-    this.mediaEndSeconds = 0;
-    this.mediaVisible = false;
-    this.mediaTimelineStarted = false;
-    this.resetTextTimeline();
+  async startLive(): Promise<void> {
+    const existing = this.websocket;
+    if (existing && existing.readyState === WebSocket.OPEN) {
+      await this.prepareAudio();
+      return;
+    }
+    if (this.connecting) {
+      await this.connecting;
+      return;
+    }
+    if (existing) existing.close();
+    this.sessionGeneration += 1;
+    const generation = this.sessionGeneration;
     await this.prepareAudio();
-    this.setStage('connecting');
-
-    return new Promise<MuseTalkTotalResult>((resolve, reject) => {
+    this.closedByUser = false;
+    this.connecting = new Promise<void>((resolve, reject) => {
+      this.connectResolve = resolve;
+      this.connectReject = reject;
       const websocket = new WebSocket(conversationUrl());
       websocket.binaryType = 'arraybuffer';
       this.websocket = websocket;
-      let answer = '';
-      let streamedText = '';
-      let llmLatencyMs = 0;
-      let settled = false;
-
-      const fail = (error: unknown) => {
-        if (settled) return;
-        settled = true;
-        this.options.onMediaActive?.(false);
-        this.setStage('error');
-        this.websocket = null;
-        websocket.close();
-        this.resetTextTimeline();
-        void this.closeAudio();
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-
-      websocket.onerror = () => fail(new Error('无法连接 MuseTalk server_total :8080'));
+      websocket.onerror = () => this.failConnecting(new Error('无法连接 MuseTalk server_total :8080'));
       websocket.onclose = () => {
-        if (!settled) fail(new Error('MuseTalk 总流程连接提前关闭'));
-      };
-      websocket.onmessage = (event) => {
-        if (generation !== this.generation) return;
-        if (event.data instanceof ArrayBuffer) {
-          void this.handlePacket(event.data, generation).catch(fail);
-          return;
-        }
-        let message: ControlMessage;
-        try {
-          message = JSON.parse(String(event.data)) as ControlMessage;
-        } catch {
-          fail(new Error('MuseTalk 总流程返回了无效 JSON'));
-          return;
-        }
-        const type = String(message.type || 'unknown');
-        this.setStage(type);
-        if (type === 'ready') {
-          websocket.send(
-            JSON.stringify({
-              type: 'ask',
-              question,
-              profile: this.options.profile || 'chinese',
-              language: this.options.language || 'ZH',
-              speed: this.options.speed || 1,
-            }),
-          );
-        } else if (type === 'llm_delta') {
-          const delta = String(message.delta || '');
-          if (delta) streamedText += delta;
-        } else if (type === 'text_unit') {
-          const sequence = Number(message.seq);
-          const ptsUs = Number(message.pts_us);
-          if (Number.isInteger(sequence) && Number.isFinite(ptsUs)) {
-            this.queueTextUnit(sequence, String(message.text || ''), ptsUs / 1_000_000, generation);
-          }
-        } else if (type === 'segment_start') {
-          // Compatibility with older server_total versions that emitted text_unit before media PTS existed.
-          const sequence = Number(message.seq);
-          const ptsUs = Number(message.pts_us);
-          if (Number.isInteger(sequence) && Number.isFinite(ptsUs)) {
-            this.queueTextUnit(sequence, String(message.text || ''), ptsUs / 1_000_000, generation);
-          }
-        } else if (type === 'llm_result') {
-          answer = String(message.answer || streamedText);
-          llmLatencyMs = Number(message.elapsed_ms || 0);
-        } else if (type === 'stream_start') {
-          try {
-            this.startMediaTimeline();
-          } catch (error) {
-            fail(error);
-          }
-        } else if (type === 'error') {
-          fail(new Error(String(message.message || 'MuseTalk 总流程失败')));
-        } else if (type === 'conversation_end') {
-          answer = String(message.answer || answer || streamedText);
-          this.setStage('playing');
-          this.scheduleIdle(generation);
-          settled = true;
-          this.websocket = null;
-          websocket.close();
-          resolve({
-            answer,
-            llmLatencyMs,
-            totalLatencyMs: Number(message.elapsed_ms || performance.now() - startedAt),
-          });
+        if (this.websocket === websocket) this.websocket = null;
+        this.failConnecting(new Error('MuseTalk 总流程连接提前关闭'));
+        if (!this.closedByUser) {
+          this.rejectActive(new Error('MuseTalk 总流程连接已断开'));
+          this.resetTextTimeline();
+          this.setStage('error');
+          this.mediaVisible = false;
+          this.mediaTimelineStarted = false;
+          this.options.onMediaActive?.(false);
         }
       };
+      websocket.onmessage = (event) => void this.handleMessage(event, generation);
+    });
+    await this.connecting;
+  }
+
+  async ask(question: string): Promise<MuseTalkTotalResult> {
+    if (this.activeRequest) throw new Error('MuseTalk 总流程正在处理上一条问题');
+    await this.startLive();
+    const websocket = this.requireLive();
+    const requestId = nextRequestId();
+    const startedAt = performance.now();
+    this.textGeneration += 1;
+    this.resetTextTimeline();
+    return new Promise<MuseTalkTotalResult>((resolve, reject) => {
+      this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
+      websocket.send(
+        JSON.stringify({
+          type: 'ask',
+          question,
+          request_id: requestId,
+          profile: this.options.profile || 'chinese',
+          language: this.options.language || 'ZH',
+          speed: this.options.speed || 1,
+        }),
+      );
+      this.setStage('llm_start');
     });
   }
 
   async speak(text: string): Promise<MuseTalkTotalResult> {
-    if (this.websocket) throw new Error('MuseTalk 正在播放上一段内容');
-    const generation = ++this.generation;
+    if (this.activeRequest) throw new Error('MuseTalk 正在播放上一段内容');
+    await this.startLive();
+    const websocket = this.requireLive();
+    const requestId = nextRequestId();
     const startedAt = performance.now();
-    this.mediaEndSeconds = 0;
-    this.mediaVisible = false;
-    this.mediaTimelineStarted = false;
+    this.textGeneration += 1;
     this.resetTextTimeline();
-    await this.prepareAudio();
-    this.setStage('tts_start');
-
-    const ttsResponse = await fetch('/melotts-api/v1/synthesize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        language: this.options.language || 'ZH',
-        speed: this.options.speed || 1,
-        sample_rate: 16_000,
-      }),
-    });
-    if (!ttsResponse.ok) {
-      throw new Error(`MeloTTS 合成失败（HTTP ${ttsResponse.status}）`);
-    }
-    const pcm = await ttsResponse.arrayBuffer();
-    if (!pcm.byteLength || pcm.byteLength % 2) throw new Error('MeloTTS 返回了无效 PCM 音频');
-    this.setStage('tts_result');
-
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
-      const websocket = new WebSocket(acceleratedStreamUrl());
-      websocket.binaryType = 'arraybuffer';
-      this.websocket = websocket;
-      let settled = false;
-
-      const fail = (error: unknown) => {
-        if (settled) return;
-        settled = true;
-        this.options.onMediaActive?.(false);
-        this.setStage('error');
-        this.websocket = null;
-        websocket.close();
-        void this.closeAudio();
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-
-      websocket.onerror = () => fail(new Error('无法连接 MuseTalk accelerated :8083'));
-      websocket.onclose = () => {
-        if (!settled) fail(new Error('MuseTalk accelerated 连接提前关闭'));
-      };
-      websocket.onmessage = (event) => {
-        if (generation !== this.generation) return;
-        if (event.data instanceof ArrayBuffer) {
-          void this.handlePacket(event.data, generation).catch(fail);
-          return;
-        }
-        let message: ControlMessage;
-        try {
-          message = JSON.parse(String(event.data)) as ControlMessage;
-        } catch {
-          fail(new Error('MuseTalk accelerated 返回了无效 JSON'));
-          return;
-        }
-        const type = String(message.type || 'unknown');
-        this.setStage(type);
-        if (type === 'ready') {
-          websocket.send(JSON.stringify({
-            type: 'start',
-            profile: this.options.profile || 'chinese',
-          }));
-          for (let offset = 0; offset < pcm.byteLength; offset += PCM_CHUNK_BYTES) {
-            websocket.send(pcm.slice(offset, offset + PCM_CHUNK_BYTES));
-          }
-          websocket.send(JSON.stringify({ type: 'commit' }));
-        } else if (type === 'stream_start') {
-          try {
-            this.startMediaTimeline();
-          } catch (error) {
-            fail(error);
-          }
-        } else if (type === 'stream_end') {
-          this.scheduleIdle(generation);
-          settled = true;
-          this.websocket = null;
-          websocket.close();
-          resolve({
-            answer: text,
-            llmLatencyMs: 0,
-            totalLatencyMs: Math.round(performance.now() - startedAt),
-          });
-        } else if (type === 'error') {
-          fail(new Error(String(message.message || 'MuseTalk accelerated 失败')));
-        }
-      };
+      this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
+      websocket.send(
+        JSON.stringify({
+          type: 'speak',
+          text,
+          request_id: requestId,
+          profile: this.options.profile || 'chinese',
+          language: this.options.language || 'ZH',
+          speed: this.options.speed || 1,
+        }),
+      );
+      this.setStage('tts_start');
     });
   }
 
   async cancel(): Promise<void> {
-    this.generation += 1;
-    if (this.finishTimer !== null) window.clearTimeout(this.finishTimer);
-    this.finishTimer = null;
+    this.textGeneration += 1;
+    const active = this.activeRequest;
+    this.activeRequest = null;
+    const requestId = active?.requestId;
+    if (active) active.reject(new Error('请求已取消'));
+    this.resetTextTimeline();
+    const websocket = this.websocket;
+    if (requestId && websocket && websocket.readyState === WebSocket.OPEN) {
+      websocket.send(
+        JSON.stringify({ type: 'cancel', request_id: requestId }),
+      );
+    }
+    if (websocket && websocket.readyState === WebSocket.OPEN) this.setStage('idle');
+  }
+
+  async stopLive(): Promise<void> {
+    this.closedByUser = true;
+    this.sessionGeneration += 1;
+    this.textGeneration += 1;
+    const active = this.activeRequest;
+    this.activeRequest = null;
+    if (active) active.reject(new Error('直播已停止'));
+    this.resetTextTimeline();
     const websocket = this.websocket;
     this.websocket = null;
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+      try {
+        websocket.send(JSON.stringify({ type: 'idle_stop' }));
+      } catch {
+        // The connection may already be gone.
+      }
+    }
     websocket?.close();
     this.mediaVisible = false;
+    this.mediaTimelineStarted = false;
     this.options.onMediaActive?.(false);
-    this.resetTextTimeline();
+    this.setStage('idle');
     await this.closeAudio();
   }
 }

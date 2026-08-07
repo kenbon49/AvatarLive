@@ -113,6 +113,42 @@ const DEFAULT_AVATARS: Avatar[] = [
     description: '成熟从容，擅长商务沟通',
     image: '/assets/digital-humans/liangchuan.webp',
   },
+  {
+    id: 'casual-male',
+    profile: 'casual_male',
+    language: 'ZH',
+    name: '休闲风',
+    role: '生活方式主播',
+    description: '自然利落，适合轻松讲解与日常分享',
+    image: '/assets/musetalk-avatars/casual-male.jpg',
+  },
+  {
+    id: 'middle-aged-male',
+    profile: 'middle_aged_male',
+    language: 'ZH',
+    name: '中年男士',
+    role: '资深行业顾问',
+    description: '成熟稳重，适合专业解读与经验分享',
+    image: '/assets/musetalk-avatars/middle-aged-male.jpg',
+  },
+  {
+    id: 'casual-conversation',
+    profile: 'casual_conversation',
+    language: 'ZH',
+    name: '休闲交流',
+    role: '生活交流顾问',
+    description: '亲切松弛，适合陪伴式交流与生活内容',
+    image: '/assets/musetalk-avatars/casual-conversation.jpg',
+  },
+  {
+    id: 'casual-female',
+    profile: 'casual_female',
+    language: 'ZH',
+    name: '休闲女主播',
+    role: '内容分享主播',
+    description: '知性自然，适合知识分享与产品介绍',
+    image: '/assets/musetalk-avatars/casual-female.jpg',
+  },
 ];
 
 function AvatarMedia({ avatar, className = '' }: { avatar: Avatar; className?: string }) {
@@ -140,7 +176,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    streamRef.current = new MuseTalkTotalStream(canvasRef.current, {
+    const stream = new MuseTalkTotalStream(canvasRef.current, {
       profile: avatar.profile,
       language: avatar.language,
       onStage: setStage,
@@ -155,9 +191,15 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
         });
       },
     });
+    streamRef.current = stream;
+    void stream.startLive().catch((cause) => {
+      if (streamRef.current !== stream) return;
+      setStage('error');
+      setError(cause instanceof Error ? cause.message : String(cause));
+    });
     return () => {
-      void streamRef.current?.cancel();
-      streamRef.current = null;
+      void stream.stopLive();
+      if (streamRef.current === stream) streamRef.current = null;
       recognitionRef.current?.stop();
     };
   }, [avatar]);

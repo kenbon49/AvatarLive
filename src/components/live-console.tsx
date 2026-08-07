@@ -235,9 +235,10 @@ export function LiveConsole() {
     'idle' | 'connecting' | 'recording' | 'submitting'
   >('idle');
   const museTalkMicrophoneRef = useRef<MuseTalkMicrophoneStream | null>(null);
-  const museTalkIdleVideoRef = useRef<HTMLVideoElement | null>(null);
   const museTalkTotalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const museTalkTotalRef = useRef<MuseTalkTotalStream | null>(null);
+  const museTalkAskQuestionRef = useRef('');
+  const museTalkTextTargetRef = useRef<'qa' | 'none'>('none');
   const [museTalkMediaSource, setMuseTalkMediaSource] = useState<'webrtc' | 'total' | null>(null);
   const [museTalkTotalStage, setMuseTalkTotalStage] = useState('idle');
   const [museTalkTotalUp, setMuseTalkTotalUp] = useState<boolean | null>(null);
@@ -438,7 +439,7 @@ export function LiveConsole() {
       if (!MUSETALK_ONLY && modeRef.current === 'musetalk') void interruptMuseTalk();
       void museTalkMicrophoneRef.current?.cancel();
       museTalkMicrophoneRef.current = null;
-      void museTalkTotalRef.current?.cancel();
+      void museTalkTotalRef.current?.stopLive();
       museTalkTotalRef.current = null;
       pcRef.current?.close();
       pcRef.current = null;
@@ -875,7 +876,7 @@ export function LiveConsole() {
     museTalkMicrophoneRef.current = null;
     await microphone?.cancel();
     setMuseTalkMicState('idle');
-    await museTalkTotalRef.current?.cancel();
+    await museTalkTotalRef.current?.stopLive();
     museTalkTotalRef.current = null;
     setMuseTalkMediaSource(null);
     setMuseTalkTotalStage('idle');
@@ -960,6 +961,42 @@ export function LiveConsole() {
   const interactionIsCurrent = (generation: number, expectedMode: RenderMode) =>
     interactionGenerationRef.current === generation && modeRef.current === expectedMode;
 
+  const createMuseTalkTotal = (canvas: HTMLCanvasElement) => new MuseTalkTotalStream(canvas, {
+    profile: 'chinese',
+    language: 'ZH',
+    onMediaActive: (active) => {
+      if (modeRef.current === 'musetalk') setMuseTalkMediaSource(active ? 'total' : null);
+    },
+    onStage: (stage) => {
+      if (modeRef.current === 'musetalk') setMuseTalkTotalStage(stage);
+    },
+    onTextUnit: (_unit, text) => {
+      if (modeRef.current !== 'musetalk' || museTalkTextTargetRef.current !== 'qa') return;
+      const currentQuestion = museTalkAskQuestionRef.current;
+      setQaResult((current) => ({
+        session_id: current?.session_id || session?.id || 'server-total',
+        question: currentQuestion,
+        answer: text,
+        model_id: current?.model_id || 'server_total/LiteLLM',
+        llm_latency_ms: current?.llm_latency_ms || 0,
+        livetalking: null,
+      }));
+    },
+  });
+
+  useEffect(() => {
+    const canvas = museTalkTotalCanvasRef.current;
+    if (mode !== 'musetalk' || museTalkTotalUp !== true || !canvas || museTalkTotalRef.current) return;
+    const total = createMuseTalkTotal(canvas);
+    museTalkTotalRef.current = total;
+    void total.startLive().catch((cause) => {
+      if (museTalkTotalRef.current !== total || modeRef.current !== 'musetalk') return;
+      setMuseTalkTotalStage('error');
+      setMuseTalkMediaSource(null);
+      setBroadcastErr(`MuseTalk 静息流启动失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    });
+  }, [mode, museTalkTotalUp]);
+
   const monitorMuseTalkPlayback = async (requestId: number, generation: number) => {
     let observed = false;
     for (let attempt = 0; attempt < 2400; attempt += 1) {
@@ -1020,22 +1057,13 @@ export function LiveConsole() {
       if (operationMode === 'musetalk') {
         const canvas = museTalkTotalCanvasRef.current;
         if (!canvas) throw new Error('MuseTalk 流式画布尚未就绪');
-        const total = new MuseTalkTotalStream(canvas, {
-          profile: 'chinese',
-          language: 'ZH',
-          onMediaActive: (active) => {
-            if (interactionIsCurrent(generation, operationMode)) {
-              setMuseTalkMediaSource(active ? 'total' : null);
-            }
-          },
-          onStage: (stage) => {
-            if (interactionIsCurrent(generation, operationMode)) setMuseTalkTotalStage(stage);
-          },
-        });
-        const previousTotal = museTalkTotalRef.current;
-        museTalkTotalRef.current = total;
-        await total.prepareAudio();
-        await previousTotal?.cancel();
+        let total = museTalkTotalRef.current;
+        if (!total) {
+          total = createMuseTalkTotal(canvas);
+          museTalkTotalRef.current = total;
+        }
+        await total.startLive();
+        museTalkTextTargetRef.current = 'none';
         const result = await total.speak(broadcastText);
         if (!interactionIsCurrent(generation, operationMode)) return;
         setBroadcastInfo(`已发送给 MuseTalk 流式服务 · ${result.totalLatencyMs}ms`);
@@ -1055,8 +1083,6 @@ export function LiveConsole() {
       if (interactionIsCurrent(generation, operationMode)) {
         if (operationMode === 'musetalk' && MUSETALK_ONLY) {
           await museTalkTotalRef.current?.cancel();
-          museTalkTotalRef.current = null;
-          setMuseTalkMediaSource(null);
         }
         setBroadcastErr(e instanceof Error ? e.message : String(e));
       }
@@ -1083,34 +1109,15 @@ export function LiveConsole() {
       if (operationMode === 'musetalk') {
         const canvas = museTalkTotalCanvasRef.current;
         if (!canvas) throw new Error('MuseTalk 流式画布尚未就绪');
-        const total = new MuseTalkTotalStream(canvas, {
-          profile: 'chinese',
-          language: 'ZH',
-          onMediaActive: (active) => {
-            if (interactionIsCurrent(generation, operationMode)) {
-              setMuseTalkMediaSource(active ? 'total' : null);
-            }
-          },
-          onStage: (stage) => {
-            if (interactionIsCurrent(generation, operationMode)) setMuseTalkTotalStage(stage);
-          },
-          onTextUnit: (_unit, text) => {
-            if (!interactionIsCurrent(generation, operationMode)) return;
-            setQaResult((current) => ({
-              session_id: current?.session_id || session?.id || 'server-total',
-              question,
-              answer: text,
-              model_id: current?.model_id || 'server_total/LiteLLM',
-              llm_latency_ms: current?.llm_latency_ms || 0,
-              livetalking: null,
-            }));
-          },
-        });
-        const previousTotal = museTalkTotalRef.current;
-        museTalkTotalRef.current = total;
-        await total.prepareAudio();
+        let total = museTalkTotalRef.current;
+        if (!total) {
+          total = createMuseTalkTotal(canvas);
+          museTalkTotalRef.current = total;
+        }
+        await total.startLive();
+        museTalkAskQuestionRef.current = question;
+        museTalkTextTargetRef.current = 'qa';
         await interruptMuseTalk();
-        await previousTotal?.cancel();
         const result = await total.ask(question);
         res = {
           session_id: session?.id || 'server-total',
@@ -1163,8 +1170,6 @@ export function LiveConsole() {
       if (interactionIsCurrent(generation, operationMode)) {
         if (operationMode === 'musetalk') {
           await museTalkTotalRef.current?.cancel();
-          museTalkTotalRef.current = null;
-          setMuseTalkMediaSource(null);
         }
         setQaErr(e instanceof Error ? e.message : String(e));
       }
@@ -1186,7 +1191,7 @@ export function LiveConsole() {
     if (previousMode === 'musetalk') {
       void museTalkMicrophoneRef.current?.cancel();
       museTalkMicrophoneRef.current = null;
-      void museTalkTotalRef.current?.cancel();
+      void museTalkTotalRef.current?.stopLive();
       museTalkTotalRef.current = null;
       setMuseTalkMicState('idle');
       setMuseTalkMediaSource(null);
@@ -1652,22 +1657,10 @@ export function LiveConsole() {
                 zIndex: 1,
               }}
             />
-            <video
-              ref={museTalkIdleVideoRef}
-              src="/assets/musetalk-default/chinese-idle-3f.mp4"
-              muted
-              autoPlay
-              loop
-              playsInline
-              preload="auto"
+            <img
+              src="/assets/digital-humans/linxi.webp"
+              alt="MuseTalk 数字人待机画面"
               aria-hidden={!showMuseTalkIdle}
-              onLoadedData={(event) => {
-                event.currentTarget.currentTime = 0;
-                event.currentTarget.play().catch(() => {});
-              }}
-              onTimeUpdate={(event) => {
-                if (event.currentTarget.currentTime >= 1) event.currentTarget.currentTime = 0;
-              }}
               style={{
                 position: 'absolute',
                 inset: 0,
@@ -1958,9 +1951,7 @@ export function LiveConsole() {
                     : `本次播报固定使用“${flashHeadActionLabel || flashHeadAction}”。`}
                 </small>
                 <div className="fhActionButtons">
-                  <a href="/demos/flashhead-body-poc.mp4" target="_blank" rel="noreferrer">
-                    <Film size={13} /> 录制样片
-                  </a>
+                  <span><Film size={13} /> 实时动作预览</span>
                   <button
                     type="button"
                     onClick={() => void previewFlashHeadAction()}
