@@ -1,24 +1,40 @@
 'use client';
 
-import { FormEvent, useRef, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Bot,
+  Box,
   Check,
   Image as ImageIcon,
   ImagePlus,
   MessageSquareText,
   Mic2,
+  Move3d,
   Palette,
   RotateCcw,
   Send,
   Sparkles,
+  Shirt,
   UserRound,
   Volume2,
 } from 'lucide-react';
+import {
+  AvatarCapabilityPanel,
+  DEFAULT_AVATAR_STYLE_SELECTION,
+  type AvatarCapabilityMode,
+  type AvatarDriveTab,
+  type AvatarStyleSelection,
+} from '@/components/avatar-capability-panel';
+import {
+  CUSTOM_AVATAR_STORAGE_KEY,
+  readCustomAvatars,
+  type Avatar,
+} from '@/lib/avatar-catalog';
+import type { MuseTalkAvatarProfile } from '@/lib/musetalk-total-stream';
 
-type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona';
+export type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona' | AvatarCapabilityMode;
 type ChatMessage = { role: 'assistant' | 'user'; text: string };
 
 type StoredAvatar = {
@@ -26,9 +42,20 @@ type StoredAvatar = {
   name: string;
   role: string;
   description: string;
-  profile: 'chinese';
+  profile: MuseTalkAvatarProfile;
+  language: 'ZH' | 'EN';
   image: string;
   custom: true;
+  voice: string;
+  background: string;
+  style: AvatarStyleSelection;
+};
+
+type AvatarDesignStudioProps = {
+  initialAvatar?: Avatar;
+  initialAvatarId?: string;
+  initialDriveTab: AvatarDriveTab;
+  initialTab: CreatorTab;
 };
 
 const CREATOR_TABS = [
@@ -36,6 +63,9 @@ const CREATOR_TABS = [
   { id: 'voice' as const, label: '声音', icon: Mic2 },
   { id: 'background' as const, label: '背景', icon: ImageIcon },
   { id: 'persona' as const, label: '人设', icon: Bot },
+  { id: 'model' as const, label: '模型', icon: Box },
+  { id: 'drive' as const, label: '驱动', icon: Move3d },
+  { id: 'style' as const, label: '造型', icon: Shirt },
 ];
 
 const BACKGROUNDS = [
@@ -84,16 +114,32 @@ async function bakeImageFilter(source: string, filter: string): Promise<string> 
   return canvas.toDataURL('image/jpeg', 0.86);
 }
 
-export function AvatarDesignStudio() {
+function initialGreeting(avatar?: Avatar) {
+  if (!avatar) return '你好，很高兴认识你。有什么可以帮你？';
+  return avatar.custom ? avatar.description : `你好，我是${avatar.name}。有什么可以帮你？`;
+}
+
+export function AvatarDesignStudio({
+  initialAvatar,
+  initialAvatarId,
+  initialDriveTab,
+  initialTab,
+}: AvatarDesignStudioProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<CreatorTab>('appearance');
-  const [name, setName] = useState('');
-  const [role, setRole] = useState('品牌数字人');
-  const [greeting, setGreeting] = useState('你好，很高兴认识你。有什么可以帮你？');
-  const [voice, setVoice] = useState('温暖自然 · 中文女声');
-  const [background, setBackground] = useState('transparent');
-  const [image, setImage] = useState('');
+  const [activeTab, setActiveTab] = useState<CreatorTab>(initialTab);
+  const [driveTab, setDriveTab] = useState<AvatarDriveTab>(initialDriveTab);
+  const [name, setName] = useState(initialAvatar?.name ?? '');
+  const [role, setRole] = useState(initialAvatar?.role ?? '品牌数字人');
+  const [greeting, setGreeting] = useState(initialGreeting(initialAvatar));
+  const [voice, setVoice] = useState(initialAvatar?.voice ?? '温暖自然 · 中文女声');
+  const [background, setBackground] = useState(initialAvatar?.background ?? 'transparent');
+  const [styleSelection, setStyleSelection] = useState<AvatarStyleSelection>(initialAvatar?.style ?? { ...DEFAULT_AVATAR_STYLE_SELECTION });
+  const [image, setImage] = useState(initialAvatar?.image ?? '');
+  const [sourceAvatarId, setSourceAvatarId] = useState(initialAvatar?.id ?? initialAvatarId ?? '');
+  const [editingCustomAvatar, setEditingCustomAvatar] = useState(initialAvatar?.custom === true);
+  const [sourceProfile, setSourceProfile] = useState<MuseTalkAvatarProfile>(initialAvatar?.profile ?? 'chinese');
+  const [sourceLanguage, setSourceLanguage] = useState<'ZH' | 'EN'>(initialAvatar?.language ?? 'ZH');
   const [imageFilter, setImageFilter] = useState('none');
   const [prompt, setPrompt] = useState('');
   const [chat, setChat] = useState<ChatMessage[]>([
@@ -101,6 +147,47 @@ export function AvatarDesignStudio() {
   ]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const capabilityMode = activeTab === 'model' || activeTab === 'drive' || activeTab === 'style' ? activeTab : null;
+
+  useEffect(() => {
+    if (initialAvatar || !initialAvatarId) return;
+    const stored = readCustomAvatars().find((avatar) => avatar.id === initialAvatarId);
+    if (!stored) {
+      setError('没有找到要配置的数字人，请从形象列表重新进入。');
+      return;
+    }
+    setSourceAvatarId(stored.id);
+    setEditingCustomAvatar(true);
+    setSourceProfile(stored.profile);
+    setSourceLanguage(stored.language);
+    setName(stored.name);
+    setRole(stored.role);
+    setGreeting(initialGreeting(stored));
+    setVoice(stored.voice ?? '温暖自然 · 中文女声');
+    setBackground(stored.background ?? 'transparent');
+    setStyleSelection(stored.style ?? { ...DEFAULT_AVATAR_STYLE_SELECTION });
+    setImage(stored.image);
+  }, [initialAvatar, initialAvatarId]);
+
+  const syncDesignUrl = (tab: CreatorTab, nextDriveTab = driveTab) => {
+    const params = new URLSearchParams(window.location.search);
+    if (sourceAvatarId) params.set('avatar', sourceAvatarId);
+    else params.delete('avatar');
+    params.set('tab', tab);
+    params.set('driveTab', nextDriveTab);
+    const query = params.toString();
+    window.history.replaceState(window.history.state, '', `/design${query ? `?${query}` : ''}`);
+  };
+
+  const chooseTab = (tab: CreatorTab) => {
+    setActiveTab(tab);
+    syncDesignUrl(tab);
+  };
+
+  const chooseDriveTab = (tab: AvatarDriveTab) => {
+    setDriveTab(tab);
+    syncDesignUrl('drive', tab);
+  };
 
   const loadImage = async (file?: File) => {
     if (!file) return;
@@ -162,16 +249,20 @@ export function AvatarDesignStudio() {
     try {
       const finalImage = await bakeImageFilter(image, imageFilter);
       const avatar: StoredAvatar = {
-        id: `custom-${Date.now()}`,
+        id: editingCustomAvatar && sourceAvatarId ? sourceAvatarId : `custom-${Date.now()}`,
         name: name.trim(),
         role: role.trim() || '专属数字人',
         description: greeting.trim() || '专属互动数字人',
-        profile: 'chinese',
+        profile: sourceProfile,
+        language: sourceLanguage,
         image: finalImage,
         custom: true,
+        voice,
+        background,
+        style: styleSelection,
       };
-      const existing = JSON.parse(localStorage.getItem('lingjing-custom-avatars') || '[]') as StoredAvatar[];
-      localStorage.setItem('lingjing-custom-avatars', JSON.stringify([avatar, ...(Array.isArray(existing) ? existing : [])]));
+      const remaining = readCustomAvatars().filter((item) => item.id !== avatar.id);
+      localStorage.setItem(CUSTOM_AVATAR_STORAGE_KEY, JSON.stringify([avatar, ...remaining]));
       router.push('/');
     } catch (cause) {
       setSaving(false);
@@ -192,10 +283,23 @@ export function AvatarDesignStudio() {
         <nav className="creatorRail" aria-label="数字人配置">
           {CREATOR_TABS.map((tab) => {
             const Icon = tab.icon;
-            return <button key={tab.id} className={activeTab === tab.id ? 'active' : ''} type="button" onClick={() => setActiveTab(tab.id)}><Icon size={20} /><span>{tab.label}</span></button>;
+            return <button key={tab.id} className={activeTab === tab.id ? 'active' : ''} type="button" onClick={() => chooseTab(tab.id)}><Icon size={20} /><span>{tab.label}</span></button>;
           })}
         </nav>
 
+        {capabilityMode ? (
+          <main className="creatorCapabilityStage">
+            <AvatarCapabilityPanel
+              mode={capabilityMode}
+              avatarImage={image}
+              avatarName={name}
+              driveTab={driveTab}
+              onDriveTabChange={chooseDriveTab}
+              styleSelection={styleSelection}
+              onStyleSelectionChange={setStyleSelection}
+            />
+          </main>
+        ) : <>
         <aside className="creatorInspector">
           {activeTab === 'appearance' && (
             <>
@@ -263,6 +367,7 @@ export function AvatarDesignStudio() {
             <span>{voice}</span>
           </div>
         </main>
+        </>}
       </div>
     </div>
   );

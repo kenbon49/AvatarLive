@@ -2,85 +2,28 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Headphones, ImagePlus, Mic, MicOff, PhoneCall, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, Headphones, ImagePlus, Mic, MicOff, PhoneCall, Send, Settings2, Sparkles } from 'lucide-react';
 import {
   fetchMuseTalkAvatarCatalog,
-  MuseTalkAvatarProfile,
   MuseTalkTotalStream,
+  type MuseTalkAvatarProfile,
 } from '@/lib/musetalk-total-stream';
+import {
+  CUSTOM_AVATAR_STORAGE_KEY,
+  DEFAULT_AVATARS,
+  readCustomAvatars,
+  type Avatar,
+} from '@/lib/avatar-catalog';
 import { ProductShell } from '@/components/product-shell';
-
-type Avatar = {
-  id: string;
-  profile: MuseTalkAvatarProfile;
-  language: 'ZH' | 'EN';
-  name: string;
-  role: string;
-  description: string;
-  image: string;
-};
 
 type Message = { role: 'user' | 'avatar'; text: string };
 
-const DEFAULT_AVATARS: Avatar[] = [
-  {
-    id: 'chinese',
-    profile: 'chinese',
-    language: 'ZH',
-    name: '中文女',
-    role: '品牌咨询顾问',
-    description: '默认中文数字人，适合品牌接待与内容讲解',
-    image: '/assets/musetalk-avatars/chinese.jpg',
-  },
-  {
-    id: 'business_male_1',
-    profile: 'business_male_1',
-    language: 'ZH',
-    name: '商务男1',
-    role: '企业服务顾问',
-    description: '沉稳专业，适合企业服务与商务沟通',
-    image: '/assets/musetalk-avatars/business-male-1.jpg',
-  },
-  {
-    id: 'casual_male',
-    profile: 'casual_male',
-    language: 'ZH',
-    name: '休闲风',
-    role: '生活方式主播',
-    description: '自然利落，适合轻松讲解与日常分享',
-    image: '/assets/musetalk-avatars/casual-male.jpg',
-  },
-  {
-    id: 'middle_aged_male',
-    profile: 'middle_aged_male',
-    language: 'ZH',
-    name: '中年',
-    role: '资深行业顾问',
-    description: '成熟稳重，适合专业解读与经验分享',
-    image: '/assets/musetalk-avatars/middle-aged-male.jpg',
-  },
-  {
-    id: 'casual_conversation',
-    profile: 'casual_conversation',
-    language: 'ZH',
-    name: '休闲交流',
-    role: '生活交流顾问',
-    description: '亲切松弛，适合陪伴式交流与生活内容',
-    image: '/assets/musetalk-avatars/casual-conversation.jpg',
-  },
-  {
-    id: 'casual_female',
-    profile: 'casual_female',
-    language: 'ZH',
-    name: '休闲女',
-    role: '内容分享主播',
-    description: '知性自然，适合知识分享与产品介绍',
-    image: '/assets/musetalk-avatars/casual-female.jpg',
-  },
-];
-
 function AvatarMedia({ avatar, className = '' }: { avatar: Avatar; className?: string }) {
   return <img className={className} src={avatar.image} alt={`${avatar.name} 数字人形象`} />;
+}
+
+function avatarDesignHref(avatar: Avatar) {
+  return `/design?avatar=${encodeURIComponent(avatar.id)}&tab=appearance`;
 }
 
 function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }) {
@@ -89,14 +32,21 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
   const recognitionRef = useRef<{ start: () => void; stop: () => void } | null>(null);
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'avatar', text: `你好，我是${avatar.name}。欢迎来到灵境数字人体验中心，有什么想了解的吗？` },
+    { role: 'avatar', text: avatar.custom ? avatar.description : `你好，我是${avatar.name}。欢迎来到灵境数字人体验中心，有什么想了解的吗？` },
   ]);
   const [input, setInput] = useState('');
   const [stage, setStage] = useState('idle');
   const [mediaActive, setMediaActive] = useState(false);
+  const [connectionState, setConnectionState] = useState<'connecting' | 'online' | 'failed'>('connecting');
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
   const busy = stage !== 'idle' && stage !== 'conversation_end' && stage !== 'error';
+  const showGeneratedMedia = mediaActive && !avatar.custom;
+  const lipSyncStatus = avatar.custom
+    ? '自定义模型待生成/接入'
+    : connectionState === 'failed'
+      ? '连接失败'
+      : mediaActive ? '运行中' : '连接中';
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
@@ -104,11 +54,15 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
 
   useEffect(() => {
     if (!canvasRef.current) return;
+    setConnectionState('connecting');
     const stream = new MuseTalkTotalStream(canvasRef.current, {
       profile: avatar.profile,
       language: avatar.language,
       onStage: setStage,
-      onMediaActive: setMediaActive,
+      onMediaActive: (active) => {
+        setMediaActive(active);
+        if (active) setConnectionState('online');
+      },
       onTextUnit: (_unit, text) => {
         setMessages((items) => {
           const last = items.at(-1);
@@ -120,6 +74,16 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
       },
     });
     streamRef.current = stream;
+    void stream.startLive()
+      .then(() => {
+        if (streamRef.current === stream) setConnectionState('online');
+      })
+      .catch((cause) => {
+        if (streamRef.current !== stream) return;
+        setConnectionState('failed');
+        setStage('error');
+        setError(cause instanceof Error ? cause.message : String(cause));
+      });
     return () => {
       void stream.stopLive();
       if (streamRef.current === stream) streamRef.current = null;
@@ -127,15 +91,22 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
     };
   }, [avatar]);
 
+  useEffect(() => {
+    if (stage === 'error' && !mediaActive) setConnectionState('failed');
+  }, [mediaActive, stage]);
+
   const ask = async (raw: string) => {
     const question = raw.trim();
     if (!question || busy || !streamRef.current) return;
     setInput('');
     setError('');
+    if (connectionState === 'failed') setConnectionState('connecting');
     setMessages((items) => [...items, { role: 'user', text: question }]);
     try {
       await streamRef.current.ask(question);
+      setConnectionState('online');
     } catch (cause) {
+      if (!mediaActive) setConnectionState('failed');
       setStage('error');
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -190,16 +161,16 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
       <main className="consoleMain conversationWorkspace">
         <div className="conversationWorkbench">
           <section className="avatarCallStage" aria-label={`${avatar.name} 数字人画面`}>
-            <AvatarMedia avatar={avatar} className={mediaActive ? 'stageMedia hidden' : 'stageMedia'} />
-            <canvas ref={canvasRef} className={mediaActive ? 'streamCanvas active' : 'streamCanvas'} />
+            <AvatarMedia avatar={avatar} className={showGeneratedMedia ? 'stageMedia hidden' : 'stageMedia'} />
+            <canvas ref={canvasRef} className={showGeneratedMedia ? 'streamCanvas active' : 'streamCanvas'} />
             <div className="stageWash" />
             {busy && <div className="voiceWave" aria-label="数字人正在响应"><i /><i /><i /><i /><i /></div>}
             <div className="callDock">
-              <span><i />实时音视频</span>
+              <span><i />{avatar.custom ? '实时语音' : '实时音视频'}</span>
               <button type="button" onClick={toggleMic} className={listening ? 'listening' : ''} aria-label={listening ? '停止聆听' : '开始语音输入'}>
                 {listening ? <MicOff size={20} /> : <PhoneCall size={20} />}
               </button>
-              <span>低延迟模式</span>
+              <span>{avatar.custom ? '图片模式' : '低延迟模式'}</span>
             </div>
           </section>
 
@@ -207,7 +178,8 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
             <header>
               <div className="dialogAvatar"><img src={avatar.image} alt="" /></div>
               <div><strong>对话记录</strong><span>与 {avatar.name} 实时交流</span></div>
-              <span className="onlineTag"><i />在线</span>
+              <span className="onlineTag"><i />{connectionState === 'failed' ? '连接失败' : connectionState === 'online' ? '在线' : '连接中'}</span>
+              <Link className="dialogConfigure" href={avatarDesignHref(avatar)} aria-label={`配置${avatar.name}`}><Settings2 size={15} /></Link>
               <button className="dialogBack" type="button" onClick={onBack} aria-label="返回形象列表"><ArrowLeft size={16} /></button>
             </header>
             <div className="messageList" aria-live="polite">
@@ -221,7 +193,9 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
               <div ref={messagesEndRef} />
             </div>
             {error && <div className="inlineError">{error}</div>}
-            <div className="dialogSuggestion"><Headphones size={14} />支持文字输入与浏览器语音识别</div>
+            <div className="dialogSuggestion">
+              <Headphones size={14} />ASR：{listening ? '识别中' : '就绪'} · 口型驱动：{lipSyncStatus} · 知识来源：通用模型
+            </div>
             <form className="composer" onSubmit={submit}>
               <button type="button" className={`micButton ${listening ? 'recording' : ''}`} onClick={toggleMic} disabled={busy} aria-label="语音输入">
                 {listening ? <MicOff size={18} /> : <Mic size={18} />}
@@ -238,9 +212,29 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
 
 export function InteractionConsole() {
   const [selected, setSelected] = useState<Avatar | null>(null);
-  const [avatars, setAvatars] = useState<Avatar[]>(DEFAULT_AVATARS);
+  const [catalogAvatars, setCatalogAvatars] = useState<Avatar[]>(DEFAULT_AVATARS);
+  const [customAvatars, setCustomAvatars] = useState<Avatar[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<MuseTalkAvatarProfile>('chinese');
   const [catalogError, setCatalogError] = useState('');
+
+  const avatars = [
+    ...customAvatars,
+    ...catalogAvatars.filter((avatar) => !customAvatars.some((custom) => custom.id === avatar.id)),
+  ];
+
+  useEffect(() => {
+    const refreshCustomAvatars = () => setCustomAvatars(readCustomAvatars());
+    const syncCustomAvatars = (event: StorageEvent) => {
+      if (event.key === CUSTOM_AVATAR_STORAGE_KEY) refreshCustomAvatars();
+    };
+    refreshCustomAvatars();
+    window.addEventListener('storage', syncCustomAvatars);
+    window.addEventListener('focus', refreshCustomAvatars);
+    return () => {
+      window.removeEventListener('storage', syncCustomAvatars);
+      window.removeEventListener('focus', refreshCustomAvatars);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -249,7 +243,7 @@ export function InteractionConsole() {
         if (!active) return;
         const availableProfiles = new Set(catalog.avatars.map((item) => item.id));
         const available = DEFAULT_AVATARS.filter((item) => availableProfiles.has(item.profile));
-        if (available.length) setAvatars(available);
+        if (available.length) setCatalogAvatars(available);
         setDefaultProfile(catalog.default);
         setCatalogError('');
       })
@@ -277,13 +271,16 @@ export function InteractionConsole() {
           <div className="heroCopy">
             <h1>来和你的数字人聊聊吧</h1>
             <p>选择数字人形象，即刻体验低延迟、可打断的自然对话。适用于客户接待、产品咨询与品牌服务。</p>
-            <button className="primaryAction" type="button" onClick={() => setSelected(featuredAvatar)} disabled={!featuredAvatar}><Sparkles size={17} />立即开始</button>
+            <div className="catalogHeroActions">
+              <button className="primaryAction" type="button" onClick={() => setSelected(featuredAvatar)} disabled={!featuredAvatar}><Sparkles size={17} />立即开始</button>
+              {featuredAvatar && <Link className="secondaryAction" href={avatarDesignHref(featuredAvatar)}><Settings2 size={16} />配置形象</Link>}
+            </div>
           </div>
           <div className="heroShowcase" aria-hidden="true">
             <div className="heroOrb one" />
             <div className="heroOrb two" />
             {featuredAvatar && <div className="heroPortrait"><img src={featuredAvatar.image} alt="" /></div>}
-            {featuredAvatar && <div className="heroFloatingCard"><span><i />在线</span><strong>{featuredAvatar.name}</strong><small>{featuredAvatar.role}</small></div>}
+            {featuredAvatar && <div className="heroFloatingCard"><span><i />{catalogError ? '服务未连接' : '在线'}</span><strong>{featuredAvatar.name}</strong><small>{featuredAvatar.role}</small></div>}
           </div>
         </section>
 
@@ -299,12 +296,15 @@ export function InteractionConsole() {
               <span><strong>创建自己的数字人</strong><small>上传图片或通过对话修改形象</small></span>
             </Link>
             {avatars.map((avatar) => (
-              <button className="avatarProductCard" type="button" key={avatar.id} onClick={() => setSelected(avatar)}>
-                <span className="avatarProductMedia"><AvatarMedia avatar={avatar} /></span>
-                <span className="avatarProductInfo">
-                  <span><strong>{avatar.name}</strong><small>{avatar.description || avatar.role}</small></span>
-                </span>
-              </button>
+              <div className="avatarProductCardWrap" key={avatar.id}>
+                <button className="avatarProductCard" type="button" onClick={() => setSelected(avatar)}>
+                  <span className="avatarProductMedia"><AvatarMedia avatar={avatar} /></span>
+                  <span className="avatarProductInfo">
+                    <span><strong>{avatar.name}</strong><small>{avatar.custom ? `专属形象 · ${avatar.description || avatar.role}` : avatar.description || avatar.role}</small></span>
+                  </span>
+                </button>
+                <Link className="avatarConfigLink" href={avatarDesignHref(avatar)} aria-label={`配置${avatar.name}`}><Settings2 size={13} /><span>配置</span></Link>
+              </div>
             ))}
           </div>
         </section>

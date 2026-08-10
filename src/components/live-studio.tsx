@@ -1,25 +1,34 @@
 'use client';
 
-import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpenText,
   Check,
   CheckSquare,
   ChevronDown,
   CircleStop,
+  Cpu,
+  Database,
+  FileSpreadsheet,
   FileText,
+  FileUp,
+  HardDrive,
   HelpCircle,
   Image as ImageIcon,
   Layers3,
   Library,
+  LoaderCircle,
   MessageCircleQuestion,
   Play,
   Plus,
   Radio,
   Save,
   Search,
+  Server,
   Settings2,
+  ShieldCheck,
   Shuffle,
   Sparkles,
   Trash2,
@@ -116,8 +125,32 @@ type AssetItem = {
 };
 
 type QaItem = { id: number; question: string; answer: string };
-type DialogName = 'settings' | 'livePlatform' | 'library' | 'avatarConfirm' | null;
+type ImportedScriptItem = Omit<ScriptItem, 'id' | 'state'>;
+type VoiceOption = {
+  id: string;
+  name: string;
+  gender: '男性' | '女性';
+  age: '18-24岁' | '25-35岁' | '36-50岁';
+  tone: '亲和力强' | '幽默有趣' | '元气活力' | '沉稳冷静' | '权威靠谱';
+  image: string;
+  scope: 'public' | 'mine';
+  providerName: string;
+  referenceId: string;
+  previewAudio: string;
+};
+
+type DialogName = 'settings' | 'voice' | 'livePlatform' | 'library' | 'scriptImport' | 'avatarConfirm' | null;
 type WorkspaceMode = 'script' | 'qa';
+type SettingsTab = 'qa' | 'dynamic' | 'ambience' | 'product' | 'output' | 'environment';
+type OutputConfig = { resolution: string; frameRate: string; codec: string; protocol: string };
+
+export type LiveStudioInitialState = {
+  autoDetectEnvironment?: boolean;
+  dialog?: Extract<DialogName, 'settings' | 'voice'> | null;
+  entered?: boolean;
+  outputConfig?: OutputConfig;
+  settingsTab?: SettingsTab;
+};
 
 const MATERIAL_TABS = [
   { id: 'template', label: '模板', icon: Layers3 },
@@ -232,6 +265,8 @@ const SETTINGS_TABS = [
   { id: 'dynamic', label: 'AI 动态话术', icon: WandSparkles },
   { id: 'ambience', label: 'AI 氛围互动', icon: Sparkles },
   { id: 'product', label: '随讲解弹商品卡', icon: ImageIcon },
+  { id: 'output', label: '输出与画质', icon: Video },
+  { id: 'environment', label: '环境检查', icon: ShieldCheck },
 ] as const;
 
 const PLATFORMS = [
@@ -245,8 +280,38 @@ const PLATFORMS = [
   { name: '小红书', logo: '/assets/brand-logos/xiaohongshu.svg', color: '#ff2442', status: '内测中' },
 ] as const;
 
-export function LiveStudio() {
-  const [entered, setEntered] = useState(false);
+const TALK_LIBRARY = [
+  { category: '电商', title: '新品专场欢迎', text: '欢迎来到新品专场，今天会从风味、工艺和冲泡建议三个方面为大家介绍。' },
+  { category: '电商', title: '直播间福利提醒', text: '直播间专属福利正在进行，喜欢的朋友可以先领取优惠，再根据需要选择。' },
+  { category: '教育', title: '课程导学开场', text: '本节课将通过案例拆解核心知识点，建议大家先了解今天的学习目标。' },
+  { category: '教育', title: '学习问题引导', text: '如果对刚才的内容还有疑问，可以发送关键词，我会结合课程资料继续说明。' },
+  { category: '金融', title: '风险提示说明', text: '以下内容仅用于产品信息介绍，具体规则与风险等级请以正式材料为准。' },
+  { category: '通用', title: '品质保障说明', text: '每一批商品都经过筛选与品质把控，具体参数和售后规则以正式商品信息为准。' },
+] as const;
+
+const VOICES: VoiceOption[] = [
+  { id: 'professional', name: '专业知性女声', gender: '女性', age: '25-35岁', tone: '权威靠谱', image: '/assets/digital-humans/linxi.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '603e674b998943e3b664e3b3f5aff006', previewAudio: '/assets/voice-samples/fish-audio/professional-female.mp3' },
+  { id: 'considerate', name: '温柔动听女声', gender: '女性', age: '18-24岁', tone: '亲和力强', image: '/assets/digital-humans/suqing.webp', scope: 'public', providerName: 'Fish Audio', referenceId: 'faccba1a8ac54016bcfc02761285e67f', previewAudio: '/assets/voice-samples/fish-audio/considerate-female.mp3' },
+  { id: 'natural-young', name: '自然亲切女声', gender: '女性', age: '18-24岁', tone: '亲和力强', image: '/assets/digital-humans/tangyue.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '56c3fbbe37bb42e9a0b82e55b5abfca6', previewAudio: '/assets/voice-samples/fish-audio/natural-young-female.mp3' },
+  { id: 'natural-host', name: '带货主播女声', gender: '女性', age: '25-35岁', tone: '元气活力', image: '/assets/digital-humans/zhoulan.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '969b367b71224c45b4c86f0266dc0112', previewAudio: '/assets/voice-samples/fish-audio/commerce-host-female.mp3' },
+  { id: 'gentle-host', name: '清澈柔和女声', gender: '女性', age: '25-35岁', tone: '亲和力强', image: '/assets/digital-humans/linxi.webp', scope: 'public', providerName: 'Fish Audio', referenceId: 'ef0f04de923849ca8836c5c63d23eefa', previewAudio: '/assets/voice-samples/fish-audio/gentle-clear-female.mp3' },
+  { id: 'middle-man', name: '沉稳讲述男声', gender: '男性', age: '36-50岁', tone: '沉稳冷静', image: '/assets/digital-humans/guyan.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '5a0aac1ed36d47dab16cc27ebebd47af', previewAudio: '/assets/voice-samples/fish-audio/steady-story-male.mp3' },
+  { id: 'clear-young', name: '清澈叙述女声', gender: '女性', age: '18-24岁', tone: '亲和力强', image: '/assets/digital-humans/chenyu.webp', scope: 'public', providerName: 'Fish Audio', referenceId: 'd58498107ce14ab5ac9d41d0ec28ead5', previewAudio: '/assets/voice-samples/fish-audio/clear-female.mp3' },
+  { id: 'elegant', name: '知性优雅女声', gender: '女性', age: '25-35岁', tone: '权威靠谱', image: '/assets/digital-humans/liangchuan.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '507a3b05f3a543f49d35de112b9ee3a6', previewAudio: '/assets/voice-samples/fish-audio/elegant-female.mp3' },
+  { id: 'calm-man', name: '专业沉稳男声', gender: '男性', age: '25-35岁', tone: '权威靠谱', image: '/assets/digital-humans/noah.webp', scope: 'public', providerName: 'Fish Audio', referenceId: 'ea6b69b0e12d4bbc999bcf546bf61035', previewAudio: '/assets/voice-samples/fish-audio/professional-steady-male.mp3' },
+  { id: 'clear-man', name: '清澈青年男声', gender: '男性', age: '18-24岁', tone: '亲和力强', image: '/assets/digital-humans/maya.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '83f5551b1a554002971d897259bbea3c', previewAudio: '/assets/voice-samples/fish-audio/clear-young-male.mp3' },
+  { id: 'bright-girl', name: '活力主播女声', gender: '女性', age: '18-24岁', tone: '元气活力', image: '/assets/digital-humans/avery.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '7220de919f3843f89135d149fb4f3d8a', previewAudio: '/assets/voice-samples/fish-audio/energetic-host-female.mp3' },
+  { id: 'sweet-girl', name: '甜美灵动女声', gender: '女性', age: '18-24岁', tone: '元气活力', image: '/assets/digital-humans/avery-transparent.png', scope: 'mine', providerName: 'Fish Audio', referenceId: '510d7514d3f945e3a645706f50d84e8d', previewAudio: '/assets/voice-samples/fish-audio/sweet-female.mp3' },
+];
+
+export function LiveStudio({
+  autoDetectEnvironment = false,
+  dialog: initialDialog = null,
+  entered: initialEntered = false,
+  outputConfig: initialOutputConfig,
+  settingsTab: initialSettingsTab = 'qa',
+}: LiveStudioInitialState = {}) {
+  const [entered, setEntered] = useState(initialEntered);
   const [avatarId, setAvatarId] = useState<MuseTalkAvatarProfile>('chinese');
   const avatar = AVATARS.find((item) => item.id === avatarId) ?? AVATARS[0];
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -259,7 +324,7 @@ export function LiveStudio() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [savedAt, setSavedAt] = useState('10:40');
-  const [dialog, setDialog] = useState<DialogName>(null);
+  const [dialog, setDialog] = useState<DialogName>(initialEntered ? initialDialog : null);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('script');
   const [materialTab, setMaterialTab] = useState<(typeof MATERIAL_TABS)[number]['id']>('template');
   const [scripts, setScripts] = useState<ScriptItem[]>(INITIAL_SCRIPTS);
@@ -268,6 +333,20 @@ export function LiveStudio() {
   const [showScriptMenu, setShowScriptMenu] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedScriptIds, setSelectedScriptIds] = useState<number[]>([]);
+  const [voiceTab, setVoiceTab] = useState<'public' | 'mine'>('public');
+  const [voiceQuery, setVoiceQuery] = useState('');
+  const [voiceGender, setVoiceGender] = useState<'全部性别' | VoiceOption['gender']>('全部性别');
+  const [voiceAge, setVoiceAge] = useState<'全部年龄' | VoiceOption['age']>('全部年龄');
+  const [selectedVoiceId, setSelectedVoiceId] = useState('professional');
+  const [pendingVoiceId, setPendingVoiceId] = useState('professional');
+  const [voiceSpeed, setVoiceSpeed] = useState(1.1);
+  const [voicePitch, setVoicePitch] = useState(3);
+  const [pendingVoiceSpeed, setPendingVoiceSpeed] = useState(1.1);
+  const [pendingVoicePitch, setPendingVoicePitch] = useState(3);
+  const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
+  const [previewVoiceLoadingId, setPreviewVoiceLoadingId] = useState<string | null>(null);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voicePreviewGenerationRef = useRef(0);
   const [playbackMode, setPlaybackMode] = useState<'sequence' | 'random'>('sequence');
   const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
   const [showGoodsMenu, setShowGoodsMenu] = useState(false);
@@ -290,6 +369,7 @@ export function LiveStudio() {
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const documentInputRef = useRef<HTMLInputElement>(null);
   const materialsScrollRef = useRef<HTMLDivElement>(null);
   const layerListRef = useRef<HTMLDivElement>(null);
   const [customText, setCustomText] = useState('直播间专属福利');
@@ -303,9 +383,19 @@ export function LiveStudio() {
   const [qaQuestion, setQaQuestion] = useState('这款咖啡豆适合哪种冲泡方式？');
   const [qaAnswer, setQaAnswer] = useState('手冲、浓缩和冰咖啡都适合，可以按照日常口味调整研磨度。');
   const [showQaComposer, setShowQaComposer] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>('qa');
+  const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>(initialSettingsTab);
   const [liveOptions, setLiveOptions] = useState({ qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid' });
-  const [selectedPlatform, setSelectedPlatform] = useState('美团');
+  const [outputConfig, setOutputConfig] = useState<OutputConfig>(initialOutputConfig ?? { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' });
+  const [environmentCheckedAt, setEnvironmentCheckedAt] = useState('尚未检测');
+  const [environmentInfo, setEnvironmentInfo] = useState({ browser: '待检测', cpu: '待检测', gpu: '待检测' });
+  const autoEnvironmentChecked = useRef(false);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['美团']);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [libraryQuery, setLibraryQuery] = useState('');
+  const [libraryCategory, setLibraryCategory] = useState('全部');
+  const [importedDocumentName, setImportedDocumentName] = useState('');
+  const [importedScripts, setImportedScripts] = useState<ImportedScriptItem[]>([]);
+  const [importedDocumentMode, setImportedDocumentMode] = useState<'text' | 'office-preview'>('text');
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState('00:00:00');
 
@@ -316,6 +406,13 @@ export function LiveStudio() {
     && (templateCategory === '全部' || item.category === templateCategory)
     && (templateColor === '全部' || item.color === templateColor)
   )), [templateCategory, templateColor, templateQuery]);
+  const selectedVoice = VOICES.find((item) => item.id === selectedVoiceId) ?? VOICES[0];
+  const filteredVoices = useMemo(() => VOICES.filter((item) => (
+    item.scope === voiceTab
+    && (voiceGender === '全部性别' || item.gender === voiceGender)
+    && (voiceAge === '全部年龄' || item.age === voiceAge)
+    && `${item.name}${item.tone}`.toLowerCase().includes(voiceQuery.trim().toLowerCase())
+  )), [voiceAge, voiceGender, voiceQuery, voiceTab]);
   const visibleHosts = useMemo(() => AVATARS.filter((item, index) => {
     const inScope = hostScope === 'square' || (hostScope === 'mine' && index === 0) || (hostScope === 'favorite' && index === 0);
     const matchesFilters = (hostFilters.type === '全部' || item.type === hostFilters.type)
@@ -324,6 +421,10 @@ export function LiveStudio() {
     return inScope && matchesFilters && `${item.name}${item.role}`.toLowerCase().includes(hostQuery.trim().toLowerCase());
   }), [hostFilters, hostQuery, hostScope]);
   const filteredQaItems = useMemo(() => qaItems.filter((item) => `${item.question}${item.answer}`.includes(qaQuery.trim())), [qaItems, qaQuery]);
+  const filteredLibrary = useMemo(() => TALK_LIBRARY.filter((item) => (
+    (libraryCategory === '全部' || item.category === libraryCategory)
+    && `${item.title}${item.text}`.includes(libraryQuery.trim())
+  )), [libraryCategory, libraryQuery]);
   const inspectorLayer = layers.find((item) => item.id === inspectorLayerId) ?? null;
   const hostLayer = layers.find((item) => item.sceneKey === 'host') ?? null;
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
@@ -357,6 +458,21 @@ export function LiveStudio() {
     const timer = window.setTimeout(() => setNotice(''), 2200);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  const stopVoicePreview = useCallback((updateState = true) => {
+    voicePreviewGenerationRef.current += 1;
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.pause();
+      voiceAudioRef.current.src = '';
+      voiceAudioRef.current = null;
+    }
+    if (updateState) {
+      setPreviewVoiceId(null);
+      setPreviewVoiceLoadingId(null);
+    }
+  }, []);
+
+  useEffect(() => () => stopVoicePreview(false), [stopVoicePreview]);
 
   useEffect(() => {
     materialsScrollRef.current?.scrollTo({ top: 0 });
@@ -421,6 +537,62 @@ export function LiveStudio() {
     setNotice('AI 已生成一条促单话术');
   };
 
+  const importDocument = async (file?: File) => {
+    if (!file) return;
+    const isPlainText = /\.(txt|md)$/i.test(file.name);
+    const plainText = isPlainText ? await file.text() : '';
+    const sections = plainText
+      ? plainText.split(/\n{2,}|(?<=[。！？])\s+/).map((item) => item.trim()).filter(Boolean).slice(0, 4)
+      : [
+          '开场欢迎与本场主题介绍',
+          '核心卖点、参数和使用场景讲解',
+          '限时权益提醒与下单引导',
+        ];
+    const next = sections.map<ImportedScriptItem>((text, index) => ({
+      title: index === 0 ? '文档开场' : index === sections.length - 1 ? '文档收尾' : `内容节点 ${index + 1}`,
+      category: index === 0 ? '开场' : index === sections.length - 1 ? '促单' : '讲品',
+      duration: `00:${String(Math.min(58, Math.max(20, Math.round(text.length * 0.45)))).padStart(2, '0')}`,
+      text,
+    }));
+    setImportedDocumentName(file.name);
+    setImportedScripts(next);
+    setImportedDocumentMode(isPlainText ? 'text' : 'office-preview');
+    setShowScriptMenu(false);
+    setDialog('scriptImport');
+  };
+
+  const applyImportedScripts = () => {
+    const baseId = Date.now();
+    setScripts((items) => [...items, ...importedScripts.map((item, index) => ({ ...item, id: baseId + index, state: 'ready' as const }))]);
+    setDialog(null);
+    setNotice(`已从“${importedDocumentName}”加入 ${importedScripts.length} 个话术节点`);
+  };
+
+  const detectEnvironment = () => {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl');
+    const debugInfo = gl?.getExtension('WEBGL_debug_renderer_info');
+    const renderer = gl && debugInfo ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) : '浏览器未开放 GPU 信息';
+    const platform = /Windows/i.test(navigator.userAgent) ? 'Windows' : /Mac/i.test(navigator.userAgent) ? 'macOS' : '其他系统';
+    setEnvironmentInfo({
+      browser: `${platform} · ${navigator.userAgent.includes('Chrome') ? 'Chromium' : '现代浏览器'}`,
+      cpu: `${navigator.hardwareConcurrency || '未知'} 线程`,
+      gpu: renderer.replace(/ANGLE \(|\)/g, '').slice(0, 54),
+    });
+    setEnvironmentCheckedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }));
+    setNotice('当前浏览器环境已检测，服务器规格仍需部署节点核验');
+  };
+
+  useEffect(() => {
+    if (!autoDetectEnvironment || autoEnvironmentChecked.current || !entered || dialog !== 'settings' || settingsTab !== 'environment') return;
+    autoEnvironmentChecked.current = true;
+    detectEnvironment();
+  }, [autoDetectEnvironment, dialog, entered, settingsTab]);
+
+  const togglePlatform = (platform: string) => {
+    setSelectedPlatforms((items) => items.includes(platform) ? items.filter((item) => item !== platform) : [...items, platform]);
+  };
+
   const addQa = (event: FormEvent) => {
     event.preventDefault();
     if (!qaQuestion.trim() || !qaAnswer.trim()) return;
@@ -429,6 +601,74 @@ export function LiveStudio() {
     setQaAnswer('');
     setShowQaComposer(false);
     setNotice('问答组添加成功');
+  };
+
+  const openVoiceDialog = () => {
+    stopVoicePreview();
+    setPendingVoiceId(selectedVoiceId);
+    setPendingVoiceSpeed(voiceSpeed);
+    setPendingVoicePitch(voicePitch);
+    setDialog('voice');
+  };
+
+  const closeVoiceDialog = () => {
+    stopVoicePreview();
+    setPendingVoiceId(selectedVoiceId);
+    setPendingVoiceSpeed(voiceSpeed);
+    setPendingVoicePitch(voicePitch);
+    setDialog(null);
+  };
+
+  const auditionVoice = async (voice: VoiceOption) => {
+    if (previewVoiceId === voice.id || previewVoiceLoadingId === voice.id) {
+      stopVoicePreview();
+      return;
+    }
+
+    stopVoicePreview();
+    setPendingVoiceId(voice.id);
+    setPreviewVoiceLoadingId(voice.id);
+    const generation = voicePreviewGenerationRef.current;
+    const finish = () => {
+      if (generation !== voicePreviewGenerationRef.current) return;
+      setPreviewVoiceId(null);
+      setPreviewVoiceLoadingId(null);
+      voiceAudioRef.current = null;
+    };
+
+    const audio = new Audio(voice.previewAudio);
+    voiceAudioRef.current = audio;
+    audio.preload = 'auto';
+    audio.playbackRate = pendingVoiceSpeed;
+    audio.preservesPitch = true;
+    audio.onplaying = () => {
+      if (generation !== voicePreviewGenerationRef.current) return;
+      setPreviewVoiceLoadingId(null);
+      setPreviewVoiceId(voice.id);
+    };
+    audio.onended = finish;
+    const fail = () => {
+      if (generation !== voicePreviewGenerationRef.current) return;
+      finish();
+      setNotice(`“${voice.name}”试听音频加载失败`);
+    };
+    audio.onerror = fail;
+    try {
+      await audio.play();
+    } catch {
+      fail();
+    }
+  };
+
+  const applyVoice = (scope: 'current' | 'all') => {
+    stopVoicePreview();
+    const nextVoice = VOICES.find((item) => item.id === pendingVoiceId) ?? VOICES[0];
+    setSelectedVoiceId(nextVoice.id);
+    setVoiceSpeed(pendingVoiceSpeed);
+    setVoicePitch(pendingVoicePitch);
+    setDialog(null);
+    const target = scope === 'all' ? '全部商品' : activeGoods.name;
+    setNotice(`已保存“${nextVoice.name}”到${target}的试听预设，正式播报参数待接入`);
   };
 
   const stopLive = async () => {
@@ -440,11 +680,12 @@ export function LiveStudio() {
     setScripts((items) => items.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
   };
 
-  const startLive = (platform: string) => {
+  const startLive = (platforms: string[]) => {
+    if (!platforms.length || !termsAccepted) return;
     setOnAir(true);
     setStartedAt(Date.now());
     setDialog(null);
-    setNotice(`已通过${platform}开始直播，话术播报已启用`);
+    setNotice(`已进入 ${platforms.join('、')} 多平台开播演示，正式连接器待授权接入`);
   };
 
   const saveToLibrary = () => {
@@ -737,12 +978,12 @@ export function LiveStudio() {
           <section className="liveLandingCopy">
             <span className="liveLandingKicker"><i />AI DIGITAL HOST</span>
             <h1>欢迎体验数字人直播间</h1>
-            <p>选择数字人主播、编排直播话术并连接推流地址，用当前项目的实时驱动能力快速完成一场直播。</p>
+            <p>选择数字人主播、编排直播话术并配置推流目标，在原有工作台中完成直播准备与实时驱动预览。</p>
             <div className="liveLandingActions">
               <button className="primaryAction" type="button" onClick={() => setEntered(true)}><Sparkles size={17} />进入直播控制台</button>
               <button className="secondaryAction" type="button" onClick={() => setEntered(true)}><FileText size={17} />创建直播任务<ArrowRight size={16} /></button>
             </div>
-            <div className="liveLandingMeta"><span><strong>2</strong> 个内置形象</span><i /><span><strong>实时</strong> 话术播报</span><i /><span><strong>RTMP</strong> 推流配置</span></div>
+            <div className="liveLandingMeta"><span><strong>{AVATARS.length}</strong> 个内置形象</span><i /><span><strong>实时</strong> 话术播报</span><i /><span><strong>RTMP</strong> 输出预设</span></div>
           </section>
 
           <section className="liveLandingVisual" aria-label="数字人直播功能预览">
@@ -763,6 +1004,7 @@ export function LiveStudio() {
   const previewHost = avatar.image;
 
   return (
+    <ProductShell>
     <main className="xilingLive">
       <header className="xlTopbar">
         <div className="xlTitleGroup">
@@ -772,9 +1014,9 @@ export function LiveStudio() {
         <div className="xlTopActions">
           <button type="button" className="xlDarkButton" onClick={() => setDialog('settings')}><Settings2 size={15} />直播设置</button>
           {onAir ? (
-            <button className="xlLiveButton danger" type="button" onClick={() => void stopLive()}><CircleStop size={16} />结束直播 <span>{elapsed}</span></button>
+            <button className="xlLiveButton danger" type="button" onClick={() => void stopLive()}><CircleStop size={16} />结束演示 <span>{elapsed}</span></button>
           ) : (
-            <button className="xlLiveButton" type="button" onClick={() => setDialog('livePlatform')}><Radio size={16} />开始直播</button>
+            <button className="xlLiveButton" type="button" onClick={() => setDialog('livePlatform')}><Radio size={16} />开播编排</button>
           )}
         </div>
       </header>
@@ -821,11 +1063,11 @@ export function LiveStudio() {
               <section className="xlScriptPanel">
                 <header className="xlPanelToolbar">
                   <div><strong>话术列表</strong><span>共{scripts.length}条</span></div>
-                  <button type="button" className="xlSpeaker" onClick={() => setMaterialTab('host')}><img src={previewHost} alt="" /><span>{avatarId === 'chinese' ? '专业靠谱爽朗女' : avatar.name}</span></button>
+                  <button type="button" className="xlSpeaker" aria-label={`选择主播声音，当前${selectedVoice.name}`} onClick={openVoiceDialog}><img src={selectedVoice.image} alt="" /><span>{selectedVoice.name}</span></button>
                   <div className="xlScriptTools">
                     {batchMode && selectedScriptIds.length ? <button type="button" aria-label="删除已选话术" onClick={deleteSelectedScripts}><Trash2 size={15} /></button> : <button type="button" aria-label="随机排序" onClick={shuffleScripts}><Shuffle size={15} /></button>}
                     <button className={batchMode ? 'active' : ''} type="button" aria-label={batchMode ? '退出批量选择' : '批量选择'} onClick={toggleBatchMode}>{batchMode ? <X size={15} /> : <Check size={15} />}</button>
-                    <div className="xlMenuAnchor"><button type="button" aria-label="添加话术" aria-expanded={showScriptMenu} onClick={() => setShowScriptMenu((value) => !value)}><Plus size={17} /></button>{showScriptMenu && <div className="xlPopMenu script"><button type="button" onClick={() => { setShowComposer(true); setShowScriptMenu(false); }}><Plus size={13} />新建话术</button><button type="button" onClick={() => { setDialog('library'); setShowScriptMenu(false); }}><Library size={13} />从话术库选择</button><button type="button" onClick={addGeneratedScript}><WandSparkles size={13} />AI 生成话术</button></div>}</div>
+                    <div className="xlMenuAnchor"><button type="button" aria-label="添加话术" aria-expanded={showScriptMenu} onClick={() => setShowScriptMenu((value) => !value)}><Plus size={17} /></button>{showScriptMenu && <div className="xlPopMenu script"><button type="button" onClick={() => { setShowComposer(true); setShowScriptMenu(false); }}><Plus size={13} />新建话术</button><button type="button" onClick={() => documentInputRef.current?.click()}><FileUp size={13} />导入文档</button><button type="button" onClick={() => { setDialog('library'); setShowScriptMenu(false); }}><Library size={13} />从话术库选择</button><button type="button" onClick={addGeneratedScript}><WandSparkles size={13} />AI 生成话术</button></div>}</div>
                   </div>
                 </header>
 
@@ -869,6 +1111,7 @@ export function LiveStudio() {
                 <nav className="xlMaterialTabs" aria-label="直播素材">{MATERIAL_TABS.map((tabItem) => { const Icon = tabItem.icon; return <button className={materialTab === tabItem.id ? 'active' : ''} type="button" key={tabItem.id} onClick={() => { setMaterialTab(tabItem.id); closeLayerInspector(); setAssetQuery(''); setAssetBatchMode(false); setSelectedAssetIds([]); }}><Icon size={17} /><span>{tabItem.label}</span></button>; })}</nav>
                 <input ref={imageInputRef} className="xlHiddenInput" type="file" accept="image/*" multiple onChange={(event) => { void importAssets('image', event.currentTarget.files); event.currentTarget.value = ''; }} />
                 <input ref={videoInputRef} className="xlHiddenInput" type="file" accept="video/*" multiple onChange={(event) => { void importAssets('video', event.currentTarget.files); event.currentTarget.value = ''; }} />
+                <input ref={documentInputRef} className="xlHiddenInput" type="file" accept=".ppt,.pptx,.doc,.docx,.xls,.xlsx,.txt,.md" onChange={(event) => { void importDocument(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
                 <div className="xlMaterialsWorkspace">
                   <div className="xlMaterialsScroll" ref={materialsScrollRef}>
                   {inspectorLayer ? (
@@ -923,13 +1166,111 @@ export function LiveStudio() {
 
       {notice && <div className="xlToast" role="status"><Check size={15} />{notice}</div>}
 
-      {dialog === 'settings' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}><section className="xlModal xlSettingsModal" role="dialog" aria-modal="true" aria-label="直播设置" onMouseDown={(event) => event.stopPropagation()}><header><strong>直播设置</strong><button type="button" aria-label="关闭直播设置" onClick={() => setDialog(null)}><X size={17} /></button></header><div className="xlSettingsBody"><nav>{SETTINGS_TABS.map((tab) => { const Icon = tab.icon; return <button className={settingsTab === tab.id ? 'active' : ''} type="button" key={tab.id} onClick={() => setSettingsTab(tab.id)}><Icon size={16} />{tab.label}{tab.id === 'dynamic' && <em>NEW</em>}</button>; })}</nav><div className="xlSettingsContent">{settingsTab === 'qa' && <><div className="xlSettingRow"><span><strong>开启问答</strong><small>自动识别直播间问题并生成回复</small></span><button className={`xlSwitch ${liveOptions.qa ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.qa} onClick={() => setLiveOptions((value) => ({ ...value, qa: !value.qa }))}><i /></button></div><div className="xlSettingBlock"><strong>回复范围</strong><div className="xlRadioGroup"><button className={liveOptions.replyMode === 'hybrid' ? 'active' : ''} type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyMode: 'hybrid' }))}>文心智能回复 + 问答库回复</button><button className={liveOptions.replyMode === 'library' ? 'active' : ''} type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyMode: 'library' }))}>仅问答库回复</button></div></div><div className="xlSettingBlock"><strong>单次回复上限</strong><div className="xlStepper"><button type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyLimit: Math.max(1, value.replyLimit - 1) }))}>−</button><span>{liveOptions.replyLimit}</span><button type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyLimit: Math.min(20, value.replyLimit + 1) }))}>+</button><em>条</em></div></div></>}{settingsTab === 'dynamic' && <><div className="xlSettingRow"><span><strong>开启 AI 动态话术</strong><small>根据直播节奏智能改写和补充话术</small></span><button className={`xlSwitch ${liveOptions.dynamic ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.dynamic} onClick={() => setLiveOptions((value) => ({ ...value, dynamic: !value.dynamic }))}><i /></button></div><div className="xlSettingNote">开启后，AI 会在保留商品卖点的前提下动态生成表达，降低重复播报。</div></>}{settingsTab === 'ambience' && <><div className="xlSettingRow"><span><strong>开启氛围互动</strong><small>自动欢迎新观众并感谢关注、点赞</small></span><button className={`xlSwitch ${liveOptions.ambience ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.ambience} onClick={() => setLiveOptions((value) => ({ ...value, ambience: !value.ambience }))}><i /></button></div><div className="xlSettingNote">互动内容会在当前话术播放间隙插入，不会打断商品讲解。</div></>}{settingsTab === 'product' && <><div className="xlSettingRow"><span><strong>随讲解弹商品卡</strong><small>讲到价格和下单信息时自动展示商品卡</small></span><button className={`xlSwitch ${liveOptions.product ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.product} onClick={() => setLiveOptions((value) => ({ ...value, product: !value.product }))}><i /></button></div><div className="xlSettingNote">商品卡将跟随促单话术出现，观众可以更快找到当前讲解商品。</div></>}</div></div></section></div>}
+      {dialog === 'voice' && <div className="xlModalBackdrop" onMouseDown={closeVoiceDialog}>
+        <section className="xlModal xlVoiceModal" role="dialog" aria-modal="true" aria-label="主播声音" onMouseDown={(event) => event.stopPropagation()}>
+          <header><strong>主播声音</strong><button type="button" aria-label="关闭主播声音" onClick={closeVoiceDialog}><X size={17} /></button></header>
+          <div className="xlPlatformNotice">样例音频支持试听和语速预览；所选音色、语速与语调会保存为编排预设，正式播报需接入对应语音服务。</div>
+          <div className="xlVoiceToolbar">
+            <div role="tablist" aria-label="声音来源"><button className={voiceTab === 'public' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'public'} onClick={() => { stopVoicePreview(); setVoiceTab('public'); }}>公共声音</button><button className={voiceTab === 'mine' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'mine'} onClick={() => { stopVoicePreview(); setVoiceTab('mine'); }}>我的声音</button></div>
+            <label><input aria-label="搜索主播声音" value={voiceQuery} onChange={(event) => setVoiceQuery(event.target.value)} placeholder={voiceTab === 'public' ? '请输入关键词搜索公共音色' : '请输入关键词搜索我的音色'} /><Search size={16} /></label>
+          </div>
+          <div className="xlVoiceFilters">
+            <div role="radiogroup" aria-label="声音性别">{(['全部性别', '男性', '女性'] as const).map((gender) => <button className={voiceGender === gender ? 'active' : ''} type="button" role="radio" aria-checked={voiceGender === gender} key={gender} onClick={() => setVoiceGender(gender)}>{gender}</button>)}</div>
+            <div role="radiogroup" aria-label="声音年龄">{(['全部年龄', '18-24岁', '25-35岁', '36-50岁'] as const).map((age) => <button className={voiceAge === age ? 'active' : ''} type="button" role="radio" aria-checked={voiceAge === age} key={age} onClick={() => setVoiceAge(age)}>{age}</button>)}</div>
+          </div>
+          <div className="xlVoiceGrid" role="tabpanel" aria-label={voiceTab === 'public' ? '公共声音' : '我的声音'}>
+            {filteredVoices.map((voice) => {
+              const playing = previewVoiceId === voice.id;
+              const loading = previewVoiceLoadingId === voice.id;
+              return <div className={`xlVoiceCard ${pendingVoiceId === voice.id ? 'selected' : ''} ${playing ? 'playing' : ''}`} role="radio" tabIndex={0} aria-label={`选择声音${voice.name}`} aria-checked={pendingVoiceId === voice.id} key={voice.id} onClick={() => setPendingVoiceId(voice.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoiceId(voice.id); } }}>
+                <button className="xlVoiceListen" type="button" aria-label={playing || loading ? `停止试听${voice.name}` : `试听${voice.name}`} onClick={(event) => { event.stopPropagation(); void auditionVoice(voice); }}>
+                  <img src={voice.image} alt="" />
+                  <i aria-hidden="true">{loading ? <LoaderCircle className="xlVoiceSpinner" size={17} /> : playing ? <CircleStop size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}</i>
+                </button>
+                <span title={`${voice.providerName} · ${voice.referenceId}`}><strong>{voice.name}</strong><small><em>{voice.providerName}</em><em>{voice.age}</em><em>{voice.tone}</em></small>{playing && <b aria-hidden="true"><i /><i /><i /></b>}</span>
+              </div>;
+            })}
+            {!filteredVoices.length && <div className="xlVoiceEmpty"><UserRound size={34} /><strong>没有匹配的声音</strong><span>请调整关键词或筛选条件后重试</span></div>}
+          </div>
+          <footer className="xlVoiceFooter">
+            <div className="xlVoiceTuning"><label><span>语速</span><input aria-label="主播语速" type="range" min="0.5" max="2" step="0.1" value={pendingVoiceSpeed} onChange={(event) => { stopVoicePreview(); setPendingVoiceSpeed(Number(event.target.value)); }} /><em>{pendingVoiceSpeed.toFixed(1)}x</em></label><label><span>语调</span><input aria-label="主播语调" type="range" min="0" max="5" step="1" value={pendingVoicePitch} onChange={(event) => { stopVoicePreview(); setPendingVoicePitch(Number(event.target.value)); }} /><em>{pendingVoicePitch}</em></label></div>
+            <div><button type="button" onClick={closeVoiceDialog}>取消</button><button type="button" onClick={() => applyVoice('current')}>应用</button><button type="button" onClick={() => applyVoice('all')}>应用至全部</button></div>
+          </footer>
+        </section>
+      </div>}
 
-      {dialog === 'livePlatform' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}><section className="xlModal xlLivePlatformModal" role="dialog" aria-modal="true" aria-label="选择直播平台" onMouseDown={(event) => event.stopPropagation()}><header><strong>选择直播平台</strong><button type="button" aria-label="关闭直播平台选择" onClick={() => setDialog(null)}><X size={17} /></button></header><div className="xlPlatformNotice">由于平台规则调整，部分平台授权能力可能暂不可用，请选择已完成账号授权的平台开始直播。</div><h2>授权您的直播账号，快速开启 AI 主播直播</h2><div className="xlPlatformGrid">{PLATFORMS.map((platform) => <button className={selectedPlatform === platform.name ? 'selected' : ''} type="button" key={platform.name} disabled={platform.status === '系统维护'} onClick={() => setSelectedPlatform(platform.name)}><span className="xlPlatformLogo" style={{ backgroundColor: platform.color }}><img src={platform.logo} alt="" /></span><strong>{platform.name}</strong>{platform.status && <em>{platform.status}</em>}</button>)}</div><footer><button type="button" onClick={() => setDialog(null)}>取消</button><button type="button" onClick={() => startLive(selectedPlatform)}>开始直播</button></footer></section></div>}
+      {dialog === 'settings' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
+        <section className="xlModal xlSettingsModal" role="dialog" aria-modal="true" aria-label="直播设置" onMouseDown={(event) => event.stopPropagation()}>
+          <header><strong>直播设置</strong><button type="button" aria-label="关闭直播设置" onClick={() => setDialog(null)}><X size={17} /></button></header>
+          <div className="xlSettingsBody">
+            <nav>{SETTINGS_TABS.map((tab) => { const Icon = tab.icon; return <button className={settingsTab === tab.id ? 'active' : ''} type="button" key={tab.id} onClick={() => setSettingsTab(tab.id)}><Icon size={16} />{tab.label}{tab.id === 'dynamic' && <em>NEW</em>}</button>; })}</nav>
+            <div className="xlSettingsContent">
+              {settingsTab === 'qa' && <><div className="xlSettingRow"><span><strong>开启问答</strong><small>自动识别直播间问题并生成回复</small></span><button className={`xlSwitch ${liveOptions.qa ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.qa} onClick={() => setLiveOptions((value) => ({ ...value, qa: !value.qa }))}><i /></button></div><div className="xlSettingBlock"><strong>回复范围</strong><div className="xlRadioGroup"><button className={liveOptions.replyMode === 'hybrid' ? 'active' : ''} type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyMode: 'hybrid' }))}>智能回复 + 问答库</button><button className={liveOptions.replyMode === 'library' ? 'active' : ''} type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyMode: 'library' }))}>仅问答库回复</button></div></div><div className="xlSettingBlock"><strong>单次回复上限</strong><div className="xlStepper"><button type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyLimit: Math.max(1, value.replyLimit - 1) }))}>−</button><span>{liveOptions.replyLimit}</span><button type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyLimit: Math.min(20, value.replyLimit + 1) }))}>+</button><em>条</em></div></div></>}
+              {settingsTab === 'dynamic' && <><div className="xlSettingRow"><span><strong>开启 AI 动态话术</strong><small>根据直播节奏智能改写和补充话术</small></span><button className={`xlSwitch ${liveOptions.dynamic ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.dynamic} onClick={() => setLiveOptions((value) => ({ ...value, dynamic: !value.dynamic }))}><i /></button></div><div className="xlSettingNote">AI 会保留商品卖点并动态生成表达，降低重复播报。</div></>}
+              {settingsTab === 'ambience' && <><div className="xlSettingRow"><span><strong>开启氛围互动</strong><small>自动欢迎新观众并感谢关注、点赞</small></span><button className={`xlSwitch ${liveOptions.ambience ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.ambience} onClick={() => setLiveOptions((value) => ({ ...value, ambience: !value.ambience }))}><i /></button></div><div className="xlSettingNote">互动内容会在当前话术播放间隙插入，不打断商品讲解。</div></>}
+              {settingsTab === 'product' && <><div className="xlSettingRow"><span><strong>随讲解弹商品卡</strong><small>讲到价格和下单信息时自动展示商品卡</small></span><button className={`xlSwitch ${liveOptions.product ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.product} onClick={() => setLiveOptions((value) => ({ ...value, product: !value.product }))}><i /></button></div><div className="xlSettingNote">商品卡跟随促单话术出现，观众可快速找到当前商品。</div></>}
+              {settingsTab === 'output' && <div className="xlOutputSettings">
+                <div className="xlSettingIntro"><Video size={18} /><span><strong>实时渲染输出预设</strong><small>配置目标画质、编码和媒体协议</small></span><em>当前 {outputConfig.resolution} · {outputConfig.frameRate}</em></div>
+                {[
+                  { key: 'resolution' as const, label: '分辨率', values: ['1080p', '4K'] },
+                  { key: 'frameRate' as const, label: '帧率', values: ['25 fps', '30 fps', '60 fps'] },
+                  { key: 'codec' as const, label: '编码', values: ['H.264', 'H.265'] },
+                  { key: 'protocol' as const, label: '输出协议', values: ['RTMP', 'WebRTC', 'SRT'] },
+                ].map((group) => <div className="xlOutputRow" key={group.key}><strong>{group.label}</strong><div>{group.values.map((value) => <button className={outputConfig[group.key] === value ? 'active' : ''} type="button" key={value} disabled={value === 'SRT'} onClick={() => setOutputConfig((config) => ({ ...config, [group.key]: value }))}>{value}{value === 'SRT' && <small>待接入</small>}</button>)}</div></div>)}
+                <div className="xlSettingNote">当前保存的是输出编排预设；协议、编码与 4K / 60fps 能力需接入输出服务并在目标节点实机验收。</div>
+              </div>}
+              {settingsTab === 'environment' && <div className="xlEnvironmentSettings">
+                <div className="xlEnvironmentHead"><span><strong>运行环境检查</strong><small>最近检测：{environmentCheckedAt}</small></span><button type="button" onClick={detectEnvironment}><ShieldCheck size={14} />重新检测</button></div>
+                <div className="xlEnvironmentCurrent">
+                  <article><Server size={17} /><span><small>当前系统</small><strong>{environmentInfo.browser}</strong></span><em>{environmentCheckedAt === '尚未检测' ? '待检测' : '已识别'}</em></article>
+                  <article><Cpu size={17} /><span><small>CPU</small><strong>{environmentInfo.cpu}</strong></span><em>{environmentCheckedAt === '尚未检测' ? '待检测' : '已识别'}</em></article>
+                  <article><HardDrive size={17} /><span><small>图形设备</small><strong>{environmentInfo.gpu}</strong></span><em>{environmentCheckedAt === '尚未检测' ? '待检测' : '已识别'}</em></article>
+                </div>
+                <div className="xlRequirementList">
+                  <header><strong>部署目标</strong><span>服务端实机核验</span></header>
+                  <p><span>操作系统</span><strong>Windows Server 2019+</strong><em>待节点核验</em></p>
+                  <p><span>运行内存</span><strong>64 GB+</strong><em>待节点核验</em></p>
+                  <p><span>GPU 显存</span><strong>24 GB+</strong><em>待节点核验</em></p>
+                  <p><span>媒体端口</span><strong>1935 / 8000 / 8080</strong><em>配置项</em></p>
+                </div>
+              </div>}
+            </div>
+          </div>
+        </section>
+      </div>}
 
-      {dialog === 'library' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}><section className="xlModal xlLibraryModal" role="dialog" aria-modal="true" aria-label="话术库" onMouseDown={(event) => event.stopPropagation()}><header><strong>从话术库选择</strong><button type="button" aria-label="关闭话术库" onClick={() => setDialog(null)}><X size={17} /></button></header><div className="xlLibraryList">{[{ title: '咖啡冲泡建议', text: '不同冲泡方式会呈现不同风味，手冲清晰、浓缩醇厚，大家可以根据自己的口味选择。' }, { title: '直播间福利提醒', text: '直播间专属福利正在进行，喜欢的朋友记得及时下单，库存售完就恢复日常价格。' }, { title: '品质保障说明', text: '每一批咖啡豆都经过筛选和烘焙把控，包装后妥善保存，可以更好地保留香气。' }].map((item) => <article key={item.title}><div><strong>{item.title}</strong><p>{item.text}</p></div><button type="button" onClick={() => { setScripts((items) => [...items, { id: Date.now(), title: item.title, category: '讲品', duration: '00:32', text: item.text, state: 'ready' }]); setDialog(null); setNotice('已从话术库添加内容'); }}><Plus size={14} />添加</button></article>)}</div></section></div>}
+      {dialog === 'livePlatform' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
+        <section className="xlModal xlLivePlatformModal" role="dialog" aria-modal="true" aria-label="多平台直播" onMouseDown={(event) => event.stopPropagation()}>
+          <header><strong>多平台直播</strong><button type="button" aria-label="关闭直播平台选择" onClick={() => setDialog(null)}><X size={17} /></button></header>
+          <div className="xlPlatformNotice">本页用于完成多平台目标编排；各平台连接器仍需正式账号授权后接入。</div>
+          <div className="xlPlatformSummary"><span><Radio size={15} /><strong>源流</strong>{outputConfig.protocol} · {outputConfig.resolution}</span><span><i />已选 {selectedPlatforms.length} 个目标</span></div>
+          <div className="xlPlatformGrid">{PLATFORMS.map((platform) => <button className={selectedPlatforms.includes(platform.name) ? 'selected' : ''} type="button" key={platform.name} disabled={platform.status === '系统维护'} onClick={() => togglePlatform(platform.name)}><span className="xlPlatformLogo" style={{ backgroundColor: platform.color }}><img src={platform.logo} alt="" /></span><strong>{platform.name}</strong>{platform.status ? <em>{platform.status}</em> : <em className="ready">待授权</em>}{selectedPlatforms.includes(platform.name) && <i><Check size={12} /></i>}</button>)}</div>
+          <label className="xlPlatformTerms"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>已确认所选平台账号授权及直播规范</span></label>
+          <footer><button type="button" onClick={() => setDialog(null)}>取消</button><button type="button" disabled={!selectedPlatforms.length || !termsAccepted} onClick={() => startLive(selectedPlatforms)}>进入开播演示</button></footer>
+        </section>
+      </div>}
+
+      {dialog === 'library' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
+        <section className="xlModal xlLibraryModal" role="dialog" aria-modal="true" aria-label="行业话术库" onMouseDown={(event) => event.stopPropagation()}>
+          <header><strong>行业话术库</strong><button type="button" aria-label="关闭话术库" onClick={() => setDialog(null)}><X size={17} /></button></header>
+          <div className="xlLibraryToolbar"><div>{['全部', '电商', '教育', '金融', '通用'].map((category) => <button className={libraryCategory === category ? 'active' : ''} type="button" key={category} onClick={() => setLibraryCategory(category)}>{category}</button>)}</div><label><Search size={14} /><input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="搜索话术" /></label></div>
+          <div className="xlLibraryList">{filteredLibrary.map((item) => <article key={item.title}><span><BookOpenText size={16} /></span><div><small>{item.category}</small><strong>{item.title}</strong><p>{item.text}</p></div><button type="button" onClick={() => { setScripts((items) => [...items, { id: Date.now(), title: item.title, category: item.category === '电商' ? '促单' : '讲品', duration: '00:32', text: item.text, state: 'ready' }]); setDialog(null); setNotice('已从话术库添加内容'); }}><Plus size={14} />添加</button></article>)}</div>
+          {!filteredLibrary.length && <div className="xlLibraryEmpty"><Database size={28} />没有匹配的话术</div>}
+        </section>
+      </div>}
+
+      {dialog === 'scriptImport' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
+        <section className="xlModal xlImportModal" role="dialog" aria-modal="true" aria-label="文档导入结果" onMouseDown={(event) => event.stopPropagation()}>
+          <header><strong>{importedDocumentMode === 'text' ? '文本解析结果' : 'Office 文档编排预览'}</strong><button type="button" aria-label="关闭文档导入结果" onClick={() => setDialog(null)}><X size={17} /></button></header>
+          <div className="xlImportSource"><FileSpreadsheet size={20} /><span><strong>{importedDocumentName}</strong><small>{importedDocumentMode === 'text' ? '已读取文本内容' : 'PPT / Word / Excel 当前生成示例编排'} · {importedScripts.length} 个话术节点</small></span><em>{importedDocumentMode === 'text' ? '读取完成' : '预览模式'}</em></div>
+          <div className="xlImportFlow">{importedScripts.map((item, index) => <article key={`${item.title}-${index}`}><span>{String(index + 1).padStart(2, '0')}</span><div><strong>{item.title}</strong><p>{item.text}</p></div><em>{item.category} · {item.duration}</em></article>)}</div>
+          <div className="xlImportNote">文本文件会读取实际段落；Office 文件仅展示编排流程，正式内容解析需连接文档解析服务。</div>
+          <footer><button type="button" onClick={() => setDialog(null)}>取消</button><button type="button" disabled={!importedScripts.length} onClick={applyImportedScripts}>加入当前脚本</button></footer>
+        </section>
+      </div>}
 
       {dialog === 'avatarConfirm' && <div className="xlModalBackdrop" onMouseDown={() => { setDialog(null); setPendingAvatarId(null); }}><section className="xlModal xlConfirmModal" role="dialog" aria-modal="true" aria-labelledby="avatar-confirm-title" onMouseDown={(event) => event.stopPropagation()}><header><strong id="avatar-confirm-title">切换人像</strong><button type="button" aria-label="关闭主播确认" onClick={() => { setDialog(null); setPendingAvatarId(null); }}><X size={17} /></button></header><p>切换人像后，当前直播中所有商品都将会被替换，是否继续？</p><footer><button type="button" onClick={() => { setDialog(null); setPendingAvatarId(null); }}>取消</button><button type="button" onClick={applyPendingAvatar}>确定</button></footer></section></div>}
     </main>
+    </ProductShell>
   );
 }
