@@ -59,6 +59,7 @@ img, video, canvas { display: block; }
 .heroCopy { position: relative; z-index: 2; }
 .heroCopy h1 { margin: 0 0 13px; font-size: clamp(29px, 3vw, 40px); line-height: 1.12; letter-spacing: -1.7px; font-weight: 700; white-space: nowrap; }
 .heroCopy p { max-width: 560px; margin: 0 0 20px; color: var(--muted); font-size: 12px; line-height: 1.75; }
+.catalogHeroActions { display: flex; align-items: center; gap: 10px; }
 .primaryAction, .stopButton { height: 42px; padding: 0 17px; border: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: white; background: var(--blue); box-shadow: 0 9px 22px rgba(61, 90, 254, .22); font-size: 12px; font-weight: 700; cursor: pointer; transition: background .2s, transform .2s, box-shadow .2s; }
 .primaryAction:hover { background: var(--blue-dark); transform: translateY(-1px); box-shadow: 0 12px 25px rgba(61, 90, 254, .28); }
 .primaryAction:disabled { opacity: .38; cursor: not-allowed; transform: none; }
@@ -82,7 +83,9 @@ img, video, canvas { display: block; }
 .catalogTabs button { padding: 0 0 6px; border: 0; border-bottom: 2px solid var(--blue); background: transparent; color: var(--blue); font-size: 11px; font-weight: 700; }
 .catalogTabs span { color: #979caf; font-size: 10px; }
 .avatarCatalogGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 176px)); gap: 16px; align-items: stretch; justify-content: start; }
+.avatarProductCardWrap { min-width: 0; aspect-ratio: 9 / 16; position: relative; }
 .avatarProductCard { min-width: 0; padding: 0; overflow: hidden; aspect-ratio: 9 / 16; border: 1px solid #e6e8ed; border-radius: 12px; display: flex; flex-direction: column; background: white; text-align: left; cursor: pointer; box-shadow: none; transition: border .2s, transform .2s, box-shadow .2s; }
+.avatarProductCardWrap .avatarProductCard { width: 100%; height: 100%; aspect-ratio: auto; }
 .avatarProductCard:hover { border-color: #aeb8ff; transform: translateY(-2px); box-shadow: 0 10px 25px rgba(35, 43, 79, .08); }
 .avatarProductMedia { width: 100%; aspect-ratio: 2 / 3; flex: 0 0 auto; display: block; overflow: hidden; position: relative; background: white; }
 .avatarProductMedia img { width: 100%; height: 100%; object-fit: contain; object-position: center; transition: filter .25s; }
@@ -95,6 +98,10 @@ img, video, canvas { display: block; }
 .avatarProductInfo small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .enterArrow { width: 31px; height: 31px; border-radius: 8px; display: grid; place-items: center; color: var(--blue); background: var(--blue-soft); transition: color .2s, background .2s; }
 .avatarProductCard:hover .enterArrow { color: white; background: var(--blue); }
+.avatarConfigLink { min-height: 27px; padding: 0 8px; position: absolute; z-index: 2; right: 9px; top: 9px; border: 1px solid rgba(255, 255, 255, .82); border-radius: 7px; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none; color: white; background: rgba(21, 31, 63, .7); backdrop-filter: blur(10px); font-size: 8px; font-weight: 700; transform: translateY(-3px); transition: opacity .18s, transform .18s, background .18s; }
+.avatarProductCardWrap:hover .avatarConfigLink, .avatarConfigLink:focus-visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.avatarConfigLink:hover { background: var(--blue); }
+@media (hover: none), (any-pointer: coarse) { .avatarConfigLink { opacity: 1; pointer-events: auto; transform: translateY(0); } }
 .createAvatarCard { min-width: 0; padding: 22px; aspect-ratio: 9 / 16; border: 1px dashed #aeb8eb; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; text-align: center; background: linear-gradient(145deg, #fbfcff, #f0f2ff); transition: border .2s, transform .2s, box-shadow .2s; }
 .createAvatarCard::after { content: ''; position: absolute; width: 145px; height: 145px; right: -60px; bottom: -60px; border-radius: 50%; border: 26px solid rgba(61, 90, 254, .04); }
 .createAvatarCard:hover { border-color: var(--blue); transform: translateY(-2px); box-shadow: 0 10px 25px rgba(35, 43, 79, .08); }
@@ -141,6 +148,7 @@ img, video, canvas { display: block; }
 .onlineTag { margin-left: auto; padding: 5px 8px; border-radius: 999px; display: flex; align-items: center; gap: 6px; color: #159a87 !important; background: #edfaf7; }
 .onlineTag i { width: 5px; height: 5px; box-shadow: none; }
 .dialogBack { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 7px; display: grid; place-items: center; color: #72798d; background: #f1f2f7; cursor: pointer; }
+.dialogConfigure { width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; color: var(--blue); background: var(--blue-soft); }
 .messageList { min-height: 0; padding: 18px; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 15px; background: linear-gradient(#fff, #fdfdff); }
 .message { max-width: 90%; display: flex; align-items: flex-start; gap: 8px; }
 .message.user { align-self: flex-end; flex-direction: row-reverse; }
@@ -652,39 +660,152 @@ img, video, canvas { display: block; }
 .xlStepper button:nth-child(3) { border-radius: 0 5px 5px 0; }
 .xlStepper em { margin-left: 8px; color: #ababab; font-style: normal; }
 .xlSettingNote { max-width: 700px; margin-top: 22px; padding: 14px; border: 1px solid rgba(20, 204, 201, .15); border-radius: 7px; color: #a9caca; background: rgba(20, 204, 201, .06); font-size: 11px; line-height: 19px; }
+.xlOutputSettings, .xlEnvironmentSettings { max-width: 720px; }
+.xlSettingIntro { min-height: 62px; padding: 13px 15px; border: 1px solid #343536; border-radius: 8px; display: flex; align-items: center; gap: 11px; background: #242526; }
+.xlSettingIntro > svg { color: var(--xl-accent); }
+.xlSettingIntro > span { display: flex; flex-direction: column; gap: 4px; }
+.xlSettingIntro strong { font-size: 12px; font-weight: 500; }
+.xlSettingIntro small { color: var(--xl-muted); font-size: 9px; }
+.xlSettingIntro > em { margin-left: auto; padding: 5px 8px; border-radius: 5px; color: var(--xl-accent); background: #193738; font-size: 9px; font-style: normal; }
+.xlOutputRow { min-height: 60px; padding: 13px 0; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 18px; }
+.xlOutputRow > strong { color: #c4c4c4; font-size: 11px; font-weight: 500; }
+.xlOutputRow > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.xlOutputRow button { min-width: 80px; height: 32px; padding: 0 11px; border: 1px solid #3a3b3c !important; border-radius: 5px; color: #aaa !important; position: relative; }
+.xlOutputRow button.active { border-color: var(--xl-accent) !important; color: var(--xl-accent) !important; background: #193738 !important; }
+.xlOutputRow button:disabled { opacity: .4; cursor: not-allowed; }
+.xlOutputRow button small { margin-left: 5px; color: #d99d55; font-size: 7px; }
+.xlEnvironmentHead { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.xlEnvironmentHead > span { display: flex; flex-direction: column; gap: 4px; }
+.xlEnvironmentHead strong { font-size: 13px; font-weight: 500; }
+.xlEnvironmentHead small { color: var(--xl-muted); font-size: 9px; }
+.xlEnvironmentHead button { height: 31px; padding: 0 11px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; color: #0e0f0f; background: var(--xl-accent); font-size: 10px; }
+.xlEnvironmentCurrent { margin-top: 13px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.xlEnvironmentCurrent article { min-width: 0; min-height: 98px; padding: 13px; border: 1px solid #343536; border-radius: 7px; display: grid; grid-template-columns: 24px minmax(0, 1fr); align-content: start; gap: 8px; background: #242526; }
+.xlEnvironmentCurrent article > svg { color: var(--xl-accent); }
+.xlEnvironmentCurrent article > span { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.xlEnvironmentCurrent article small { color: var(--xl-muted); font-size: 8px; }
+.xlEnvironmentCurrent article strong { overflow: hidden; color: #ddd; font-size: 9px; line-height: 15px; font-weight: 500; text-overflow: ellipsis; }
+.xlEnvironmentCurrent article em { grid-column: 2; color: #82d7d5; font-size: 8px; font-style: normal; }
+.xlRequirementList { margin-top: 14px; border: 1px solid #343536; border-radius: 7px; overflow: hidden; }
+.xlRequirementList > header, .xlRequirementList > p { min-height: 41px; margin: 0; padding: 0 13px; display: grid; grid-template-columns: 130px minmax(0, 1fr) 90px; align-items: center; }
+.xlRequirementList > header { color: #c4c4c4; background: #292a2b; }
+.xlRequirementList > header strong { font-size: 11px; font-weight: 500; }
+.xlRequirementList > header span { grid-column: 3; color: var(--xl-muted); font-size: 8px; text-align: right; }
+.xlRequirementList > p { border-top: 1px solid #2e2f30; color: #9b9b9c; font-size: 9px; }
+.xlRequirementList > p strong { color: #ddd; font-size: 10px; font-weight: 500; }
+.xlRequirementList > p em { color: #d6a15f; font-size: 8px; font-style: normal; text-align: right; }
 
-.xlLivePlatformModal { width: min(1050px, 92vw); }
+.xlVoiceModal { width: min(920px, 94vw); height: min(640px, 90vh); display: grid; grid-template-rows: 54px 62px 96px minmax(0, 1fr) 78px; }
+.xlVoiceToolbar { padding: 0 24px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.xlVoiceToolbar > div { height: 100%; display: flex; align-items: flex-end; gap: 28px; }
+.xlVoiceToolbar > div button { height: 42px; padding: 0 1px; position: relative; color: #c4c4c4; font-size: 12px; }
+.xlVoiceToolbar > div button.active { color: var(--xl-accent); }
+.xlVoiceToolbar > div button.active::after { content: ''; height: 2px; position: absolute; left: 0; right: 0; bottom: 0; background: var(--xl-accent); }
+.xlVoiceToolbar > label { width: 240px; height: 34px; padding: 0 11px; border-radius: 5px; display: flex; align-items: center; gap: 8px; color: #777; background: #252627; }
+.xlVoiceToolbar input { min-width: 0; flex: 1; border: 0; outline: 0; color: #d6d6d6; background: transparent; font-size: 10px; }
+.xlVoiceFilters { padding: 14px 24px 10px; display: grid; align-content: center; gap: 8px; }
+.xlVoiceFilters > div { display: flex; align-items: center; gap: 12px; }
+.xlVoiceFilters button { min-width: 70px; height: 31px; padding: 0 13px; border-radius: 16px; color: #888; font-size: 10px; }
+.xlVoiceFilters button.active, .xlVoiceFilters button:hover { color: #efefef; background: #303132; }
+.xlVoiceGrid { min-height: 0; padding: 6px 24px 18px; overflow: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 10px; scrollbar-width: thin; scrollbar-color: #454647 transparent; }
+.xlVoiceCard { min-width: 0; height: 72px; padding: 8px; border: 1px solid transparent; border-radius: 7px; display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 9px; cursor: pointer; outline: 0; text-align: left; background: #252627; }
+.xlVoiceCard:hover, .xlVoiceCard:focus-visible, .xlVoiceCard.selected { border-color: var(--xl-accent); background: #293637; }
+.xlVoiceListen { width: 54px; height: 54px; border-radius: 6px !important; position: relative; overflow: hidden; background: #d9e2e7 !important; }
+.xlVoiceListen::after { content: ''; position: absolute; inset: 0; opacity: 0; background: rgba(7, 11, 12, .4); transition: opacity .15s; }
+.xlVoiceListen img { width: 100%; height: 100%; display: block; object-fit: cover; object-position: center 20%; }
+.xlVoiceListen > i { width: 26px; height: 26px; border: 1px solid rgba(255, 255, 255, .78); border-radius: 50%; display: grid; place-items: center; position: absolute; z-index: 1; left: 50%; top: 50%; opacity: 0; color: #fff; transform: translate(-50%, -50%); transition: opacity .15s; }
+.xlVoiceListen:hover::after, .xlVoiceCard.playing .xlVoiceListen::after { opacity: 1; }
+.xlVoiceListen:hover > i, .xlVoiceCard.playing .xlVoiceListen > i, .xlVoiceListen[aria-label^='停止'] > i { opacity: 1; }
+.xlVoiceSpinner { animation: xlVoiceSpin .75s linear infinite; }
+@keyframes xlVoiceSpin { to { transform: rotate(360deg); } }
+.xlVoiceCard > span { min-width: 0; display: flex; flex-direction: column; gap: 7px; position: relative; }
+.xlVoiceCard strong { padding-right: 18px; overflow: hidden; color: #e2e2e2; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.xlVoiceCard small { display: flex; flex-wrap: wrap; gap: 3px; }
+.xlVoiceCard em { padding: 2px 4px; border-radius: 2px; color: #a8a8a8; background: #393a3b; font-size: 8px; font-style: normal; white-space: nowrap; }
+.xlVoiceCard > span > b { height: 13px; display: flex; align-items: flex-end; gap: 2px; position: absolute; right: 1px; top: 0; }
+.xlVoiceCard > span > b i { width: 2px; border-radius: 2px; background: var(--xl-accent); animation: xlVoiceBar .72s ease-in-out infinite alternate; }
+.xlVoiceCard > span > b i:nth-child(1) { height: 7px; }
+.xlVoiceCard > span > b i:nth-child(2) { height: 12px; animation-delay: -.35s; }
+.xlVoiceCard > span > b i:nth-child(3) { height: 9px; animation-delay: -.16s; }
+@keyframes xlVoiceBar { to { height: 3px; } }
+.xlVoiceEmpty { grid-column: 1 / -1; min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #696a6b; }
+.xlVoiceEmpty strong { color: #aaa; font-size: 12px; font-weight: 500; }
+.xlVoiceEmpty span { font-size: 10px; }
+.xlVoiceFooter { padding: 13px 24px; border-top: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.xlVoiceTuning { min-width: 0; display: flex; gap: 28px; }
+.xlVoiceTuning label { display: grid; grid-template-columns: 38px 150px 42px; align-items: center; gap: 8px; color: #888; font-size: 10px; }
+.xlVoiceTuning input { width: 100%; accent-color: var(--xl-accent); }
+.xlVoiceTuning em { height: 28px; border-radius: 4px; display: grid; place-items: center; color: #c4c4c4; background: #292a2b; font-size: 10px; font-style: normal; }
+.xlVoiceFooter > div:last-child { display: flex; gap: 8px; }
+.xlVoiceFooter > div:last-child button { height: 34px; padding: 0 15px; border-radius: 5px; color: #c4c4c4; background: #303132; font-size: 10px; white-space: nowrap; }
+.xlVoiceFooter > div:last-child button:last-child { color: #0e0f0f; background: var(--xl-accent); }
+
+.xlLivePlatformModal { width: min(900px, 92vw); }
 .xlPlatformNotice { margin: 24px; padding: 12px 14px; border: 1px solid #d8ca7b; border-radius: 5px; color: #77692e; background: #fff8d8; font-size: 10px; line-height: 17px; }
 .xlLivePlatformModal h2 { margin: 8px 0 24px; text-align: center; font-size: 16px; font-weight: 400; }
-.xlPlatformGrid { max-width: 660px; margin: 0 auto 28px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.xlPlatformSummary { margin: -6px 24px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #a8a8a8; font-size: 10px; }
+.xlPlatformSummary > span { display: flex; align-items: center; gap: 6px; }
+.xlPlatformSummary svg { color: var(--xl-accent); }
+.xlPlatformSummary i { width: 7px; height: 7px; border-radius: 50%; background: var(--xl-accent); box-shadow: 0 0 0 4px rgba(20, 204, 201, .1); }
+.xlPlatformGrid { max-width: 720px; margin: 0 auto 18px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .xlPlatformGrid button { min-height: 108px; border: 1px solid transparent !important; border-radius: 8px !important; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; position: relative; background: #202122 !important; }
 .xlPlatformGrid button:hover, .xlPlatformGrid button.selected { border-color: var(--xl-accent) !important; background: #213334 !important; }
 .xlPlatformGrid .xlPlatformLogo { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 5px 14px rgba(0, 0, 0, .2); }
 .xlPlatformLogo img { width: 27px; height: 27px; object-fit: contain; }
 .xlPlatformGrid button strong { font-size: 11px; font-weight: 400; }
 .xlPlatformGrid button em { padding: 2px 5px; position: absolute; right: 5px; top: 5px; border-radius: 3px; color: #d8d8d8; background: #5b5c5d; font-size: 8px; font-style: normal; }
+.xlPlatformGrid button em.ready { color: #79d9d6; background: #224445; }
+.xlPlatformGrid button > i { width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; position: absolute; left: 7px; top: 7px; color: #0e0f0f; background: var(--xl-accent); }
+.xlPlatformTerms { max-width: 720px; margin: 0 auto 18px; display: flex; align-items: center; gap: 8px; color: #a8a8a8; font-size: 10px; }
+.xlPlatformTerms input { accent-color: var(--xl-accent); }
 .xlLivePlatformModal > footer { padding: 15px 24px; border-top: 1px solid var(--xl-line); display: flex; justify-content: flex-end; gap: 8px; }
 .xlLivePlatformModal > footer button { height: 32px; padding: 0 14px; border-radius: 5px; color: #c4c4c4; background: #303132; }
 .xlLivePlatformModal > footer button:last-child { color: #0e0f0f; background: var(--xl-accent); }
-.xlLibraryModal { width: min(720px, 92vw); }
+.xlLibraryModal { width: min(780px, 92vw); }
+.xlLibraryToolbar { padding: 13px 18px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.xlLibraryToolbar > div { display: flex; gap: 5px; }
+.xlLibraryToolbar button { height: 29px; padding: 0 10px; border-radius: 15px; color: #969696; font-size: 9px; }
+.xlLibraryToolbar button.active, .xlLibraryToolbar button:hover { color: #e8e8e8; background: #303132; }
+.xlLibraryToolbar label { width: 205px; height: 31px; padding: 0 9px; border-radius: 5px; display: flex; align-items: center; gap: 6px; color: #777; background: #292a2b; }
+.xlLibraryToolbar input { min-width: 0; flex: 1; border: 0; outline: 0; color: #ddd; background: transparent; font-size: 9px; }
 .xlLibraryList { max-height: 500px; padding: 18px; overflow: auto; display: grid; gap: 9px; }
-.xlLibraryList article { padding: 14px; border: 1px solid #303132; border-radius: 7px; display: flex; align-items: center; gap: 15px; background: #202122; }
+.xlLibraryList article { padding: 13px; border: 1px solid #303132; border-radius: 7px; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; background: #202122; }
+.xlLibraryList article > span { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; color: var(--xl-accent); background: #293738; }
 .xlLibraryList article > div { min-width: 0; flex: 1; }
+.xlLibraryList article > div > small { margin-bottom: 4px; display: block; color: var(--xl-accent); font-size: 8px; }
 .xlLibraryList strong { font-size: 12px; font-weight: 500; }
 .xlLibraryList p { margin: 6px 0 0; color: var(--xl-muted); font-size: 10px; line-height: 17px; }
 .xlLibraryList button { height: 30px; padding: 0 10px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #0e0f0f; background: var(--xl-accent); }
+.xlLibraryEmpty { min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #696a6b; font-size: 10px; }
+.xlImportModal { width: min(760px, 92vw); }
+.xlImportSource { margin: 18px 20px 10px; padding: 13px; border: 1px solid #343536; border-radius: 7px; display: flex; align-items: center; gap: 11px; background: #242526; }
+.xlImportSource > svg { color: var(--xl-accent); }
+.xlImportSource > span { display: flex; flex-direction: column; gap: 4px; }
+.xlImportSource strong { font-size: 11px; font-weight: 500; }
+.xlImportSource small { color: var(--xl-muted); font-size: 9px; }
+.xlImportSource em { margin-left: auto; color: #79d9d6; font-size: 9px; font-style: normal; }
+.xlImportFlow { max-height: 330px; padding: 8px 20px 14px; overflow: auto; display: grid; gap: 8px; }
+.xlImportFlow article { padding: 12px; border: 1px solid #303132; border-radius: 7px; display: grid; grid-template-columns: 31px minmax(0, 1fr) auto; align-items: center; gap: 11px; background: #202122; }
+.xlImportFlow article > span { width: 29px; height: 29px; border-radius: 6px; display: grid; place-items: center; color: var(--xl-accent); background: #293738; font-size: 9px; }
+.xlImportFlow article strong { font-size: 11px; font-weight: 500; }
+.xlImportFlow article p { margin: 5px 0 0; overflow: hidden; color: var(--xl-muted); font-size: 9px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.xlImportFlow article em { color: #888; font-size: 8px; font-style: normal; }
+.xlImportNote { margin: 0 20px 16px; color: #8e8e8f; font-size: 9px; }
+.xlImportModal > footer { padding: 13px 20px; border-top: 1px solid var(--xl-line); display: flex; justify-content: flex-end; gap: 8px; }
+.xlImportModal > footer button { height: 32px; padding: 0 13px; border-radius: 5px; color: #c4c4c4; background: #303132; }
+.xlImportModal > footer button:last-child { color: #0e0f0f; background: var(--xl-accent); }
 .xlConfirmModal { width: min(430px, 92vw); }
 .xlConfirmModal > p { margin: 0; padding: 28px 24px 25px; color: #c4c4c4; font-size: 12px; line-height: 20px; }
 .xlConfirmModal > footer { padding: 13px 20px; border-top: 1px solid var(--xl-line); display: flex; justify-content: flex-end; gap: 8px; }
 .xlConfirmModal > footer button { min-width: 68px; height: 31px; padding: 0 12px; border-radius: 5px; color: #c4c4c4; background: #303132; }
 .xlConfirmModal > footer button:last-child { color: #0e0f0f; background: var(--xl-accent); }
 
-@media (max-width: 1180px) {
-  .xlEditorGrid { grid-template-columns: minmax(430px, 1.25fr) minmax(260px, .75fr) 320px; }
+@media (max-width: 1500px) {
+  .xlEditorGrid { grid-template-columns: minmax(340px, 1.15fr) minmax(220px, .75fr) minmax(260px, .9fr); }
 }
 
-@media (max-width: 980px) {
-  .xilingLive { height: auto; min-height: 100vh; overflow: auto; }
+@media (max-width: 1180px) {
+  .xilingLive { height: auto; min-height: 100vh; overflow: visible; }
   .xlTopbar { position: sticky; top: 0; }
   .xlTitleGroup span { display: none; }
   .xlProgram { height: auto; min-height: calc(100vh - 56px); grid-template-columns: 112px minmax(0, 1fr); }
@@ -692,7 +813,7 @@ img, video, canvas { display: block; }
   .xlGoodsRail h2 { padding-left: 10px; font-size: 12px; }
   .xlGoodsCard { width: 92px; margin-inline: 9px; }
   .xlGoodsScene { width: 92px; height: 92px; }
-  .xlEditorGrid { height: auto; display: grid; grid-template-columns: minmax(420px, 1fr) minmax(260px, .7fr); grid-template-areas: 'script preview' 'materials materials'; }
+  .xlEditorGrid { height: auto; display: grid; grid-template-columns: minmax(380px, 1fr) minmax(250px, .7fr); grid-template-areas: 'script preview' 'materials materials'; }
   .xlScriptPanel { grid-area: script; height: calc(100vh - 104px); min-height: 620px; }
   .xlPreviewPanel { grid-area: preview; height: calc(100vh - 104px); min-height: 620px; }
   .xlMaterialsPanel { grid-area: materials; height: 720px; border-top: 2px solid var(--xl-border); }
@@ -744,6 +865,14 @@ img, video, canvas { display: block; }
   .xlSettingsBody { height: auto; min-height: 560px; grid-template-columns: 138px minmax(0, 1fr); }
   .xlSettingsBody > nav button { padding-inline: 9px; font-size: 10px; }
   .xlSettingsContent { padding: 20px 16px; }
+  .xlVoiceModal { height: min(720px, 92vh); grid-template-rows: 54px auto auto minmax(260px, 1fr) auto; }
+  .xlVoiceToolbar { padding: 10px 16px; align-items: flex-end; }
+  .xlVoiceToolbar > label { width: min(220px, 45vw); }
+  .xlVoiceFilters { padding-inline: 16px; }
+  .xlVoiceGrid { padding-inline: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .xlVoiceFooter { align-items: flex-end; flex-direction: column; }
+  .xlVoiceTuning { width: 100%; }
+  .xlVoiceTuning label { flex: 1; grid-template-columns: 34px minmax(70px, 1fr) 38px; }
   .xlSettingRow { align-items: flex-start; gap: 15px; }
   .xlSettingBlock { align-items: flex-start; flex-direction: column; gap: 10px; }
   .xlRadioGroup { flex-direction: column; }
@@ -770,6 +899,13 @@ img, video, canvas { display: block; }
   .xlSettingsBody { display: block; }
   .xlSettingsBody > nav { border-right: 0; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: repeat(2, 1fr); }
   .xlSettingsContent { min-height: 360px; }
+  .xlVoiceToolbar { align-items: stretch; flex-direction: column; gap: 8px; }
+  .xlVoiceToolbar > div { min-height: 38px; }
+  .xlVoiceToolbar > label { width: 100%; }
+  .xlVoiceFilters > div { flex-wrap: wrap; gap: 5px; }
+  .xlVoiceFilters button { min-width: 0; }
+  .xlVoiceGrid { grid-template-columns: 1fr; }
+  .xlVoiceTuning { flex-direction: column; gap: 8px; }
   .xlPlatformNotice { margin: 14px; }
   .xlLivePlatformModal h2 { padding-inline: 16px; font-size: 14px; }
 }
@@ -787,6 +923,7 @@ img, video, canvas { display: block; }
 .creatorRail { padding: 12px 8px; border-right: 1px solid #e7e8ed; display: flex; flex-direction: column; gap: 8px; background: white; }
 .creatorRail button { height: 62px; padding: 7px 0; border: 0; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #73798d; background: transparent; font-size: 9px; cursor: pointer; }
 .creatorRail button.active { color: var(--blue); background: #f0f2ff; }
+.creatorCapabilityStage { min-width: 0; min-height: 0; grid-column: 2 / -1; overflow: hidden; }
 .creatorInspector { min-height: 0; padding: 23px 20px; border-right: 1px solid #e7e8ed; overflow-y: auto; background: white; }
 .inspectorHeading { margin-bottom: 18px; display: flex; align-items: flex-start; justify-content: space-between; }
 .inspectorHeading h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: -.4px; }
@@ -924,10 +1061,15 @@ img, video, canvas { display: block; }
   .consoleShell { display: block; }
   .consoleSidebar { width: 100%; height: 64px; padding: 0 16px; flex-direction: row; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); }
   .consoleBrand { margin: 0 auto 0 0; }
-  .navSectionLabel, .sidebarUtilities { display: none; }
+  .navSectionLabel, .sidebarAccount { display: none; }
   .consoleNav { margin: 0; display: flex; gap: 5px; }
   .consoleNav a { min-height: 38px; padding: 0 11px; }
   .consoleNav a.active::before { left: 11px; right: 11px; bottom: -13px; width: auto; height: 3px; border-radius: 3px 3px 0 0; }
+  .sidebarUtilities { margin: 0 0 0 6px; display: flex; gap: 0; }
+  .sidebarUtilities > button { width: 38px; min-height: 38px; padding: 0; justify-content: center; }
+  .sidebarUtilities > button span { display: none; }
+  .xilingLive { overflow: visible; }
+  .xlTopbar { top: 64px; }
   .consoleMain { padding: 22px 18px 38px; }
   .chatCatalogPage { padding: 0 0 38px; }
   .catalogHero { padding: 34px; }
@@ -946,6 +1088,8 @@ img, video, canvas { display: block; }
 }
 
 @media (max-width: 700px) {
+  .avatarConfigLink { min-height: 38px; padding-inline: 11px; opacity: 1; pointer-events: auto; font-size: 10px; transform: translateY(0); }
+  .dialogConfigure { width: 38px; height: 38px; }
   .avatarCatalogGrid { grid-template-columns: repeat(auto-fit, minmax(148px, 164px)); justify-content: center; gap: 14px; }
   .catalogHero { height: 450px; padding: 30px 26px; grid-template-columns: 1fr; }
   .heroCopy { align-self: end; }
@@ -959,15 +1103,16 @@ img, video, canvas { display: block; }
   .floatingScript { left: 2%; }
   .floatingScenes { right: 2%; }
   .creatorShell { overflow: visible; }
-  .creatorTopbar { position: sticky; top: 0; z-index: 20; }
+  .creatorTopbar { position: sticky; top: 64px; z-index: 20; }
   .creatorSaveHint { display: none; }
   .creatorResourceTitle { flex: 1; }
   .creatorResourceTitle input { width: 100%; }
   .creatorBody { height: auto; display: block; }
-  .creatorRail { height: 64px; padding: 6px 12px; position: sticky; z-index: 19; top: 56px; border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; }
-  .creatorRail button { height: 50px; flex: 1; }
+  .creatorRail { height: 64px; padding: 6px 12px; position: sticky; z-index: 19; top: 120px; border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; overflow-x: auto; }
+  .creatorRail button { height: 50px; flex: 0 0 64px; }
   .creatorInspector { min-height: 560px; border-right: 0; border-bottom: 1px solid var(--line); }
   .creatorStage { min-height: 680px; padding: 70px 18px 30px; overflow: visible; }
+  .creatorCapabilityStage { min-height: 720px; overflow: visible; }
   .creatorCanvas, .creatorStageActions { width: 100%; }
   .creatorCanvas { height: 560px; min-height: 0; }
 }
@@ -980,6 +1125,8 @@ img, video, canvas { display: block; }
   .consoleNav a { min-height: 36px; padding: 0 9px; gap: 6px; font-size: 11px; }
   .consoleNav a svg { width: 16px; }
   .consoleNav a.active::before { bottom: -11px; }
+  .sidebarUtilities > button { width: 34px; min-height: 34px; }
+  .xlTopbar { top: 58px; }
   .consoleMain { padding: 14px 11px 28px; }
   .chatCatalogPage { padding: 0 0 28px; }
   .catalogHero { height: 430px; min-height: 0; padding: 27px 22px; }
@@ -1025,6 +1172,8 @@ img, video, canvas { display: block; }
   .floatingScenes { width: 165px; right: 0; padding: 11px; }
   .floatingScenes div i { height: 44px; }
   .creatorTopbar { padding: 0 10px; gap: 7px; }
+  .creatorTopbar { top: 58px; }
+  .creatorRail { top: 114px; }
   .creatorResourceTitle > span { display: none; }
   .creatorPublish { padding-inline: 10px; }
   .creatorInspector { padding: 20px 15px; }
