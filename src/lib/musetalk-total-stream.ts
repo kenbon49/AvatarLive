@@ -29,6 +29,8 @@ interface MuseTalkTotalOptions {
   language?: 'ZH' | 'EN';
   speed?: number;
   onMediaActive?: (active: boolean) => void;
+  // Resolving this releases the buffered audio/video timeline together.
+  onPlaybackReady?: () => Promise<void> | void;
   onStage?: (stage: string) => void;
   onTextUnit?: (unit: string, text: string) => void;
 }
@@ -144,6 +146,9 @@ export class MuseTalkTotalStream {
   private videoTimers = new Set<number>();
   private playbackEndTimer: number | null = null;
   private videoScheduledUntilWall = 0;
+  private playbackGateOpen = true;
+  private playbackGateRequested = false;
+  private deferredMediaPackets: ArrayBuffer[] = [];
   private activeRequest: ActiveRequest | null = null;
 
   constructor(
@@ -202,6 +207,16 @@ export class MuseTalkTotalStream {
     const ptsSeconds = Number(view.getBigUint64(16, true)) / 1_000_000;
     if (payloadSize !== buffer.byteLength - PACKET_HEADER_BYTES) {
       throw new Error('MSTK 媒体包长度不匹配');
+    }
+    if (!this.playbackGateOpen) {
+      this.deferredMediaPackets.push(buffer);
+      // Wait for a video frame, rather than merely stream_start, so the canvas
+      // never replaces the idle clip with an empty frame.
+      if (packetType === 1 && !this.playbackGateRequested) {
+        this.playbackGateRequested = true;
+        void this.openPlaybackGate(generation);
+      }
+      return;
     }
     const payload = buffer.slice(PACKET_HEADER_BYTES);
     if (packetType === 2) {
@@ -322,6 +337,9 @@ export class MuseTalkTotalStream {
     this.audioContext = null;
     this.mediaTimelineStarted = false;
     this.videoScheduledUntilWall = 0;
+    this.playbackGateOpen = true;
+    this.playbackGateRequested = false;
+    this.deferredMediaPackets = [];
   }
 
   private finishAfterPlayback(active: ActiveRequest, result: MuseTalkTotalResult) {
@@ -348,16 +366,30 @@ export class MuseTalkTotalStream {
     this.playbackEndTimer = window.setTimeout(finish, delay + 50);
   }
 
-  private startMediaTimeline(): boolean {
+  private startMediaTimeline(leadMilliseconds = 650): boolean {
     const audioContext = this.audioContext;
     if (!audioContext || audioContext.state === 'closed') return false;
     if (this.mediaTimelineStarted) return true;
     this.mediaTimelineStarted = true;
-    this.mediaStartAudio = audioContext.currentTime + 0.65;
+    this.mediaStartAudio = audioContext.currentTime + leadMilliseconds / 1000;
     this.audioScheduledUntil = this.mediaStartAudio;
-    this.mediaStartWall = performance.now() + 650;
+    this.mediaStartWall = performance.now() + leadMilliseconds;
     this.scheduleTextUnits(this.textGeneration);
     return true;
+  }
+
+  private async openPlaybackGate(generation: number) {
+    try {
+      await this.options.onPlaybackReady?.();
+      if (generation !== this.sessionGeneration || this.closedByUser) return;
+      this.playbackGateOpen = true;
+      this.startMediaTimeline(80);
+      const packets = this.deferredMediaPackets;
+      this.deferredMediaPackets = [];
+      for (const packet of packets) void this.handlePacket(packet, generation);
+    } catch (error) {
+      this.rejectActive(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   private handleControlMessage(message: ControlMessage, generation: number) {
@@ -415,7 +447,10 @@ export class MuseTalkTotalStream {
       return;
     }
     if (type === 'stream_start') {
-      this.startMediaTimeline();
+      this.deferredMediaPackets = [];
+      this.playbackGateRequested = false;
+      this.playbackGateOpen = !this.options.onPlaybackReady;
+      if (this.playbackGateOpen) this.startMediaTimeline();
       return;
     }
     if (type === 'conversation_end') {

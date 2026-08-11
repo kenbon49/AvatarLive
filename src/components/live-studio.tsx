@@ -45,10 +45,6 @@ import { ProductShell } from '@/components/product-shell';
 const AVATARS = [
   { id: 'chinese', name: '林汐', role: '亲和型主播', image: '/assets/musetalk-avatars/chinese.jpg', type: '真人', gender: '女', age: '青年' },
   { id: 'business_male_1', name: '商务男1', role: '专业型主播', image: '/assets/musetalk-avatars/business-male-1.jpg', type: '真人', gender: '男', age: '青年' },
-  { id: 'casual_male', name: '休闲风', role: '生活方式主播', image: '/assets/musetalk-avatars/casual-male.jpg', type: '真人', gender: '男', age: '青年' },
-  { id: 'middle_aged_male', name: '中年男士', role: '资深行业顾问', image: '/assets/musetalk-avatars/middle-aged-male.jpg', type: '真人', gender: '男', age: '中年' },
-  { id: 'casual_conversation', name: '休闲交流', role: '生活交流顾问', image: '/assets/musetalk-avatars/casual-conversation.jpg', type: '真人', gender: '女', age: '青年' },
-  { id: 'casual_female', name: '休闲女主播', role: '内容分享主播', image: '/assets/musetalk-avatars/casual-female.jpg', type: '真人', gender: '女', age: '中年' },
 ] satisfies Array<{
   id: MuseTalkAvatarProfile;
   name: string;
@@ -429,7 +425,7 @@ export function LiveStudio({
   const hostLayer = layers.find((item) => item.sceneKey === 'host') ?? null;
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
   const previewBackground = backgroundLayer?.preview ?? selectedTemplate.image;
-  const estimatedTime = avatarId === 'middle_aged_male' ? '03:16' : '02:59';
+  const estimatedTime = '02:59';
   const currentAssets = materialTab === 'image' || materialTab === 'video'
     ? (assetScope === 'mine' ? assets[materialTab] : SQUARE_ASSETS[materialTab]).filter((item) => item.name.includes(assetQuery.trim()))
     : [];
@@ -953,7 +949,7 @@ export function LiveStudio({
     if (!nextAvatar) return;
     setAvatarSwitching(true);
     setAvatarId(nextAvatar.id);
-    const nextDurations = nextAvatar.id === 'middle_aged_male' ? ['00:46', '00:51', '00:56', '00:43'] : ['00:42', '00:47', '00:50', '00:40'];
+    const nextDurations = ['00:42', '00:47', '00:50', '00:40'];
     setScripts((items) => items.map((item, index) => ({ ...item, duration: nextDurations[index] ?? item.duration })));
     setLayers((items) => items.map((item) => item.sceneKey === 'host' ? {
       ...item,

@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Headphones, ImagePlus, Mic, MicOff, PhoneCall, Send, Settings2, Sparkles } from 'lucide-react';
 import {
@@ -22,6 +22,70 @@ function AvatarMedia({ avatar, className = '' }: { avatar: Avatar; className?: s
   return <img className={className} src={avatar.image} alt={`${avatar.name} 数字人形象`} />;
 }
 
+const IDLE_VIDEO_BY_PROFILE: Partial<Record<MuseTalkAvatarProfile, string>> = {
+  // These assets contain 0 -> 1s -> 0s as one native playback sequence. That
+  // keeps the browser's decoder running continuously in both directions.
+  chinese: '/assets/musetalk-default/chinese-idle-pingpong-1s.mp4',
+  business_male_1: '/assets/musetalk-default/business-male-1-idle-pingpong-1s.mp4',
+};
+const IDLE_LOOP_END_SECONDS = 1;
+const INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'business-male-1']);
+
+function isInteractiveAvatar(avatar: Avatar) {
+  return !avatar.custom && INTERACTIVE_AVATAR_IDS.has(avatar.id);
+}
+
+function IdleAvatarMedia({
+  avatar,
+  className,
+  handoffRequested,
+  onForwardBoundary,
+}: {
+  avatar: Avatar;
+  className: string;
+  handoffRequested: boolean;
+  onForwardBoundary: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const handoffHandledRef = useRef(false);
+  const source = !avatar.custom ? IDLE_VIDEO_BY_PROFILE[avatar.profile] : undefined;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    let frameId = 0;
+    const resume = () => {
+      void video.play().catch(() => {
+        // Muted inline video normally starts automatically; a poster remains if the browser blocks it.
+      });
+    };
+
+    // The encoded ping-pong clip is already smooth; this watcher only pauses
+    // at the forward 1s boundary when the live stream is ready to take over.
+    let lastTime = video.currentTime;
+    const watchForwardBoundary = () => {
+      const currentTime = video.currentTime;
+      const crossedBoundary = lastTime < IDLE_LOOP_END_SECONDS && currentTime >= IDLE_LOOP_END_SECONDS;
+      if (handoffRequested && crossedBoundary && !handoffHandledRef.current) {
+        handoffHandledRef.current = true;
+        video.pause();
+        onForwardBoundary();
+        return;
+      }
+      lastTime = currentTime;
+      frameId = window.requestAnimationFrame(watchForwardBoundary);
+    };
+
+    if (!handoffRequested) handoffHandledRef.current = false;
+    if (!handoffHandledRef.current) resume();
+    frameId = window.requestAnimationFrame(watchForwardBoundary);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [handoffRequested, onForwardBoundary]);
+
+  if (!source) return <AvatarMedia avatar={avatar} className={className} />;
+  return <video ref={videoRef} className={className} src={source} muted autoPlay loop playsInline preload="auto" aria-label={`${avatar.name} 数字人静息画面`} />;
+}
+
 function avatarDesignHref(avatar: Avatar) {
   return `/design?avatar=${encodeURIComponent(avatar.id)}&tab=appearance`;
 }
@@ -31,12 +95,14 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
   const recognitionRef = useRef<{ start: () => void; stop: () => void } | null>(null);
+  const playbackGateResolveRef = useRef<(() => void) | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     { role: 'avatar', text: avatar.custom ? avatar.description : `你好，我是${avatar.name}。欢迎来到灵境数字人体验中心，有什么想了解的吗？` },
   ]);
   const [input, setInput] = useState('');
   const [stage, setStage] = useState('idle');
   const [mediaActive, setMediaActive] = useState(false);
+  const [streamStartPending, setStreamStartPending] = useState(false);
   const [connectionState, setConnectionState] = useState<'connecting' | 'online' | 'failed'>('connecting');
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
@@ -47,6 +113,12 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
     : connectionState === 'failed'
       ? '连接失败'
       : mediaActive ? '运行中' : '连接中';
+
+  const handleIdleForwardBoundary = useCallback(() => {
+    const resolve = playbackGateResolveRef.current;
+    playbackGateResolveRef.current = null;
+    resolve?.();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
@@ -59,9 +131,19 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
       profile: avatar.profile,
       language: avatar.language,
       onStage: setStage,
+      onPlaybackReady: () => new Promise<void>((resolve) => {
+        playbackGateResolveRef.current = resolve;
+        setStreamStartPending(true);
+      }),
       onMediaActive: (active) => {
-        setMediaActive(active);
-        if (active) setConnectionState('online');
+        if (active) {
+          setMediaActive(true);
+          setStreamStartPending(false);
+          setConnectionState('online');
+          return;
+        }
+        setMediaActive(false);
+        setStreamStartPending(false);
       },
       onTextUnit: (_unit, text) => {
         setMessages((items) => {
@@ -87,9 +169,18 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
     return () => {
       void stream.stopLive();
       if (streamRef.current === stream) streamRef.current = null;
+      playbackGateResolveRef.current?.();
+      playbackGateResolveRef.current = null;
       recognitionRef.current?.stop();
     };
   }, [avatar]);
+
+  useEffect(() => {
+    if (stage !== 'error') return;
+    playbackGateResolveRef.current?.();
+    playbackGateResolveRef.current = null;
+    setStreamStartPending(false);
+  }, [stage]);
 
   useEffect(() => {
     if (stage === 'error' && !mediaActive) setConnectionState('failed');
@@ -161,7 +252,12 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
       <main className="consoleMain conversationWorkspace">
         <div className="conversationWorkbench">
           <section className="avatarCallStage" aria-label={`${avatar.name} 数字人画面`}>
-            <AvatarMedia avatar={avatar} className={showGeneratedMedia ? 'stageMedia hidden' : 'stageMedia'} />
+            <IdleAvatarMedia
+              avatar={avatar}
+              className={showGeneratedMedia ? 'stageMedia hidden' : 'stageMedia'}
+              handoffRequested={streamStartPending}
+              onForwardBoundary={handleIdleForwardBoundary}
+            />
             <canvas ref={canvasRef} className={showGeneratedMedia ? 'streamCanvas active' : 'streamCanvas'} />
             <div className="stageWash" />
             {busy && <div className="voiceWave" aria-label="数字人正在响应"><i /><i /><i /><i /><i /></div>}
@@ -218,8 +314,8 @@ export function InteractionConsole() {
   const [catalogError, setCatalogError] = useState('');
 
   const avatars = [
-    ...customAvatars,
-    ...catalogAvatars.filter((avatar) => !customAvatars.some((custom) => custom.id === avatar.id)),
+    ...catalogAvatars,
+    ...customAvatars.filter((custom) => !catalogAvatars.some((avatar) => avatar.id === custom.id)),
   ];
 
   useEffect(() => {
@@ -241,9 +337,9 @@ export function InteractionConsole() {
     void fetchMuseTalkAvatarCatalog()
       .then((catalog) => {
         if (!active) return;
-        const availableProfiles = new Set(catalog.avatars.map((item) => item.id));
-        const available = DEFAULT_AVATARS.filter((item) => availableProfiles.has(item.profile));
-        if (available.length) setCatalogAvatars(available);
+        // Keep the page order stable: only the first two cards may enter a
+        // real conversation, while the remaining cards are display-only.
+        setCatalogAvatars(DEFAULT_AVATARS);
         setDefaultProfile(catalog.default);
         setCatalogError('');
       })
@@ -262,7 +358,8 @@ export function InteractionConsole() {
 
   if (selected) return <Conversation avatar={selected} onBack={() => setSelected(null)} />;
 
-  const featuredAvatar = avatars.find((avatar) => avatar.profile === defaultProfile) || avatars[0];
+  const featuredAvatar = avatars.find((avatar) => isInteractiveAvatar(avatar) && avatar.profile === defaultProfile)
+    || avatars.find(isInteractiveAvatar);
 
   return (
     <ProductShell>
@@ -272,7 +369,7 @@ export function InteractionConsole() {
             <h1>来和你的数字人聊聊吧</h1>
             <p>选择数字人形象，即刻体验低延迟、可打断的自然对话。适用于客户接待、产品咨询与品牌服务。</p>
             <div className="catalogHeroActions">
-              <button className="primaryAction" type="button" onClick={() => setSelected(featuredAvatar)} disabled={!featuredAvatar}><Sparkles size={17} />立即开始</button>
+              <button className="primaryAction" type="button" onClick={() => featuredAvatar && setSelected(featuredAvatar)} disabled={!featuredAvatar}><Sparkles size={17} />立即开始</button>
               {featuredAvatar && <Link className="secondaryAction" href={avatarDesignHref(featuredAvatar)}><Settings2 size={16} />配置形象</Link>}
             </div>
           </div>
@@ -295,17 +392,20 @@ export function InteractionConsole() {
               <span className="createAvatarIcon"><ImagePlus size={27} /></span>
               <span><strong>创建自己的数字人</strong><small>上传图片或通过对话修改形象</small></span>
             </Link>
-            {avatars.map((avatar) => (
+            {avatars.map((avatar) => {
+              const interactive = isInteractiveAvatar(avatar);
+              return (
               <div className="avatarProductCardWrap" key={avatar.id}>
-                <button className="avatarProductCard" type="button" onClick={() => setSelected(avatar)}>
+                <button className="avatarProductCard" type="button" onClick={() => interactive && setSelected(avatar)} disabled={!interactive}>
                   <span className="avatarProductMedia"><AvatarMedia avatar={avatar} /></span>
                   <span className="avatarProductInfo">
                     <span><strong>{avatar.name}</strong><small>{avatar.custom ? `专属形象 · ${avatar.description || avatar.role}` : avatar.description || avatar.role}</small></span>
                   </span>
                 </button>
-                <Link className="avatarConfigLink" href={avatarDesignHref(avatar)} aria-label={`配置${avatar.name}`}><Settings2 size={13} /><span>配置</span></Link>
+                {interactive && <Link className="avatarConfigLink" href={avatarDesignHref(avatar)} aria-label={`配置${avatar.name}`}><Settings2 size={13} /><span>配置</span></Link>}
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </main>
