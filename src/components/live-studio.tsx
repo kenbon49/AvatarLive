@@ -1000,7 +1000,6 @@ export function LiveStudio({
   const previewHost = avatar.image;
 
   return (
-    <ProductShell>
     <main className="xilingLive">
       <header className="xlTopbar">
         <div className="xlTitleGroup">
@@ -1267,6 +1266,5 @@ export function LiveStudio({
 
       {dialog === 'avatarConfirm' && <div className="xlModalBackdrop" onMouseDown={() => { setDialog(null); setPendingAvatarId(null); }}><section className="xlModal xlConfirmModal" role="dialog" aria-modal="true" aria-labelledby="avatar-confirm-title" onMouseDown={(event) => event.stopPropagation()}><header><strong id="avatar-confirm-title">切换人像</strong><button type="button" aria-label="关闭主播确认" onClick={() => { setDialog(null); setPendingAvatarId(null); }}><X size={17} /></button></header><p>切换人像后，当前直播中所有商品都将会被替换，是否继续？</p><footer><button type="button" onClick={() => { setDialog(null); setPendingAvatarId(null); }}>取消</button><button type="button" onClick={applyPendingAvatar}>确定</button></footer></section></div>}
     </main>
-    </ProductShell>
   );
 }
