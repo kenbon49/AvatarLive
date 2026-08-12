@@ -7,6 +7,7 @@ export interface MuseTalkTotalResult {
 export type MuseTalkAvatarProfile =
   | 'chinese'
   | 'business_male_1'
+  | 'chen_yu'
   | 'casual_male'
   | 'middle_aged_male'
   | 'casual_conversation'
@@ -31,6 +32,8 @@ interface MuseTalkTotalOptions {
   onMediaActive?: (active: boolean) => void;
   // Resolving this releases the buffered audio/video timeline together.
   onPlaybackReady?: () => Promise<void> | void;
+  // Resolving this lets the UI reveal its neutral idle pose before the canvas fades out.
+  onPlaybackFinished?: () => Promise<void> | void;
   onStage?: (stage: string) => void;
   onTextUnit?: (unit: string, text: string) => void;
 }
@@ -51,6 +54,7 @@ const PACKET_HEADER_BYTES = 24;
 const SUPPORTED_AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
   'chinese',
   'business_male_1',
+  'chen_yu',
   'casual_male',
   'middle_aged_male',
   'casual_conversation',
@@ -149,6 +153,8 @@ export class MuseTalkTotalStream {
   private playbackGateOpen = true;
   private playbackGateRequested = false;
   private deferredMediaPackets: ArrayBuffer[] = [];
+  private pendingVideoDecodes = 0;
+  private pendingPlaybackCompletion: { active: ActiveRequest; result: MuseTalkTotalResult } | null = null;
   private activeRequest: ActiveRequest | null = null;
 
   constructor(
@@ -244,29 +250,35 @@ export class MuseTalkTotalStream {
       return;
     }
     if (packetType !== 1) return;
-    const bitmap = await createImageBitmap(new Blob([payload], { type: 'image/jpeg' }));
-    if (generation !== this.sessionGeneration) {
-      bitmap.close();
-      return;
-    }
-    const scheduledAt = this.mediaStartWall + ptsSeconds * 1000;
-    this.videoScheduledUntilWall = Math.max(this.videoScheduledUntilWall, scheduledAt);
-    const delay = Math.max(0, scheduledAt - performance.now());
-    const timer = window.setTimeout(() => {
-      this.videoTimers.delete(timer);
+    this.pendingVideoDecodes += 1;
+    try {
+      const bitmap = await createImageBitmap(new Blob([payload], { type: 'image/jpeg' }));
       if (generation !== this.sessionGeneration) {
         bitmap.close();
         return;
       }
-      if (this.canvas.width !== bitmap.width || this.canvas.height !== bitmap.height) {
-        this.canvas.width = bitmap.width;
-        this.canvas.height = bitmap.height;
-      }
-      this.canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
-      this.setMediaActive(true);
-      bitmap.close();
-    }, delay);
-    this.videoTimers.add(timer);
+      const scheduledAt = this.mediaStartWall + ptsSeconds * 1000;
+      this.videoScheduledUntilWall = Math.max(this.videoScheduledUntilWall, scheduledAt);
+      const delay = Math.max(0, scheduledAt - performance.now());
+      const timer = window.setTimeout(() => {
+        this.videoTimers.delete(timer);
+        if (generation !== this.sessionGeneration) {
+          bitmap.close();
+          return;
+        }
+        if (this.canvas.width !== bitmap.width || this.canvas.height !== bitmap.height) {
+          this.canvas.width = bitmap.width;
+          this.canvas.height = bitmap.height;
+        }
+        this.canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
+        this.setMediaActive(true);
+        bitmap.close();
+      }, delay);
+      this.videoTimers.add(timer);
+    } finally {
+      this.pendingVideoDecodes = Math.max(0, this.pendingVideoDecodes - 1);
+      this.finishPendingPlayback();
+    }
   }
 
   private queueTextUnit(sequence: number, text: string, ptsSeconds: number, generation: number) {
@@ -340,6 +352,14 @@ export class MuseTalkTotalStream {
     this.playbackGateOpen = true;
     this.playbackGateRequested = false;
     this.deferredMediaPackets = [];
+    this.pendingPlaybackCompletion = null;
+  }
+
+  private finishPendingPlayback() {
+    const pending = this.pendingPlaybackCompletion;
+    if (!pending || this.pendingVideoDecodes) return;
+    this.pendingPlaybackCompletion = null;
+    this.finishAfterPlayback(pending.active, pending.result);
   }
 
   private finishAfterPlayback(active: ActiveRequest, result: MuseTalkTotalResult) {
@@ -348,8 +368,10 @@ export class MuseTalkTotalStream {
       : 0;
     const videoDelay = Math.max(0, this.videoScheduledUntilWall - performance.now());
     const delay = Math.max(audioDelay, videoDelay);
-    const finish = () => {
+    const finish = async () => {
       this.playbackEndTimer = null;
+      if (this.activeRequest !== active) return;
+      await this.options.onPlaybackFinished?.();
       if (this.activeRequest !== active) return;
       this.activeRequest = null;
       this.mediaTimelineStarted = false;
@@ -360,10 +382,10 @@ export class MuseTalkTotalStream {
       active.resolve(result);
     };
     if (delay <= 0) {
-      finish();
+      void finish();
       return;
     }
-    this.playbackEndTimer = window.setTimeout(finish, delay + 50);
+    this.playbackEndTimer = window.setTimeout(() => void finish(), delay + 50);
   }
 
   private startMediaTimeline(leadMilliseconds = 650): boolean {
@@ -460,11 +482,14 @@ export class MuseTalkTotalStream {
         const answer = String(message.answer || active.streamedText || active.answer);
         this.ensureAnswerVisible(answer, this.textGeneration);
         this.setStage('playing');
-        this.finishAfterPlayback(active, {
+        // A control message can overtake JPEG decoding. Wait until each image has
+        // established its presentation timestamp before calculating the final frame.
+        this.pendingPlaybackCompletion = { active, result: {
           answer,
           llmLatencyMs: active.llmLatencyMs,
           totalLatencyMs: Number(message.elapsed_ms || Math.round(performance.now() - active.startedAt)),
-        });
+        } };
+        this.finishPendingPlayback();
       }
       return;
     }
@@ -562,6 +587,7 @@ export class MuseTalkTotalStream {
     this.mediaTimelineStarted = false;
     this.audioScheduledUntil = 0;
     this.videoScheduledUntilWall = 0;
+    this.pendingPlaybackCompletion = null;
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
       this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
       websocket.send(

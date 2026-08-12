@@ -23,13 +23,14 @@ function AvatarMedia({ avatar, className = '' }: { avatar: Avatar; className?: s
 }
 
 const IDLE_VIDEO_BY_PROFILE: Partial<Record<MuseTalkAvatarProfile, string>> = {
-  // These assets contain 0 -> 1s -> 0s as one native playback sequence. That
-  // keeps the browser's decoder running continuously in both directions.
-  chinese: '/assets/musetalk-default/chinese-idle-pingpong-1s.mp4',
-  business_male_1: '/assets/musetalk-default/business-male-1-idle-pingpong-1s.mp4',
+  // Each clip is the latest backend source played 0s -> 1s -> 0s. The source
+  // frame at exactly 1s is encoded as a keyframe for deterministic handoff.
+  chinese: '/assets/musetalk-default/idle-chinese2-0to1-d0853621.mp4',
+  business_male_1: '/assets/musetalk-default/idle-business-male-0to1-9b3d19af.mp4',
+  chen_yu: '/assets/musetalk-default/idle-chen-yu-0to1-4e6b2339.mp4',
 };
-const IDLE_LOOP_END_SECONDS = 1;
-const INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'business-male-1']);
+const IDLE_HANDOFF_SECONDS = 1;
+const INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'business-male-1', 'chenyu']);
 
 function isInteractiveAvatar(avatar: Avatar) {
   return !avatar.custom && INTERACTIVE_AVATAR_IDS.has(avatar.id);
@@ -39,48 +40,75 @@ function IdleAvatarMedia({
   avatar,
   className,
   handoffRequested,
+  returnRequested,
   onForwardBoundary,
+  onReturnBoundary,
 }: {
   avatar: Avatar;
   className: string;
   handoffRequested: boolean;
+  returnRequested: boolean;
   onForwardBoundary: () => void;
+  onReturnBoundary: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const handoffHandledRef = useRef(false);
+  const returnHandledRef = useRef(false);
   const source = !avatar.custom ? IDLE_VIDEO_BY_PROFILE[avatar.profile] : undefined;
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    let frameId = 0;
     const resume = () => {
       void video.play().catch(() => {
         // Muted inline video normally starts automatically; a poster remains if the browser blocks it.
       });
     };
-
-    // The encoded ping-pong clip is already smooth; this watcher only pauses
-    // at the forward 1s boundary when the live stream is ready to take over.
-    let lastTime = video.currentTime;
-    const watchForwardBoundary = () => {
-      const currentTime = video.currentTime;
-      const crossedBoundary = lastTime < IDLE_LOOP_END_SECONDS && currentTime >= IDLE_LOOP_END_SECONDS;
-      if (handoffRequested && crossedBoundary && !handoffHandledRef.current) {
-        handoffHandledRef.current = true;
-        video.pause();
-        onForwardBoundary();
-        return;
+    const seekToTime = (time: number, onReady: () => void) => {
+      let completed = false;
+      const complete = () => {
+        if (completed) return;
+        completed = true;
+        onReady();
+      };
+      // If the loop is already displaying the requested frame, no seek event
+      // is expected and the stream can be released immediately.
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        && Math.abs(video.currentTime - time) <= 1 / 48) {
+        complete();
+        return () => undefined;
       }
-      lastTime = currentTime;
-      frameId = window.requestAnimationFrame(watchForwardBoundary);
+      video.addEventListener('seeked', complete, { once: true });
+      video.currentTime = time;
+      return () => {
+        video.removeEventListener('seeked', complete);
+      };
     };
 
     if (!handoffRequested) handoffHandledRef.current = false;
-    if (!handoffHandledRef.current) resume();
-    frameId = window.requestAnimationFrame(watchForwardBoundary);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [handoffRequested, onForwardBoundary]);
+    if (!returnRequested) returnHandledRef.current = false;
+
+    if (returnRequested && !returnHandledRef.current) {
+      returnHandledRef.current = true;
+      video.pause();
+      return seekToTime(0, () => {
+        // Start the decoded idle source behind the canvas before fading the
+        // generated frame out, so the return transition never reveals a pause.
+        resume();
+        onReturnBoundary();
+      });
+    }
+
+    if (handoffRequested && !handoffHandledRef.current) {
+      handoffHandledRef.current = true;
+      video.pause();
+      // Always release the buffered stream from the source video's exact 1s
+      // pose, regardless of where the ping-pong idle loop currently is.
+      return seekToTime(IDLE_HANDOFF_SECONDS, onForwardBoundary);
+    }
+
+    resume();
+  }, [handoffRequested, onForwardBoundary, onReturnBoundary, returnRequested]);
 
   if (!source) return <AvatarMedia avatar={avatar} className={className} />;
   return <video ref={videoRef} className={className} src={source} muted autoPlay loop playsInline preload="auto" aria-label={`${avatar.name} 数字人静息画面`} />;
@@ -96,6 +124,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
   const recognitionRef = useRef<{ start: () => void; stop: () => void } | null>(null);
   const playbackGateResolveRef = useRef<(() => void) | null>(null);
+  const returnGateResolveRef = useRef<(() => void) | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     { role: 'avatar', text: avatar.custom ? avatar.description : `你好，我是${avatar.name}。欢迎来到灵境数字人体验中心，有什么想了解的吗？` },
   ]);
@@ -103,6 +132,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   const [stage, setStage] = useState('idle');
   const [mediaActive, setMediaActive] = useState(false);
   const [streamStartPending, setStreamStartPending] = useState(false);
+  const [streamEndPending, setStreamEndPending] = useState(false);
   const [connectionState, setConnectionState] = useState<'connecting' | 'online' | 'failed'>('connecting');
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
@@ -120,6 +150,10 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
     resolve?.();
   }, []);
 
+  const handleIdleReturnBoundary = useCallback(() => {
+    returnGateResolveRef.current?.();
+  }, []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
   }, [messages]);
@@ -135,6 +169,18 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
         playbackGateResolveRef.current = resolve;
         setStreamStartPending(true);
       }),
+      onPlaybackFinished: () => new Promise<void>((resolve) => {
+        // Never leave the final generated frame exposed while waiting for the
+        // idle clip: the fallback keeps the hand-back imperceptibly short.
+        const complete = () => {
+          if (returnGateResolveRef.current !== complete) return;
+          returnGateResolveRef.current = null;
+          resolve();
+        };
+        returnGateResolveRef.current = complete;
+        setStreamEndPending(true);
+        window.setTimeout(complete, 350);
+      }),
       onMediaActive: (active) => {
         if (active) {
           setMediaActive(true);
@@ -144,6 +190,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
         }
         setMediaActive(false);
         setStreamStartPending(false);
+        setStreamEndPending(false);
       },
       onTextUnit: (_unit, text) => {
         setMessages((items) => {
@@ -171,6 +218,8 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
       if (streamRef.current === stream) streamRef.current = null;
       playbackGateResolveRef.current?.();
       playbackGateResolveRef.current = null;
+      returnGateResolveRef.current?.();
+      returnGateResolveRef.current = null;
       recognitionRef.current?.stop();
     };
   }, [avatar]);
@@ -180,6 +229,9 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
     playbackGateResolveRef.current?.();
     playbackGateResolveRef.current = null;
     setStreamStartPending(false);
+    returnGateResolveRef.current?.();
+    returnGateResolveRef.current = null;
+    setStreamEndPending(false);
   }, [stage]);
 
   useEffect(() => {
@@ -256,7 +308,9 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
               avatar={avatar}
               className={showGeneratedMedia ? 'stageMedia hidden' : 'stageMedia'}
               handoffRequested={streamStartPending}
+              returnRequested={streamEndPending}
               onForwardBoundary={handleIdleForwardBoundary}
+              onReturnBoundary={handleIdleReturnBoundary}
             />
             <canvas ref={canvasRef} className={showGeneratedMedia ? 'streamCanvas active' : 'streamCanvas'} />
             <div className="stageWash" />
@@ -337,8 +391,8 @@ export function InteractionConsole() {
     void fetchMuseTalkAvatarCatalog()
       .then((catalog) => {
         if (!active) return;
-        // Keep the page order stable: only the first two cards may enter a
-        // real conversation, while the remaining cards are display-only.
+        // Keep the curated page order stable; availability is handled by the
+        // profiles explicitly enabled for real-time conversation above.
         setCatalogAvatars(DEFAULT_AVATARS);
         setDefaultProfile(catalog.default);
         setCatalogError('');
@@ -360,6 +414,7 @@ export function InteractionConsole() {
 
   const featuredAvatar = avatars.find((avatar) => isInteractiveAvatar(avatar) && avatar.profile === defaultProfile)
     || avatars.find(isInteractiveAvatar);
+  const interactiveAvatarCount = avatars.filter(isInteractiveAvatar).length;
 
   return (
     <ProductShell>
@@ -383,8 +438,8 @@ export function InteractionConsole() {
 
         <section className="avatarCatalog">
           <header className="catalogHeader">
-            <div><h2>选择数字人</h2><p>官方预设形象已完成实时对话配置</p></div>
-            <div className="catalogTabs"><button className="active" type="button">全部形象</button><span>{avatars.length} 个可用</span></div>
+            <div><h2>选择数字人</h2><p>可用形象支持实时对话，其他形象仅供展示</p></div>
+            <div className="catalogTabs"><button className="active" type="button">全部形象</button><span>{interactiveAvatarCount} 个可用 · {avatars.length} 个形象</span></div>
           </header>
           {catalogError && <div className="inlineError">{catalogError}，当前显示内置目录，请确认 server_total :8080 已启动。</div>}
           <div className="avatarCatalogGrid">
@@ -397,7 +452,10 @@ export function InteractionConsole() {
               return (
               <div className="avatarProductCardWrap" key={avatar.id}>
                 <button className="avatarProductCard" type="button" onClick={() => interactive && setSelected(avatar)} disabled={!interactive}>
-                  <span className="avatarProductMedia"><AvatarMedia avatar={avatar} /></span>
+                  <span className="avatarProductMedia">
+                    <AvatarMedia avatar={avatar} />
+                    {!interactive && <span className="avatarAvailabilityBadge">暂不可用</span>}
+                  </span>
                   <span className="avatarProductInfo">
                     <span><strong>{avatar.name}</strong><small>{avatar.custom ? `专属形象 · ${avatar.description || avatar.role}` : avatar.description || avatar.role}</small></span>
                   </span>

@@ -43,8 +43,9 @@ import { MuseTalkAvatarProfile, MuseTalkTotalStream } from '@/lib/musetalk-total
 import { ProductShell } from '@/components/product-shell';
 
 const AVATARS = [
-  { id: 'chinese', name: '林汐', role: '亲和型主播', image: '/assets/musetalk-avatars/chinese.jpg', type: '真人', gender: '女', age: '青年' },
-  { id: 'business_male_1', name: '商务男1', role: '专业型主播', image: '/assets/musetalk-avatars/business-male-1.jpg', type: '真人', gender: '男', age: '青年' },
+  { id: 'chinese', name: '中文女', role: '智能接待顾问', image: '/assets/musetalk-avatars/chinese.jpg', type: '真人', gender: '女', age: '青年' },
+  { id: 'business_male_1', name: '商务男', role: '企业服务顾问', image: '/assets/musetalk-avatars/business-male-1.jpg', type: '真人', gender: '男', age: '青年' },
+  { id: 'chen_yu', name: '陈屿', role: '企业服务顾问', image: '/assets/musetalk-avatars/chen-yu.jpg', type: '真人', gender: '男', age: '青年' },
 ] satisfies Array<{
   id: MuseTalkAvatarProfile;
   name: string;

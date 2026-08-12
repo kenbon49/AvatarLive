@@ -41,12 +41,12 @@ export const DEFAULT_AVATARS: Avatar[] = [
   },
   {
     id: 'chenyu',
-    profile: 'business_male_1',
+    profile: 'chen_yu',
     language: 'ZH',
     name: '陈屿',
     role: '企业服务顾问',
-    description: '沉稳可靠，擅长企业服务',
-    image: '/assets/digital-humans/chenyu.webp',
+    description: '使用后端陈屿视频形象，支持实时对话',
+    image: '/assets/musetalk-avatars/chen-yu.jpg',
   },
   {
     id: 'maya',
@@ -118,6 +118,7 @@ export const CUSTOM_AVATAR_STORAGE_KEY = 'lingjing-custom-avatars';
 const AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
   'chinese',
   'business_male_1',
+  'chen_yu',
   'casual_male',
   'middle_aged_male',
   'casual_conversation',
