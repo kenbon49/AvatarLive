@@ -16,6 +16,7 @@ import {
   readCustomAvatars,
   type Avatar,
 } from '@/lib/avatar-catalog';
+import { IDLE_VIDEO_BY_AVATAR_ID } from '@/lib/avatar-preview-media';
 import { ProductShell } from '@/components/product-shell';
 
 type Message = { role: 'user' | 'avatar'; text: string };
@@ -24,18 +25,14 @@ function AvatarMedia({ avatar, className = '' }: { avatar: Avatar; className?: s
   return <img className={className} src={avatar.image} alt={`${avatar.name} 数字人形象`} />;
 }
 
-const IDLE_VIDEO_BY_PROFILE: Partial<Record<MuseTalkAvatarProfile, string>> = {
-  // Each clip is the latest backend source played 0s -> 1s -> 0s. The source
-  // frame at exactly 1s is encoded as a keyframe for deterministic handoff.
-  chinese: '/assets/musetalk-default/idle-chinese2-0to1-d0853621.mp4',
-  business_male_1: '/assets/musetalk-default/idle-business-male-0to1-9b3d19af.mp4',
-  chen_yu: '/assets/musetalk-default/idle-chen-yu-0to1-4e6b2339.mp4',
-};
-const IDLE_HANDOFF_SECONDS = 1;
-const INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'business-male-1', 'chenyu']);
+const IDLE_HANDOFF_SECONDS = 0;
+const IDLE_SEEK_TIMEOUT_MS = 250;
+const CONFIGURED_INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'business-male-1', 'chenyu', 'suqing', 'guyan']);
 
-function isInteractiveAvatar(avatar: Avatar) {
-  return !avatar.custom && INTERACTIVE_AVATAR_IDS.has(avatar.id);
+function isInteractiveAvatar(avatar: Avatar, availableAvatarIds: Set<string>) {
+  return !avatar.custom
+    && CONFIGURED_INTERACTIVE_AVATAR_IDS.has(avatar.id)
+    && availableAvatarIds.has(avatar.id);
 }
 
 function IdleAvatarMedia({
@@ -56,7 +53,7 @@ function IdleAvatarMedia({
   const videoRef = useRef<HTMLVideoElement>(null);
   const handoffHandledRef = useRef(false);
   const returnHandledRef = useRef(false);
-  const source = !avatar.custom ? IDLE_VIDEO_BY_PROFILE[avatar.profile] : undefined;
+  const source = !avatar.custom ? IDLE_VIDEO_BY_AVATAR_ID[avatar.id] : undefined;
 
   useEffect(() => {
     const video = videoRef.current;
@@ -68,9 +65,12 @@ function IdleAvatarMedia({
     };
     const seekToTime = (time: number, onReady: () => void) => {
       let completed = false;
+      let timeout: number | null = null;
       const complete = () => {
         if (completed) return;
         completed = true;
+        video.removeEventListener('seeked', complete);
+        if (timeout !== null) window.clearTimeout(timeout);
         onReady();
       };
       // If the loop is already displaying the requested frame, no seek event
@@ -81,9 +81,15 @@ function IdleAvatarMedia({
         return () => undefined;
       }
       video.addEventListener('seeked', complete, { once: true });
-      video.currentTime = time;
+      timeout = window.setTimeout(complete, IDLE_SEEK_TIMEOUT_MS);
+      try {
+        video.currentTime = time;
+      } catch {
+        complete();
+      }
       return () => {
         video.removeEventListener('seeked', complete);
+        if (timeout !== null) window.clearTimeout(timeout);
       };
     };
 
@@ -104,8 +110,7 @@ function IdleAvatarMedia({
     if (handoffRequested && !handoffHandledRef.current) {
       handoffHandledRef.current = true;
       video.pause();
-      // Always release the buffered stream from the source video's exact 1s
-      // pose, regardless of where the ping-pong idle loop currently is.
+      // A new backend request starts from the source video's first frame.
       return seekToTime(IDLE_HANDOFF_SECONDS, onForwardBoundary);
     }
 
@@ -139,6 +144,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
   const busy = stage !== 'idle' && stage !== 'conversation_end' && stage !== 'error';
+  const hasIdleVideo = !avatar.custom && Boolean(IDLE_VIDEO_BY_AVATAR_ID[avatar.id]);
   const showGeneratedMedia = mediaActive && !avatar.custom;
   const lipSyncStatus = avatar.custom
     ? '自定义模型待生成/接入'
@@ -164,26 +170,32 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
     if (!canvasRef.current) return;
     setConnectionState('connecting');
     const stream = new MuseTalkTotalStream(canvasRef.current, {
+      avatarId: avatar.id,
       profile: avatar.profile,
       language: avatar.language,
       voice: avatar.voice,
       onStage: setStage,
-      onPlaybackReady: () => new Promise<void>((resolve) => {
-        playbackGateResolveRef.current = resolve;
-        setStreamStartPending(true);
-      }),
-      onPlaybackFinished: () => new Promise<void>((resolve) => {
-        // Never leave the final generated frame exposed while waiting for the
-        // idle clip: the fallback keeps the hand-back imperceptibly short.
-        const complete = () => {
-          if (returnGateResolveRef.current !== complete) return;
-          returnGateResolveRef.current = null;
-          resolve();
-        };
-        returnGateResolveRef.current = complete;
-        setStreamEndPending(true);
-        window.setTimeout(complete, 350);
-      }),
+      onPlaybackReady: () => {
+        if (!hasIdleVideo) return;
+        return new Promise<void>((resolve) => {
+          playbackGateResolveRef.current = resolve;
+          setStreamStartPending(true);
+        });
+      },
+      onPlaybackFinished: () => {
+        if (!hasIdleVideo) return;
+        return new Promise<void>((resolve) => {
+          // Keep the generated frame visible until the idle clip is ready.
+          const complete = () => {
+            if (returnGateResolveRef.current !== complete) return;
+            returnGateResolveRef.current = null;
+            resolve();
+          };
+          returnGateResolveRef.current = complete;
+          setStreamEndPending(true);
+          window.setTimeout(complete, 350);
+        });
+      },
       onMediaActive: (active) => {
         if (active) {
           setMediaActive(true);
@@ -369,6 +381,8 @@ export function InteractionConsole() {
   const [customAvatars, setCustomAvatars] = useState<Avatar[]>([]);
   const [voicePreferences, setVoicePreferences] = useState<Record<string, string>>({});
   const [defaultProfile, setDefaultProfile] = useState<MuseTalkAvatarProfile>('chinese');
+  const [defaultAvatarId, setDefaultAvatarId] = useState('');
+  const [availableAvatarIds, setAvailableAvatarIds] = useState<Set<string>>(new Set());
   const [catalogError, setCatalogError] = useState('');
 
   const avatars = [
@@ -402,6 +416,8 @@ export function InteractionConsole() {
         // profiles explicitly enabled for real-time conversation above.
         setCatalogAvatars(DEFAULT_AVATARS);
         setDefaultProfile(catalog.default);
+        setDefaultAvatarId(catalog.defaultAvatarId);
+        setAvailableAvatarIds(new Set(catalog.availableAvatarIds));
         setCatalogError('');
       })
       .catch((cause) => {
@@ -419,9 +435,11 @@ export function InteractionConsole() {
 
   if (selected) return <Conversation avatar={selected} onBack={() => setSelected(null)} />;
 
-  const featuredAvatar = avatars.find((avatar) => isInteractiveAvatar(avatar) && avatar.profile === defaultProfile)
-    || avatars.find(isInteractiveAvatar);
-  const interactiveAvatarCount = avatars.filter(isInteractiveAvatar).length;
+  const interactive = (avatar: Avatar) => isInteractiveAvatar(avatar, availableAvatarIds);
+  const featuredAvatar = avatars.find((avatar) => interactive(avatar) && avatar.id === defaultAvatarId)
+    || avatars.find((avatar) => interactive(avatar) && avatar.profile === defaultProfile)
+    || avatars.find(interactive);
+  const interactiveAvatarCount = avatars.filter(interactive).length;
 
   return (
     <ProductShell>
@@ -448,26 +466,26 @@ export function InteractionConsole() {
             <div><h2>选择数字人</h2><p>可用形象支持实时对话，其他形象仅供展示</p></div>
             <div className="catalogTabs"><button className="active" type="button">全部形象</button><span>{interactiveAvatarCount} 个可用 · {avatars.length} 个形象</span></div>
           </header>
-          {catalogError && <div className="inlineError">{catalogError}，当前显示内置目录，请确认 server_total :8080 已启动。</div>}
+          {catalogError && <div className="inlineError">{catalogError}，当前显示内置目录，请确认 server_total 或本地 MuseTalk :8031 已启动。</div>}
           <div className="avatarCatalogGrid">
             <Link className="createAvatarCard" href="/design">
               <span className="createAvatarIcon"><ImagePlus size={27} /></span>
               <span><strong>创建自己的数字人</strong><small>上传图片或通过对话修改形象</small></span>
             </Link>
             {avatars.map((avatar) => {
-              const interactive = isInteractiveAvatar(avatar);
+              const avatarIsInteractive = interactive(avatar);
               return (
               <div className="avatarProductCardWrap" key={avatar.id}>
-                <button className="avatarProductCard" type="button" onClick={() => interactive && setSelected(avatar)} disabled={!interactive}>
+                <button className="avatarProductCard" type="button" onClick={() => avatarIsInteractive && setSelected(avatar)} disabled={!avatarIsInteractive}>
                   <span className="avatarProductMedia">
                     <AvatarMedia avatar={avatar} />
-                    {!interactive && <span className="avatarAvailabilityBadge">暂不可用</span>}
+                    {!avatarIsInteractive && <span className="avatarAvailabilityBadge">暂不可用</span>}
                   </span>
                   <span className="avatarProductInfo">
                     <span><strong>{avatar.name}</strong><small>{avatar.custom ? `专属形象 · ${avatar.description || avatar.role}` : avatar.description || avatar.role}</small></span>
                   </span>
                 </button>
-                {interactive && <Link className="avatarConfigLink" href={avatarDesignHref(avatar)} aria-label={`配置${avatar.name}`}><Settings2 size={13} /><span>配置</span></Link>}
+                {avatarIsInteractive && <Link className="avatarConfigLink" href={avatarDesignHref(avatar)} aria-label={`配置${avatar.name}`}><Settings2 size={13} /><span>配置</span></Link>}
               </div>
               );
             })}
