@@ -51,6 +51,8 @@ interface ActiveRequest {
 }
 
 const PACKET_HEADER_BYTES = 24;
+const PLAYBACK_LEAD_SECONDS = 0.12;
+const MAX_PENDING_VIDEO_DECODES = 2;
 const SUPPORTED_AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
   'chinese',
   'business_male_1',
@@ -147,11 +149,14 @@ export class MuseTalkTotalStream {
   private unpositionedTextUnits = new Map<number, string>();
   private scheduledTextUnits = new Set<number>();
   private textTimers = new Set<number>();
-  private videoTimers = new Set<number>();
   private playbackEndTimer: number | null = null;
-  private videoScheduledUntilWall = 0;
+  private decodedVideoFrames = new Map<number, ImageBitmap>();
+  private videoFrameRequest: number | null = null;
+  private lastDrawnVideoPts = -Infinity;
+  private videoEndPts = 0;
   private playbackGateOpen = true;
   private playbackGateRequested = false;
+  private conversationStreamStarted = false;
   private deferredMediaPackets: ArrayBuffer[] = [];
   private pendingVideoDecodes = 0;
   private pendingPlaybackCompletion: { active: ActiveRequest; result: MuseTalkTotalResult } | null = null;
@@ -240,45 +245,90 @@ export class MuseTalkTotalStream {
       source.connect(audioContext.destination);
       source.onended = () => this.audioSources.delete(source);
       this.audioSources.add(source);
-      const startAt = Math.max(
-        audioContext.currentTime + 0.01,
-        this.mediaStartAudio + ptsSeconds,
-        this.audioScheduledUntil,
-      );
+      // PTS is the source of truth. Serialising against the previous packet's
+      // actual start time permanently shifts audio after one late packet and
+      // makes it drift away from video.
+      const startAt = Math.max(audioContext.currentTime + 0.01, this.mediaStartAudio + ptsSeconds);
       source.start(startAt);
-      this.audioScheduledUntil = startAt + audioBuffer.duration;
+      this.audioScheduledUntil = Math.max(this.audioScheduledUntil, startAt + audioBuffer.duration);
       return;
     }
     if (packetType !== 1) return;
+    this.videoEndPts = Math.max(this.videoEndPts, ptsSeconds);
+    if (this.pendingVideoDecodes >= MAX_PENDING_VIDEO_DECODES) return;
     this.pendingVideoDecodes += 1;
     try {
       const bitmap = await createImageBitmap(new Blob([payload], { type: 'image/jpeg' }));
-      if (generation !== this.sessionGeneration) {
+      if (generation !== this.sessionGeneration || ptsSeconds <= this.lastDrawnVideoPts) {
         bitmap.close();
         return;
       }
-      const scheduledAt = this.mediaStartWall + ptsSeconds * 1000;
-      this.videoScheduledUntilWall = Math.max(this.videoScheduledUntilWall, scheduledAt);
-      const delay = Math.max(0, scheduledAt - performance.now());
-      const timer = window.setTimeout(() => {
-        this.videoTimers.delete(timer);
-        if (generation !== this.sessionGeneration) {
-          bitmap.close();
-          return;
+      this.decodedVideoFrames.get(ptsSeconds)?.close();
+      this.decodedVideoFrames.set(ptsSeconds, bitmap);
+      this.requestVideoRender(generation);
+    } finally {
+      this.pendingVideoDecodes = Math.max(0, this.pendingVideoDecodes - 1);
+      this.finishPendingPlayback();
+    }
+  }
+
+  private requestVideoRender(generation: number) {
+    if (this.videoFrameRequest !== null) return;
+    this.videoFrameRequest = window.requestAnimationFrame(() => this.renderDueVideoFrame(generation));
+  }
+
+  private renderDueVideoFrame(generation: number) {
+    this.videoFrameRequest = null;
+    const audioContext = this.audioContext;
+    if (generation !== this.sessionGeneration || !audioContext || !this.mediaTimelineStarted) return;
+
+    const mediaPts = audioContext.currentTime - this.mediaStartAudio;
+    let nextPts: number | null = null;
+    for (const [pts, bitmap] of this.decodedVideoFrames) {
+      if (pts <= this.lastDrawnVideoPts) {
+        bitmap.close();
+        this.decodedVideoFrames.delete(pts);
+      } else if (pts <= mediaPts && (nextPts === null || pts > nextPts)) {
+        nextPts = pts;
+      }
+    }
+
+    if (nextPts !== null) {
+      const bitmap = this.decodedVideoFrames.get(nextPts);
+      for (const [pts, stale] of this.decodedVideoFrames) {
+        if (pts <= nextPts) {
+          if (pts !== nextPts) stale.close();
+          this.decodedVideoFrames.delete(pts);
         }
+      }
+      if (bitmap) {
         if (this.canvas.width !== bitmap.width || this.canvas.height !== bitmap.height) {
           this.canvas.width = bitmap.width;
           this.canvas.height = bitmap.height;
         }
         this.canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
-        this.setMediaActive(true);
         bitmap.close();
-      }, delay);
-      this.videoTimers.add(timer);
-    } finally {
-      this.pendingVideoDecodes = Math.max(0, this.pendingVideoDecodes - 1);
-      this.finishPendingPlayback();
+        this.lastDrawnVideoPts = nextPts;
+        this.setMediaActive(true);
+      }
     }
+
+    // When decoding or the tab stalls, only the newest due frame is drawn.
+    // Replaying every overdue timer is the visible fast/slow judder.
+    if (this.mediaTimelineStarted && (this.activeRequest || this.decodedVideoFrames.size)) {
+      this.requestVideoRender(generation);
+    }
+  }
+
+  private clearVideoPlayback() {
+    if (this.videoFrameRequest !== null) {
+      window.cancelAnimationFrame(this.videoFrameRequest);
+      this.videoFrameRequest = null;
+    }
+    for (const bitmap of this.decodedVideoFrames.values()) bitmap.close();
+    this.decodedVideoFrames.clear();
+    this.lastDrawnVideoPts = -Infinity;
+    this.videoEndPts = 0;
   }
 
   private queueTextUnit(sequence: number, text: string, ptsSeconds: number, generation: number) {
@@ -343,14 +393,13 @@ export class MuseTalkTotalStream {
     }
     this.audioSources.clear();
     this.audioScheduledUntil = 0;
-    for (const timer of this.videoTimers) window.clearTimeout(timer);
-    this.videoTimers.clear();
+    this.clearVideoPlayback();
     if (this.audioContext && this.audioContext.state !== 'closed') await this.audioContext.close();
     this.audioContext = null;
     this.mediaTimelineStarted = false;
-    this.videoScheduledUntilWall = 0;
     this.playbackGateOpen = true;
     this.playbackGateRequested = false;
+    this.conversationStreamStarted = false;
     this.deferredMediaPackets = [];
     this.pendingPlaybackCompletion = null;
   }
@@ -366,7 +415,9 @@ export class MuseTalkTotalStream {
     const audioDelay = this.audioContext
       ? Math.max(0, this.audioScheduledUntil - this.audioContext.currentTime) * 1000
       : 0;
-    const videoDelay = Math.max(0, this.videoScheduledUntilWall - performance.now());
+    const videoDelay = this.audioContext
+      ? Math.max(0, this.mediaStartAudio + this.videoEndPts - this.audioContext.currentTime) * 1000
+      : 0;
     const delay = Math.max(audioDelay, videoDelay);
     const finish = async () => {
       this.playbackEndTimer = null;
@@ -376,7 +427,7 @@ export class MuseTalkTotalStream {
       this.activeRequest = null;
       this.mediaTimelineStarted = false;
       this.audioScheduledUntil = 0;
-      this.videoScheduledUntilWall = 0;
+      this.clearVideoPlayback();
       this.setMediaActive(false);
       this.setStage('idle');
       active.resolve(result);
@@ -388,14 +439,14 @@ export class MuseTalkTotalStream {
     this.playbackEndTimer = window.setTimeout(() => void finish(), delay + 50);
   }
 
-  private startMediaTimeline(leadMilliseconds = 650): boolean {
+  private startMediaTimeline(leadSeconds = 0.65): boolean {
     const audioContext = this.audioContext;
     if (!audioContext || audioContext.state === 'closed') return false;
     if (this.mediaTimelineStarted) return true;
     this.mediaTimelineStarted = true;
-    this.mediaStartAudio = audioContext.currentTime + leadMilliseconds / 1000;
+    this.mediaStartAudio = audioContext.currentTime + leadSeconds;
     this.audioScheduledUntil = this.mediaStartAudio;
-    this.mediaStartWall = performance.now() + leadMilliseconds;
+    this.mediaStartWall = performance.now() + leadSeconds * 1000;
     this.scheduleTextUnits(this.textGeneration);
     return true;
   }
@@ -405,7 +456,7 @@ export class MuseTalkTotalStream {
       await this.options.onPlaybackReady?.();
       if (generation !== this.sessionGeneration || this.closedByUser) return;
       this.playbackGateOpen = true;
-      this.startMediaTimeline(80);
+      this.startMediaTimeline(PLAYBACK_LEAD_SECONDS);
       const packets = this.deferredMediaPackets;
       this.deferredMediaPackets = [];
       for (const packet of packets) void this.handlePacket(packet, generation);
@@ -469,10 +520,15 @@ export class MuseTalkTotalStream {
       return;
     }
     if (type === 'stream_start') {
+      // server_total emits stream_start once per sentence while all sentences
+      // share one continuous PTS timeline. Reopening the UI handoff for every
+      // sentence pauses/seeks the idle video and creates a visible gap.
+      if (this.conversationStreamStarted) return;
+      this.conversationStreamStarted = true;
       this.deferredMediaPackets = [];
       this.playbackGateRequested = false;
       this.playbackGateOpen = !this.options.onPlaybackReady;
-      if (this.playbackGateOpen) this.startMediaTimeline();
+      if (this.playbackGateOpen) this.startMediaTimeline(PLAYBACK_LEAD_SECONDS);
       return;
     }
     if (type === 'conversation_end') {
@@ -586,7 +642,8 @@ export class MuseTalkTotalStream {
     this.resetTextTimeline();
     this.mediaTimelineStarted = false;
     this.audioScheduledUntil = 0;
-    this.videoScheduledUntilWall = 0;
+    this.conversationStreamStarted = false;
+    this.clearVideoPlayback();
     this.pendingPlaybackCompletion = null;
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
       this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
@@ -614,7 +671,8 @@ export class MuseTalkTotalStream {
     this.resetTextTimeline();
     this.mediaTimelineStarted = false;
     this.audioScheduledUntil = 0;
-    this.videoScheduledUntilWall = 0;
+    this.conversationStreamStarted = false;
+    this.clearVideoPlayback();
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
       this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
       websocket.send(
