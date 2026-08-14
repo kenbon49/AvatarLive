@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Bot,
-  Box,
   Check,
   Image as ImageIcon,
   ImagePlus,
@@ -14,6 +13,7 @@ import {
   Move3d,
   Palette,
   RotateCcw,
+  ScanFace,
   Send,
   Sparkles,
   Shirt,
@@ -24,7 +24,6 @@ import {
   AvatarCapabilityPanel,
   DEFAULT_AVATAR_STYLE_SELECTION,
   type AvatarCapabilityMode,
-  type AvatarDriveTab,
   type AvatarStyleSelection,
 } from '@/components/avatar-capability-panel';
 import {
@@ -32,6 +31,7 @@ import {
   readCustomAvatars,
   type Avatar,
 } from '@/lib/avatar-catalog';
+import { avatarPreviewVideo } from '@/lib/avatar-preview-media';
 import type { MuseTalkAvatarProfile } from '@/lib/musetalk-total-stream';
 
 export type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona' | AvatarCapabilityMode;
@@ -54,7 +54,6 @@ type StoredAvatar = {
 type AvatarDesignStudioProps = {
   initialAvatar?: Avatar;
   initialAvatarId?: string;
-  initialDriveTab: AvatarDriveTab;
   initialTab: CreatorTab;
 };
 
@@ -63,8 +62,8 @@ const CREATOR_TABS = [
   { id: 'voice' as const, label: '声音', icon: Mic2 },
   { id: 'background' as const, label: '背景', icon: ImageIcon },
   { id: 'persona' as const, label: '人设', icon: Bot },
-  { id: 'model' as const, label: '模型', icon: Box },
-  { id: 'drive' as const, label: '驱动', icon: Move3d },
+  { id: 'expression' as const, label: '表情', icon: ScanFace },
+  { id: 'motion' as const, label: '动作', icon: Move3d },
   { id: 'style' as const, label: '造型', icon: Shirt },
 ];
 
@@ -122,13 +121,11 @@ function initialGreeting(avatar?: Avatar) {
 export function AvatarDesignStudio({
   initialAvatar,
   initialAvatarId,
-  initialDriveTab,
   initialTab,
 }: AvatarDesignStudioProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<CreatorTab>(initialTab);
-  const [driveTab, setDriveTab] = useState<AvatarDriveTab>(initialDriveTab);
   const [name, setName] = useState(initialAvatar?.name ?? '');
   const [role, setRole] = useState(initialAvatar?.role ?? '品牌数字人');
   const [greeting, setGreeting] = useState(initialGreeting(initialAvatar));
@@ -147,7 +144,7 @@ export function AvatarDesignStudio({
   ]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const capabilityMode = activeTab === 'model' || activeTab === 'drive' || activeTab === 'style' ? activeTab : null;
+  const capabilityMode = activeTab === 'expression' || activeTab === 'motion' || activeTab === 'style' ? activeTab : null;
 
   useEffect(() => {
     if (initialAvatar || !initialAvatarId) return;
@@ -169,12 +166,12 @@ export function AvatarDesignStudio({
     setImage(stored.image);
   }, [initialAvatar, initialAvatarId]);
 
-  const syncDesignUrl = (tab: CreatorTab, nextDriveTab = driveTab) => {
+  const syncDesignUrl = (tab: CreatorTab) => {
     const params = new URLSearchParams(window.location.search);
     if (sourceAvatarId) params.set('avatar', sourceAvatarId);
     else params.delete('avatar');
     params.set('tab', tab);
-    params.set('driveTab', nextDriveTab);
+    params.delete('driveTab');
     const query = params.toString();
     window.history.replaceState(window.history.state, '', `/design${query ? `?${query}` : ''}`);
   };
@@ -182,11 +179,6 @@ export function AvatarDesignStudio({
   const chooseTab = (tab: CreatorTab) => {
     setActiveTab(tab);
     syncDesignUrl(tab);
-  };
-
-  const chooseDriveTab = (tab: AvatarDriveTab) => {
-    setDriveTab(tab);
-    syncDesignUrl('drive', tab);
   };
 
   const loadImage = async (file?: File) => {
@@ -293,8 +285,7 @@ export function AvatarDesignStudio({
               mode={capabilityMode}
               avatarImage={image}
               avatarName={name}
-              driveTab={driveTab}
-              onDriveTabChange={chooseDriveTab}
+              avatarVideo={avatarPreviewVideo(sourceAvatarId)}
               styleSelection={styleSelection}
               onStyleSelectionChange={setStyleSelection}
             />

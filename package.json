@@ -11,12 +11,14 @@
   },
   "dependencies": {
     "@epicgames-ps/lib-pixelstreamingfrontend-ue5.5": "latest",
+    "@mediapipe/tasks-vision": "1.0.1",
     "@next/third-parties": "latest",
     "hls.js": "^1.6.16",
     "lucide-react": "latest",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@types/node": "latest",

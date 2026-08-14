@@ -130,10 +130,13 @@ services:
         # 宿主开发和容器使用不同的 localhost，单独设置容器侧 upstream。
         FLASHHEAD_UPSTREAM: ${FLASHHEAD_DOCKER_UPSTREAM:-http://host.docker.internal:8030}
         MUSETALK_UPSTREAM: ${MUSETALK_DOCKER_UPSTREAM:-http://host.docker.internal:8031}
+        MUSETALK_TOTAL_UPSTREAM: ${MUSETALK_TOTAL_UPSTREAM:-http://host.docker.internal:8085}
+        NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS: ${NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS:-600}
         LIVEACT_UPSTREAM: ${LIVEACT_DOCKER_UPSTREAM:-http://host.docker.internal:5071}
     environment:
       FLASHHEAD_UPSTREAM: ${FLASHHEAD_DOCKER_UPSTREAM:-http://host.docker.internal:8030}
       MUSETALK_UPSTREAM: ${MUSETALK_DOCKER_UPSTREAM:-http://host.docker.internal:8031}
+      MUSETALK_TOTAL_UPSTREAM: ${MUSETALK_TOTAL_UPSTREAM:-http://host.docker.internal:8085}
       LIVEACT_UPSTREAM: ${LIVEACT_DOCKER_UPSTREAM:-http://host.docker.internal:5071}
     extra_hosts:
       - "host.docker.internal:host-gateway"

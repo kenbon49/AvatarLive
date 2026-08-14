@@ -1,3 +1,6 @@
+import { getMuseTalkAvatars } from './api';
+import { LocalMuseTalkStream } from './musetalk-local-stream';
+
 export interface MuseTalkTotalResult {
   answer: string;
   llmLatencyMs: number;
@@ -23,9 +26,12 @@ export interface MuseTalkAvatarCatalogEntry {
 export interface MuseTalkAvatarCatalog {
   default: MuseTalkAvatarProfile;
   avatars: MuseTalkAvatarCatalogEntry[];
+  availableAvatarIds: string[];
+  defaultAvatarId: string;
 }
 
-interface MuseTalkTotalOptions {
+export interface MuseTalkTotalOptions {
+  avatarId?: string;
   profile?: MuseTalkStreamProfile;
   language?: 'ZH' | 'EN';
   speed?: number;
@@ -53,6 +59,14 @@ interface ActiveRequest {
 const PACKET_HEADER_BYTES = 24;
 const PLAYBACK_LEAD_SECONDS = 0.12;
 const MAX_PENDING_VIDEO_DECODES = 2;
+const configuredPlaybackBufferMs = Number(
+  process.env.NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS || 600,
+);
+const PLAYBACK_BUFFER_MS = Number.isFinite(configuredPlaybackBufferMs)
+  ? Math.min(2_000, Math.max(200, configuredPlaybackBufferMs))
+  : 600;
+const PLAYBACK_HANDOFF_TIMEOUT_MS = 1_000;
+const PLAYBACK_COMPLETION_FALLBACK_MS = 2_500;
 const SUPPORTED_AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
   'chinese',
   'business_male_1',
@@ -75,37 +89,108 @@ function nextRequestId(): string {
 }
 
 export async function fetchMuseTalkAvatarCatalog(): Promise<MuseTalkAvatarCatalog> {
-  const response = await fetch('/musetalk-total-api/v1/avatars', { cache: 'no-store' });
-  if (!response.ok) {
-    throw new Error(`MuseTalk 数字人目录加载失败（HTTP ${response.status}）`);
-  }
-
-  const payload = (await response.json()) as {
-    default?: unknown;
-    avatars?: Array<{ id?: unknown; name?: unknown; default?: unknown }>;
+  const serverTotalCatalog = async () => {
+    const healthResponse = await fetch('/musetalk-total-api/health', { cache: 'no-store' });
+    if (!healthResponse.ok) throw new Error(`server_total 探活 HTTP ${healthResponse.status}`);
+    let health: { status?: unknown; service?: unknown };
+    try {
+      health = (await healthResponse.json()) as { status?: unknown; service?: unknown };
+    } catch {
+      throw new Error('server_total 未启动');
+    }
+    if (health.status !== 'ok' || health.service !== 'server_total') {
+      throw new Error('server_total 未启动');
+    }
+    const response = await fetch('/musetalk-total-api/v1/avatars', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`server_total HTTP ${response.status}`);
+    const payload = (await response.json()) as {
+      default?: unknown;
+      avatars?: Array<{ id?: unknown; name?: unknown; default?: unknown }>;
+    };
+    const avatars = (Array.isArray(payload.avatars) ? payload.avatars : [])
+      .filter((item): item is { id: MuseTalkAvatarProfile; name?: unknown; default?: unknown } =>
+        isAvatarProfile(item?.id),
+      )
+      .map((item) => ({
+        id: item.id,
+        name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : item.id,
+        default: item.default === true,
+      }));
+    if (!avatars.length) throw new Error('server_total 没有返回可用的数字人');
+    const defaultProfile = isAvatarProfile(payload.default) && avatars.some((item) => item.id === payload.default)
+      ? payload.default
+      : avatars.find((item) => item.default)?.id || avatars[0].id;
+    const avatarIdByProfile: Partial<Record<MuseTalkAvatarProfile, string>> = {
+      chinese: 'chinese',
+      business_male_1: 'business-male-1',
+      chen_yu: 'chenyu',
+    };
+    return {
+      avatars,
+      defaultProfile,
+      availableAvatarIds: avatars.flatMap((avatar) => avatarIdByProfile[avatar.id] || []),
+      defaultAvatarId: avatarIdByProfile[defaultProfile] || '',
+    };
   };
-  const avatars = (Array.isArray(payload.avatars) ? payload.avatars : [])
-    .filter((item): item is { id: MuseTalkAvatarProfile; name?: unknown; default?: unknown } =>
-      isAvatarProfile(item?.id),
-    )
-    .map((item) => ({
-      id: item.id,
-      name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : item.id,
-      default: item.default === true,
-    }));
-  if (!avatars.length) throw new Error('MuseTalk 服务没有返回可用的数字人');
 
-  const defaultProfile = isAvatarProfile(payload.default) && avatars.some((item) => item.id === payload.default)
-    ? payload.default
-    : avatars.find((item) => item.default)?.id || avatars[0].id;
-  return { default: defaultProfile, avatars };
+  const localCatalog = async () => {
+    const state = await getMuseTalkAvatars();
+    const profileByAvatarId: Record<string, MuseTalkAvatarProfile> = {
+      suqing: 'chinese',
+      guyan: 'business_male_1',
+    };
+    const avatars = state.avatars.flatMap<MuseTalkAvatarCatalogEntry>((avatar) => {
+      const profile = profileByAvatarId[avatar.id];
+      return profile ? [{ id: profile, name: avatar.label, default: avatar.id === state.active_avatar }] : [];
+    });
+    if (!avatars.length) throw new Error('本地 MuseTalk 没有返回可用的数字人');
+    const defaultAvatarId = state.avatars.some((avatar) => avatar.id === state.active_avatar)
+      ? state.active_avatar
+      : state.avatars[0].id;
+    return {
+      avatars,
+      defaultProfile: profileByAvatarId[defaultAvatarId] || avatars[0].id,
+      availableAvatarIds: state.avatars.map((avatar) => avatar.id),
+      defaultAvatarId,
+    };
+  };
+
+  const normalize = (catalog: Awaited<ReturnType<typeof localCatalog>>): MuseTalkAvatarCatalog => ({
+    default: catalog.defaultProfile,
+    avatars: catalog.avatars,
+    availableAvatarIds: catalog.availableAvatarIds,
+    defaultAvatarId: catalog.defaultAvatarId,
+  });
+
+  const [serverTotalResult, localResult] = await Promise.allSettled([
+    serverTotalCatalog(),
+    localCatalog(),
+  ]);
+  if (serverTotalResult.status === 'fulfilled' && localResult.status === 'fulfilled') {
+    const serverTotal = serverTotalResult.value;
+    const local = localResult.value;
+    return normalize({
+      avatars: [...serverTotal.avatars, ...local.avatars],
+      defaultProfile: serverTotal.defaultProfile,
+      availableAvatarIds: [...new Set([
+        ...serverTotal.availableAvatarIds,
+        ...local.availableAvatarIds,
+      ])],
+      defaultAvatarId: serverTotal.defaultAvatarId,
+    });
+  }
+  if (serverTotalResult.status === 'fulfilled') return normalize(serverTotalResult.value);
+  if (localResult.status === 'fulfilled') return normalize(localResult.value);
+
+  const detail = (error: unknown) => error instanceof Error ? error.message : '服务不可用';
+  throw new Error(
+    `MuseTalk 数字人目录加载失败（本地 MuseTalk：${detail(localResult.reason)}；server_total：${detail(serverTotalResult.reason)}）`,
+  );
 }
 
 function conversationUrl(): string {
   const configured = process.env.NEXT_PUBLIC_MUSETALK_TOTAL_URL?.trim();
-  const host = typeof window === 'undefined' ? 'localhost' : window.location.hostname;
-  const sameOrigin = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  const value = configured || (sameOrigin ? '/musetalk-total-api/v1/conversation' : `ws://${host}:8080/v1/conversation`);
+  const value = configured || '/musetalk-total-api/v1/conversation';
   const url = new URL(value, window.location.href);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
@@ -129,7 +214,7 @@ export async function pingMuseTalkTotal(): Promise<boolean> {
   }
 }
 
-export class MuseTalkTotalStream {
+export class ServerTotalStream {
   private websocket: WebSocket | null = null;
   private connecting: Promise<void> | null = null;
   private connectResolve: (() => void) | null = null;
@@ -150,6 +235,7 @@ export class MuseTalkTotalStream {
   private scheduledTextUnits = new Set<number>();
   private textTimers = new Set<number>();
   private playbackEndTimer: number | null = null;
+  private playbackFallbackTimer: number | null = null;
   private decodedVideoFrames = new Map<number, ImageBitmap>();
   private videoFrameRequest: number | null = null;
   private lastDrawnVideoPts = -Infinity;
@@ -171,8 +257,8 @@ export class MuseTalkTotalStream {
     this.options.onStage?.(stage);
   }
 
-  private setMediaActive(active: boolean) {
-    if (this.mediaVisible === active) return;
+  private setMediaActive(active: boolean, force = false) {
+    if (this.mediaVisible === active && !force) return;
     this.mediaVisible = active;
     this.options.onMediaActive?.(active);
   }
@@ -225,7 +311,8 @@ export class MuseTalkTotalStream {
       // never replaces the idle clip with an empty frame.
       if (packetType === 1 && !this.playbackGateRequested) {
         this.playbackGateRequested = true;
-        void this.openPlaybackGate(generation);
+        const active = this.activeRequest;
+        if (active) void this.openPlaybackGate(generation, active);
       }
       return;
     }
@@ -254,12 +341,17 @@ export class MuseTalkTotalStream {
       return;
     }
     if (packetType !== 1) return;
+    const packetRequest = this.activeRequest;
     this.videoEndPts = Math.max(this.videoEndPts, ptsSeconds);
     if (this.pendingVideoDecodes >= MAX_PENDING_VIDEO_DECODES) return;
     this.pendingVideoDecodes += 1;
     try {
       const bitmap = await createImageBitmap(new Blob([payload], { type: 'image/jpeg' }));
-      if (generation !== this.sessionGeneration || ptsSeconds <= this.lastDrawnVideoPts) {
+      if (
+        generation !== this.sessionGeneration
+        || this.activeRequest !== packetRequest
+        || ptsSeconds <= this.lastDrawnVideoPts
+      ) {
         bitmap.close();
         return;
       }
@@ -384,6 +476,10 @@ export class MuseTalkTotalStream {
       window.clearTimeout(this.playbackEndTimer);
       this.playbackEndTimer = null;
     }
+    if (this.playbackFallbackTimer !== null) {
+      window.clearTimeout(this.playbackFallbackTimer);
+      this.playbackFallbackTimer = null;
+    }
     for (const source of this.audioSources) {
       try {
         source.stop();
@@ -406,9 +502,70 @@ export class MuseTalkTotalStream {
 
   private finishPendingPlayback() {
     const pending = this.pendingPlaybackCompletion;
-    if (!pending || this.pendingVideoDecodes) return;
+    if (!pending || (!this.playbackGateOpen && this.playbackGateRequested)) return;
     this.pendingPlaybackCompletion = null;
+    this.armPlaybackFallback(pending.active, pending.result);
     this.finishAfterPlayback(pending.active, pending.result);
+  }
+
+  private armPlaybackFallback(active: ActiveRequest, result: MuseTalkTotalResult) {
+    if (this.playbackFallbackTimer !== null) window.clearTimeout(this.playbackFallbackTimer);
+    const audioDelay = this.audioContext
+      ? Math.max(0, this.audioScheduledUntil - this.audioContext.currentTime) * 1000
+      : 0;
+    const videoDelay = this.audioContext
+      ? Math.max(0, this.mediaStartAudio + this.videoEndPts - this.audioContext.currentTime) * 1000
+      : 0;
+    this.playbackFallbackTimer = window.setTimeout(() => {
+      this.playbackFallbackTimer = null;
+      if (this.activeRequest !== active) return;
+      if (this.playbackEndTimer !== null) {
+        window.clearTimeout(this.playbackEndTimer);
+        this.playbackEndTimer = null;
+      }
+      this.pendingPlaybackCompletion = null;
+      this.completePlayback(active, result);
+    }, Math.max(audioDelay, videoDelay) + PLAYBACK_COMPLETION_FALLBACK_MS);
+  }
+
+  private async finishPlaybackHandoff() {
+    const callback = this.options.onPlaybackFinished;
+    if (!callback) return;
+    let timeout: number | null = null;
+    try {
+      await Promise.race([
+        Promise.resolve().then(() => callback()),
+        new Promise<void>((resolve) => {
+          timeout = window.setTimeout(resolve, PLAYBACK_HANDOFF_TIMEOUT_MS);
+        }),
+      ]);
+    } catch {
+      // UI handoff failures must not leave the request and input permanently locked.
+    } finally {
+      if (timeout !== null) window.clearTimeout(timeout);
+    }
+  }
+
+  private completePlayback(active: ActiveRequest, result: MuseTalkTotalResult) {
+    if (this.playbackFallbackTimer !== null) {
+      window.clearTimeout(this.playbackFallbackTimer);
+      this.playbackFallbackTimer = null;
+    }
+    this.playbackEndTimer = null;
+    if (this.activeRequest !== active) return;
+    this.activeRequest = null;
+    this.mediaTimelineStarted = false;
+    this.audioScheduledUntil = 0;
+    this.conversationStreamStarted = false;
+    this.clearVideoPlayback();
+    this.deferredMediaPackets = [];
+    this.playbackGateOpen = true;
+    this.playbackGateRequested = false;
+    this.setStage('idle');
+    active.resolve(result);
+    // The visual handoff is best effort and must never own the request lock.
+    // Keep the final canvas frame visible until the idle source is ready.
+    void this.finishPlaybackHandoff().finally(() => this.setMediaActive(false, true));
   }
 
   private finishAfterPlayback(active: ActiveRequest, result: MuseTalkTotalResult) {
@@ -419,24 +576,14 @@ export class MuseTalkTotalStream {
       ? Math.max(0, this.mediaStartAudio + this.videoEndPts - this.audioContext.currentTime) * 1000
       : 0;
     const delay = Math.max(audioDelay, videoDelay);
-    const finish = async () => {
-      this.playbackEndTimer = null;
-      if (this.activeRequest !== active) return;
-      await this.options.onPlaybackFinished?.();
-      if (this.activeRequest !== active) return;
-      this.activeRequest = null;
-      this.mediaTimelineStarted = false;
-      this.audioScheduledUntil = 0;
-      this.clearVideoPlayback();
-      this.setMediaActive(false);
-      this.setStage('idle');
-      active.resolve(result);
-    };
     if (delay <= 0) {
-      void finish();
+      this.completePlayback(active, result);
       return;
     }
-    this.playbackEndTimer = window.setTimeout(() => void finish(), delay + 50);
+    this.playbackEndTimer = window.setTimeout(
+      () => this.completePlayback(active, result),
+      delay + 50,
+    );
   }
 
   private startMediaTimeline(leadSeconds = 0.65): boolean {
@@ -451,15 +598,20 @@ export class MuseTalkTotalStream {
     return true;
   }
 
-  private async openPlaybackGate(generation: number) {
+  private async openPlaybackGate(generation: number, active: ActiveRequest) {
     try {
+      // Buffer while the idle video keeps moving; pausing it here would make
+      // the avatar visibly freeze before speech starts.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, PLAYBACK_BUFFER_MS));
+      if (generation !== this.sessionGeneration || this.closedByUser || this.activeRequest !== active) return;
       await this.options.onPlaybackReady?.();
-      if (generation !== this.sessionGeneration || this.closedByUser) return;
+      if (generation !== this.sessionGeneration || this.closedByUser || this.activeRequest !== active) return;
       this.playbackGateOpen = true;
       this.startMediaTimeline(PLAYBACK_LEAD_SECONDS);
       const packets = this.deferredMediaPackets;
       this.deferredMediaPackets = [];
       for (const packet of packets) void this.handlePacket(packet, generation);
+      this.finishPendingPlayback();
     } catch (error) {
       this.rejectActive(error instanceof Error ? error : new Error(String(error)));
     }
@@ -540,11 +692,12 @@ export class MuseTalkTotalStream {
         this.setStage('playing');
         // A control message can overtake JPEG decoding. Wait until each image has
         // established its presentation timestamp before calculating the final frame.
-        this.pendingPlaybackCompletion = { active, result: {
+        const result = {
           answer,
           llmLatencyMs: active.llmLatencyMs,
           totalLatencyMs: Number(message.elapsed_ms || Math.round(performance.now() - active.startedAt)),
-        } };
+        };
+        this.pendingPlaybackCompletion = { active, result };
         this.finishPendingPlayback();
       }
       return;
@@ -614,7 +767,7 @@ export class MuseTalkTotalStream {
       const websocket = new WebSocket(conversationUrl());
       websocket.binaryType = 'arraybuffer';
       this.websocket = websocket;
-      websocket.onerror = () => this.failConnecting(new Error('无法连接 MuseTalk server_total :8080'));
+      websocket.onerror = () => this.failConnecting(new Error('无法连接 MuseTalk server_total'));
       websocket.onclose = () => {
         if (this.websocket === websocket) this.websocket = null;
         this.failConnecting(new Error('MuseTalk 总流程连接提前关闭'));
@@ -722,5 +875,46 @@ export class MuseTalkTotalStream {
     this.setMediaActive(false);
     this.setStage('idle');
     await this.closeAudio();
+  }
+}
+
+type MuseTalkStreamImplementation = Pick<
+  ServerTotalStream,
+  'startLive' | 'prepareAudio' | 'ask' | 'speak' | 'cancel' | 'stopLive'
+>;
+
+const LOCAL_AVATAR_IDS = new Set(['suqing', 'guyan']);
+
+export class MuseTalkTotalStream implements MuseTalkStreamImplementation {
+  private readonly implementation: MuseTalkStreamImplementation;
+
+  constructor(canvas: HTMLCanvasElement, options: MuseTalkTotalOptions = {}) {
+    this.implementation = LOCAL_AVATAR_IDS.has(options.avatarId || '')
+      ? new LocalMuseTalkStream(canvas, options)
+      : new ServerTotalStream(canvas, options);
+  }
+
+  startLive() {
+    return this.implementation.startLive();
+  }
+
+  prepareAudio() {
+    return this.implementation.prepareAudio();
+  }
+
+  ask(question: string) {
+    return this.implementation.ask(question);
+  }
+
+  speak(text: string) {
+    return this.implementation.speak(text);
+  }
+
+  cancel() {
+    return this.implementation.cancel();
+  }
+
+  stopLive() {
+    return this.implementation.stopLive();
   }
 }

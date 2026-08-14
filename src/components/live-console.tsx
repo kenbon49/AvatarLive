@@ -1504,7 +1504,7 @@ export function LiveConsole() {
             onClick={() => void switchMode('musetalk')}
             hint={
               museTalkTotalUp
-                ? 'MuseTalk 总流程已就绪 · :8080 · 首帧待机/问答流式媒体自动切换'
+                ? 'MuseTalk 总流程已就绪 · :8085 · 首帧待机/问答流式媒体自动切换'
                 : museTalkUp
                 ? mounted
                   ? `MuseTalk ${museTalkHealth?.model_version || '1.5'} 已就绪 · ${MUSETALK_URL}`
@@ -1752,7 +1752,7 @@ export function LiveConsole() {
                     ? 'FlashHead Lite 在 GPU 节点完整生成脸部、表情与头动，经 WebRTC 实时回传；本模式独立使用 :8030。'
                     : isMuseTalk
                       ? MUSETALK_ONLY
-                        ? 'MuseTalk-only：空闲时循环默认形象；实时播报走 MeloTTS :8084 与 MuseTalk MSTK :8083，AI 问答走 server_total :8080。'
+                        ? 'MuseTalk-only：空闲时循环默认形象；实时播报走 MeloTTS :8084 与 MuseTalk MSTK :8083，AI 问答走 server_total :8085。'
                         : 'MuseTalk 1.5 以真人动作视频当前帧为底片，只重建嘴部与下半脸，头姿、头发、身体和手势保持同一运动源；本模式独立使用 :8031。'
                       : IS_UNREAL
                       ? '画面由 UE5 MetaHuman 实时渲染、经 Pixel Streaming(WebRTC) 直传浏览器；语音经同一条流回传。'
@@ -1763,7 +1763,7 @@ export function LiveConsole() {
                       : ' 服务地址 …'
                     : isMuseTalk
                       ? MUSETALK_ONLY
-                        ? ' 服务地址 :8080 / :8083 / :8084'
+                        ? ' 服务地址 :8085 / :8083 / :8084'
                         : mounted
                           ? ` 服务地址 ${MUSETALK_URL}`
                           : ' 服务地址 …'
