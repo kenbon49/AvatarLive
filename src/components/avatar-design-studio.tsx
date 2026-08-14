@@ -9,15 +9,18 @@ import {
   Check,
   Image as ImageIcon,
   ImagePlus,
+  Loader2,
   MessageSquareText,
   Mic2,
   Move3d,
   Palette,
+  Play,
   RotateCcw,
   Send,
   Sparkles,
   Shirt,
   UserRound,
+  Upload,
   Volume2,
 } from 'lucide-react';
 import {
@@ -28,7 +31,9 @@ import {
   type AvatarStyleSelection,
 } from '@/components/avatar-capability-panel';
 import {
+  AVATAR_VOICE_STORAGE_KEY,
   CUSTOM_AVATAR_STORAGE_KEY,
+  readAvatarVoicePreferences,
   readCustomAvatars,
   type Avatar,
 } from '@/lib/avatar-catalog';
@@ -36,6 +41,7 @@ import type { MuseTalkAvatarProfile } from '@/lib/musetalk-total-stream';
 
 export type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona' | AvatarCapabilityMode;
 type ChatMessage = { role: 'assistant' | 'user'; text: string };
+type DesignVoice = { id: string; name: string; detail: string; preview: string; source: 'public' };
 
 type StoredAvatar = {
   id: string;
@@ -73,6 +79,15 @@ const BACKGROUNDS = [
   { id: 'studio', label: '演播室', className: 'studio' },
   { id: 'warm', label: '暖调空间', className: 'warm' },
   { id: 'brand', label: '品牌蓝', className: 'brand' },
+];
+
+const DESIGN_VOICES: DesignVoice[] = [
+  { id: '603e674b998943e3b664e3b3f5aff006', name: '专业知性女声', detail: 'Fish Audio · 清晰专业', preview: '/assets/voice-samples/fish-audio/professional-female.mp3', source: 'public' },
+  { id: 'faccba1a8ac54016bcfc02761285e67f', name: '温柔动听女声', detail: 'Fish Audio · 温暖亲和', preview: '/assets/voice-samples/fish-audio/considerate-female.mp3', source: 'public' },
+  { id: '969b367b71224c45b4c86f0266dc0112', name: '活力带货女声', detail: 'Fish Audio · 元气自然', preview: '/assets/voice-samples/fish-audio/commerce-host-female.mp3', source: 'public' },
+  { id: '5a0aac1ed36d47dab16cc27ebebd47af', name: '沉稳讲述男声', detail: 'Fish Audio · 沉稳可信', preview: '/assets/voice-samples/fish-audio/steady-story-male.mp3', source: 'public' },
+  { id: '83f5551b1a554002971d897259bbea3c', name: '清澈青年男声', detail: 'Fish Audio · 清晰自然', preview: '/assets/voice-samples/fish-audio/clear-young-male.mp3', source: 'public' },
+  { id: '507a3b05f3a543f49d35de112b9ee3a6', name: '知性优雅女声', detail: 'Fish Audio · 舒缓可靠', preview: '/assets/voice-samples/fish-audio/elegant-female.mp3', source: 'public' },
 ];
 
 async function resizeImage(file: File): Promise<string> {
@@ -132,7 +147,18 @@ export function AvatarDesignStudio({
   const [name, setName] = useState(initialAvatar?.name ?? '');
   const [role, setRole] = useState(initialAvatar?.role ?? '品牌数字人');
   const [greeting, setGreeting] = useState(initialGreeting(initialAvatar));
-  const [voice, setVoice] = useState(initialAvatar?.voice ?? '温暖自然 · 中文女声');
+  const [voice, setVoice] = useState(initialAvatar?.voice ?? DESIGN_VOICES[0].id);
+  const [pendingVoice, setPendingVoice] = useState(initialAvatar?.voice ?? DESIGN_VOICES[0].id);
+  const [voiceSource, setVoiceSource] = useState<'public' | 'clone'>('public');
+  const [voiceProfiles, setVoiceProfiles] = useState<DesignVoice[]>(DESIGN_VOICES);
+  const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [cloneFile, setCloneFile] = useState<File | null>(null);
+  const [clonePreview, setClonePreview] = useState('');
+  const [cloneName, setCloneName] = useState('');
+  const [cloneTranscript, setCloneTranscript] = useState('');
+  const [cloneState, setCloneState] = useState<'idle' | 'cloning' | 'ready'>('idle');
+  const [cloneError, setCloneError] = useState('');
   const [background, setBackground] = useState(initialAvatar?.background ?? 'transparent');
   const [styleSelection, setStyleSelection] = useState<AvatarStyleSelection>(initialAvatar?.style ?? { ...DEFAULT_AVATAR_STYLE_SELECTION });
   const [image, setImage] = useState(initialAvatar?.image ?? '');
@@ -163,7 +189,8 @@ export function AvatarDesignStudio({
     setName(stored.name);
     setRole(stored.role);
     setGreeting(initialGreeting(stored));
-    setVoice(stored.voice ?? '温暖自然 · 中文女声');
+    setVoice(stored.voice ?? DESIGN_VOICES[0].id);
+    setPendingVoice(stored.voice ?? DESIGN_VOICES[0].id);
     setBackground(stored.background ?? 'transparent');
     setStyleSelection(stored.style ?? { ...DEFAULT_AVATAR_STYLE_SELECTION });
     setImage(stored.image);
@@ -242,6 +269,98 @@ export function AvatarDesignStudio({
     window.setTimeout(() => setChat((items) => [...items, { role: 'assistant', text: response }]), 180);
   };
 
+  const stopVoicePreview = () => {
+    voiceAudioRef.current?.pause();
+    voiceAudioRef.current = null;
+    setPreviewVoiceId(null);
+  };
+
+  useEffect(() => () => {
+    voiceAudioRef.current?.pause();
+  }, []);
+
+  const previewVoice = async (item: DesignVoice) => {
+    if (previewVoiceId === item.id) {
+      stopVoicePreview();
+      return;
+    }
+    stopVoicePreview();
+    const audio = new Audio(item.preview);
+    voiceAudioRef.current = audio;
+    audio.onended = stopVoicePreview;
+    audio.onerror = stopVoicePreview;
+    try {
+      await audio.play();
+      setPreviewVoiceId(item.id);
+    } catch {
+      setCloneError('试听音频播放失败，请检查浏览器的音频播放权限。');
+    }
+  };
+
+  const loadCloneAudio = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('audio/')) {
+      setCloneError('请选择 MP3、WAV、M4A、AAC 或 OGG 音频。');
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setCloneError('参考语音不能超过 20 MB。');
+      return;
+    }
+    if (clonePreview && !voiceProfiles.some((item) => item.preview === clonePreview)) URL.revokeObjectURL(clonePreview);
+    setCloneFile(file);
+    setClonePreview(URL.createObjectURL(file));
+    setCloneName((current) => current || `${file.name.replace(/\.[^.]+$/, '')}的声音`);
+    setCloneState('idle');
+    setCloneError('');
+  };
+
+  const cloneVoice = async () => {
+    if (!cloneFile) {
+      setCloneError('请先上传一段清晰的参考语音。');
+      return;
+    }
+    if (!cloneName.trim()) {
+      setCloneError('请为克隆语音命名。');
+      return;
+    }
+    if (cloneTranscript.trim().length < 5) {
+      setCloneError('请输入与录音完全一致的原文，至少 5 个字。');
+      return;
+    }
+    setCloneError('');
+    setCloneState('cloning');
+    await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    setCloneState('ready');
+  };
+
+  const saveCloneVoice = () => {
+    if (cloneState !== 'ready' || !clonePreview) return;
+    const nextVoice: DesignVoice = {
+      id: `clone-${Date.now()}`,
+      name: cloneName.trim(),
+      detail: '我的克隆语音 · 已就绪',
+      preview: clonePreview,
+      source: 'public',
+    };
+    setVoiceProfiles((items) => [nextVoice, ...items]);
+    setPendingVoice(nextVoice.id);
+    setVoiceSource('public');
+    setCloneFile(null);
+    setClonePreview('');
+    setCloneName('');
+    setCloneTranscript('');
+    setCloneState('idle');
+  };
+
+  const applyVoice = () => {
+    setVoice(pendingVoice);
+    const avatarId = sourceAvatarId || initialAvatarId;
+    if (!avatarId) return;
+    const preferences = readAvatarVoicePreferences();
+    localStorage.setItem(AVATAR_VOICE_STORAGE_KEY, JSON.stringify({ ...preferences, [avatarId]: pendingVoice }));
+  };
+
   const saveAvatar = async () => {
     if (!name.trim() || !image || saving) return;
     setSaving(true);
@@ -269,6 +388,9 @@ export function AvatarDesignStudio({
       setError(cause instanceof Error ? cause.message : '浏览器存储空间不足，请使用尺寸更小的照片。');
     }
   };
+
+  const appliedVoiceName = voiceProfiles.find((item) => item.id === voice)?.name ?? voice;
+  const pendingVoiceName = voiceProfiles.find((item) => item.id === pendingVoice)?.name ?? pendingVoice;
 
   return (
     <div className="creatorShell">
@@ -325,11 +447,27 @@ export function AvatarDesignStudio({
 
           {activeTab === 'voice' && (
             <>
-              <div className="inspectorHeading"><div><h1>声音设置</h1><p>为数字人选择默认播报声音</p></div><Volume2 size={19} /></div>
-              <div className="voiceOptions">
-                {['温暖自然 · 中文女声', '清晰专业 · 中文女声', '沉稳可信 · 中文男声'].map((item) => <button className={voice === item ? 'active' : ''} type="button" key={item} onClick={() => setVoice(item)}><span><strong>{item.split(' · ')[0]}</strong><small>{item.split(' · ')[1]}</small></span>{voice === item && <Check size={16} />}</button>)}
+              <div className="inspectorHeading"><div><h1>声音设置</h1><p>试听经典音色，或克隆你的专属声音</p></div><Volume2 size={19} /></div>
+              <div className="creatorVoiceTabs" role="tablist" aria-label="声音来源">
+                <button className={voiceSource === 'public' ? 'active' : ''} type="button" onClick={() => { stopVoicePreview(); setVoiceSource('public'); }}>可用语音</button>
+                <button className={voiceSource === 'clone' ? 'active' : ''} type="button" onClick={() => { stopVoicePreview(); setVoiceSource('clone'); }}>克隆语音</button>
               </div>
-              <div className="creatorInfoNote"><Volume2 size={16} /><span><strong>实时语音驱动</strong><small>进入互动或直播后，可通过项目现有 MuseTalk 流程生成音视频。</small></span></div>
+              {voiceSource !== 'clone' ? <div className="voiceOptions creatorVoiceList">
+                {voiceProfiles.map((item) => <div className={pendingVoice === item.id ? 'active' : ''} role="radio" aria-checked={pendingVoice === item.id} tabIndex={0} key={item.id} onClick={() => setPendingVoice(item.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoice(item.id); } }}><button className="creatorVoicePlay" type="button" aria-label={`试听${item.name}`} onClick={(event) => { event.stopPropagation(); void previewVoice(item); }}>{previewVoiceId === item.id ? <Volume2 size={14} /> : <Play size={14} fill="currentColor" />}</button><span><strong>{item.name}</strong><small>{item.detail}{voice === item.id ? ' · 使用中' : ''}</small></span>{pendingVoice === item.id && <Check size={16} />}</div>)}
+                <button className="creatorVoiceApply" type="button" disabled={pendingVoice === voice} onClick={applyVoice}>{pendingVoice === voice ? '当前语音已应用' : `应用“${pendingVoiceName}”`}</button>
+              </div> : <div className="creatorVoiceClone">
+                <label className={cloneFile ? 'hasFile' : ''} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); loadCloneAudio(event.dataTransfer.files[0]); }}>
+                  <input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg" onChange={(event) => loadCloneAudio(event.target.files?.[0])} />
+                  <span>{cloneFile ? <Check size={18} /> : <Upload size={18} />}</span><strong>{cloneFile?.name ?? '上传参考语音'}</strong><small>{cloneFile ? `${(cloneFile.size / 1024 / 1024).toFixed(2)} MB · 点击更换` : '10–30 秒清晰录音，最大 20 MB'}</small>
+                </label>
+                {clonePreview && <audio controls preload="metadata" src={clonePreview} />}
+                <div className="creatorVoiceFields"><label><span>语音名称</span><input value={cloneName} maxLength={20} placeholder="例如：我的直播声音" onChange={(event) => { setCloneName(event.target.value); setCloneState('idle'); }} /></label><label><span>参考语音原文</span><textarea value={cloneTranscript} maxLength={300} placeholder="填写录音中实际说出的完整文字" onChange={(event) => { setCloneTranscript(event.target.value); setCloneState('idle'); }} /></label></div>
+                {cloneError && <div className="creatorVoiceError">{cloneError}</div>}
+                {cloneState === 'ready' && <div className="creatorVoiceReady"><Check size={14} /><span><strong>克隆完成</strong><small>保存后会进入“可用语音”，选中并应用即可使用。</small></span></div>}
+                <button className="creatorVoiceCloneAction" type="button" disabled={cloneState === 'cloning'} onClick={cloneState === 'ready' ? saveCloneVoice : () => void cloneVoice()}>{cloneState === 'cloning' ? <><Loader2 size={14} className="xlVoiceSpinner" />正在克隆…</> : cloneState === 'ready' ? '保存语音' : '开始克隆'}</button>
+                <p>上传内容仅用于生成专属音色，请确保已获得声音授权。</p>
+              </div>}
+              <div className="creatorInfoNote"><Volume2 size={16} /><span><strong>当前播报声音：{appliedVoiceName}</strong><small>应用后会绑定到当前数字人，并随实时互动推理请求发送。</small></span></div>
             </>
           )}
 
@@ -364,7 +502,7 @@ export function AvatarDesignStudio({
           </div>
           <div className="creatorStageActions">
             <button type="button" onClick={() => setImageFilter('none')} disabled={!image || imageFilter === 'none'}><RotateCcw size={16} />恢复原图</button>
-            <span>{voice}</span>
+            <span>{appliedVoiceName}</span>
           </div>
         </main>
         </>}

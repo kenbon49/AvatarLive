@@ -114,6 +114,17 @@ export const DEFAULT_AVATARS: Avatar[] = [
 ];
 
 export const CUSTOM_AVATAR_STORAGE_KEY = 'lingjing-custom-avatars';
+export const AVATAR_VOICE_STORAGE_KEY = 'lingjing-avatar-voices';
+
+export function readAvatarVoicePreferences(): Record<string, string> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(AVATAR_VOICE_STORAGE_KEY) || '{}') as unknown;
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+    return Object.fromEntries(Object.entries(stored).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+  } catch {
+    return {};
+  }
+}
 
 const AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
   'chinese',

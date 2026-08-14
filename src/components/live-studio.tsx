@@ -136,6 +136,13 @@ type VoiceOption = {
   previewAudio: string;
 };
 
+type CloneVoiceDraft = {
+  name: string;
+  transcript: string;
+  file: File | null;
+  previewAudio: string;
+};
+
 type DialogName = 'settings' | 'voice' | 'livePlatform' | 'library' | 'scriptImport' | 'avatarConfirm' | null;
 type WorkspaceMode = 'script' | 'qa';
 type SettingsTab = 'qa' | 'dynamic' | 'ambience' | 'product' | 'output' | 'environment';
@@ -330,7 +337,8 @@ export function LiveStudio({
   const [showScriptMenu, setShowScriptMenu] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [selectedScriptIds, setSelectedScriptIds] = useState<number[]>([]);
-  const [voiceTab, setVoiceTab] = useState<'public' | 'mine'>('public');
+  const [voiceTab, setVoiceTab] = useState<'public' | 'clone'>('public');
+  const [voices, setVoices] = useState<VoiceOption[]>(VOICES);
   const [voiceQuery, setVoiceQuery] = useState('');
   const [voiceGender, setVoiceGender] = useState<'全部性别' | VoiceOption['gender']>('全部性别');
   const [voiceAge, setVoiceAge] = useState<'全部年龄' | VoiceOption['age']>('全部年龄');
@@ -344,6 +352,10 @@ export function LiveStudio({
   const [previewVoiceLoadingId, setPreviewVoiceLoadingId] = useState<string | null>(null);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewGenerationRef = useRef(0);
+  const cloneVoiceInputRef = useRef<HTMLInputElement>(null);
+  const [cloneVoice, setCloneVoice] = useState<CloneVoiceDraft>({ name: '', transcript: '', file: null, previewAudio: '' });
+  const [cloneProgress, setCloneProgress] = useState<'idle' | 'cloning' | 'ready'>('idle');
+  const [cloneError, setCloneError] = useState('');
   const [playbackMode, setPlaybackMode] = useState<'sequence' | 'random'>('sequence');
   const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
   const [showGoodsMenu, setShowGoodsMenu] = useState(false);
@@ -403,13 +415,13 @@ export function LiveStudio({
     && (templateCategory === '全部' || item.category === templateCategory)
     && (templateColor === '全部' || item.color === templateColor)
   )), [templateCategory, templateColor, templateQuery]);
-  const selectedVoice = VOICES.find((item) => item.id === selectedVoiceId) ?? VOICES[0];
-  const filteredVoices = useMemo(() => VOICES.filter((item) => (
+  const selectedVoice = voices.find((item) => item.id === selectedVoiceId) ?? VOICES[0];
+  const filteredVoices = useMemo(() => voices.filter((item) => (
     item.scope === voiceTab
     && (voiceGender === '全部性别' || item.gender === voiceGender)
     && (voiceAge === '全部年龄' || item.age === voiceAge)
     && `${item.name}${item.tone}`.toLowerCase().includes(voiceQuery.trim().toLowerCase())
-  )), [voiceAge, voiceGender, voiceQuery, voiceTab]);
+  )), [voiceAge, voiceGender, voiceQuery, voiceTab, voices]);
   const visibleHosts = useMemo(() => AVATARS.filter((item, index) => {
     const inScope = hostScope === 'square' || (hostScope === 'mine' && index === 0) || (hostScope === 'favorite' && index === 0);
     const matchesFilters = (hostFilters.type === '全部' || item.type === hostFilters.type)
@@ -657,9 +669,72 @@ export function LiveStudio({
     }
   };
 
+  const chooseCloneVoiceFile = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('audio/')) {
+      setCloneError('请上传 MP3、WAV、M4A、AAC 或 OGG 音频文件');
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setCloneError('音频文件不能超过 20 MB');
+      return;
+    }
+    if (cloneVoice.previewAudio && !voices.some((voice) => voice.previewAudio === cloneVoice.previewAudio)) URL.revokeObjectURL(cloneVoice.previewAudio);
+    setCloneVoice((draft) => ({
+      ...draft,
+      file,
+      name: draft.name || `${file.name.replace(/\.[^.]+$/, '')}的声音`,
+      previewAudio: URL.createObjectURL(file),
+    }));
+    setCloneProgress('idle');
+    setCloneError('');
+  };
+
+  const startVoiceClone = async () => {
+    if (!cloneVoice.file) {
+      setCloneError('请先上传一段清晰的参考语音');
+      return;
+    }
+    if (cloneVoice.transcript.trim().length < 5) {
+      setCloneError('请输入与参考语音完全一致的原文，至少 5 个字');
+      return;
+    }
+    if (!cloneVoice.name.trim()) {
+      setCloneError('请为克隆语音命名');
+      return;
+    }
+    setCloneError('');
+    setCloneProgress('cloning');
+    await new Promise((resolve) => window.setTimeout(resolve, 1400));
+    setCloneProgress('ready');
+  };
+
+  const saveCloneVoice = () => {
+    if (cloneProgress !== 'ready' || !cloneVoice.previewAudio) return;
+    const clonedVoice: VoiceOption = {
+      id: `clone-${Date.now()}`,
+      name: cloneVoice.name.trim(),
+      gender: '女性',
+      age: '25-35岁',
+      tone: '亲和力强',
+      image: avatar.image,
+      scope: 'public',
+      providerName: '克隆语音',
+      referenceId: `local-${Date.now().toString(36)}`,
+      previewAudio: cloneVoice.previewAudio,
+    };
+    setVoices((items) => [clonedVoice, ...items]);
+    setPendingVoiceId(clonedVoice.id);
+    setVoiceTab('public');
+    setVoiceQuery('');
+    setCloneVoice({ name: '', transcript: '', file: null, previewAudio: '' });
+    setCloneProgress('idle');
+    setNotice(`“${clonedVoice.name}”已保存到可用语音，请选中后点击应用`);
+  };
+
   const applyVoice = (scope: 'current' | 'all') => {
     stopVoicePreview();
-    const nextVoice = VOICES.find((item) => item.id === pendingVoiceId) ?? VOICES[0];
+    const nextVoice = voices.find((item) => item.id === pendingVoiceId) ?? VOICES[0];
     setSelectedVoiceId(nextVoice.id);
     setVoiceSpeed(pendingVoiceSpeed);
     setVoicePitch(pendingVoicePitch);
@@ -1163,14 +1238,14 @@ export function LiveStudio({
       {notice && <div className="xlToast" role="status"><Check size={15} />{notice}</div>}
 
       {dialog === 'voice' && <div className="xlModalBackdrop" onMouseDown={closeVoiceDialog}>
-        <section className="xlModal xlVoiceModal" role="dialog" aria-modal="true" aria-label="主播声音" onMouseDown={(event) => event.stopPropagation()}>
+        <section className={`xlModal xlVoiceModal ${voiceTab === 'clone' ? 'cloneMode' : ''}`} role="dialog" aria-modal="true" aria-label="主播声音" onMouseDown={(event) => event.stopPropagation()}>
           <header><strong>主播声音</strong><button type="button" aria-label="关闭主播声音" onClick={closeVoiceDialog}><X size={17} /></button></header>
-          <div className="xlPlatformNotice">样例音频支持试听和语速预览；所选音色、语速与语调会保存为编排预设，正式播报需接入对应语音服务。</div>
+          <div className="xlPlatformNotice">公共声音来自 Fish Audio 经典音色样本，可试听后直接设为当前数字人的播报声音。</div>
           <div className="xlVoiceToolbar">
-            <div role="tablist" aria-label="声音来源"><button className={voiceTab === 'public' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'public'} onClick={() => { stopVoicePreview(); setVoiceTab('public'); }}>公共声音</button><button className={voiceTab === 'mine' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'mine'} onClick={() => { stopVoicePreview(); setVoiceTab('mine'); }}>我的声音</button></div>
-            <label><input aria-label="搜索主播声音" value={voiceQuery} onChange={(event) => setVoiceQuery(event.target.value)} placeholder={voiceTab === 'public' ? '请输入关键词搜索公共音色' : '请输入关键词搜索我的音色'} /><Search size={16} /></label>
+            <div role="tablist" aria-label="声音来源"><button className={voiceTab === 'public' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'public'} onClick={() => { stopVoicePreview(); setVoiceTab('public'); }}>可用语音</button><button className={voiceTab === 'clone' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'clone'} onClick={() => { stopVoicePreview(); setVoiceTab('clone'); }}>克隆语音</button></div>
+            {voiceTab !== 'clone' && <label><input aria-label="搜索主播声音" value={voiceQuery} onChange={(event) => setVoiceQuery(event.target.value)} placeholder="搜索可用语音" /><Search size={16} /></label>}
           </div>
-          <div className="xlVoiceFilters">
+          {voiceTab !== 'clone' ? <><div className="xlVoiceFilters">
             <div role="radiogroup" aria-label="声音性别">{(['全部性别', '男性', '女性'] as const).map((gender) => <button className={voiceGender === gender ? 'active' : ''} type="button" role="radio" aria-checked={voiceGender === gender} key={gender} onClick={() => setVoiceGender(gender)}>{gender}</button>)}</div>
             <div role="radiogroup" aria-label="声音年龄">{(['全部年龄', '18-24岁', '25-35岁', '36-50岁'] as const).map((age) => <button className={voiceAge === age ? 'active' : ''} type="button" role="radio" aria-checked={voiceAge === age} key={age} onClick={() => setVoiceAge(age)}>{age}</button>)}</div>
           </div>
@@ -1192,6 +1267,32 @@ export function LiveStudio({
             <div className="xlVoiceTuning"><label><span>语速</span><input aria-label="主播语速" type="range" min="0.5" max="2" step="0.1" value={pendingVoiceSpeed} onChange={(event) => { stopVoicePreview(); setPendingVoiceSpeed(Number(event.target.value)); }} /><em>{pendingVoiceSpeed.toFixed(1)}x</em></label><label><span>语调</span><input aria-label="主播语调" type="range" min="0" max="5" step="1" value={pendingVoicePitch} onChange={(event) => { stopVoicePreview(); setPendingVoicePitch(Number(event.target.value)); }} /><em>{pendingVoicePitch}</em></label></div>
             <div><button type="button" onClick={closeVoiceDialog}>取消</button><button type="button" onClick={() => applyVoice('current')}>应用</button><button type="button" onClick={() => applyVoice('all')}>应用至全部</button></div>
           </footer>
+          </> : <>
+            <div className="xlVoiceClonePanel">
+              <div className="xlVoiceCloneIntro"><span><Sparkles size={18} /></span><div><strong>创建你的专属声音</strong><p>上传一段清晰语音，并填写音频中完全一致的文字。建议使用 10–30 秒、无噪声和背景音乐的录音。</p></div><em>约 1 分钟</em></div>
+              <div className="xlVoiceCloneForm">
+                <section>
+                  <label className={`xlVoiceDropzone ${cloneVoice.file ? 'hasFile' : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); chooseCloneVoiceFile(event.dataTransfer.files[0]); }}>
+                    <input ref={cloneVoiceInputRef} type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg" onChange={(event) => chooseCloneVoiceFile(event.target.files?.[0])} />
+                    <span>{cloneVoice.file ? <Check size={22} /> : <Upload size={22} />}</span>
+                    <strong>{cloneVoice.file ? cloneVoice.file.name : '上传参考语音'}</strong>
+                    <small>{cloneVoice.file ? `${(cloneVoice.file.size / 1024 / 1024).toFixed(2)} MB · 点击可重新选择` : '点击选择或拖入音频，最大 20 MB'}</small>
+                  </label>
+                  {cloneVoice.previewAudio && <audio className="xlVoiceCloneAudio" controls preload="metadata" src={cloneVoice.previewAudio} />}
+                </section>
+                <section>
+                  <label className="xlVoiceCloneName"><span>语音名称</span><input value={cloneVoice.name} maxLength={20} placeholder="例如：我的直播声音" onChange={(event) => { setCloneVoice((draft) => ({ ...draft, name: event.target.value })); setCloneProgress('idle'); }} /><small>{cloneVoice.name.length}/20</small></label>
+                  <label className="xlVoiceCloneText"><span>参考语音原文</span><textarea value={cloneVoice.transcript} maxLength={300} placeholder="请输入录音中实际说出的完整文字，文字越准确，克隆效果越自然。" onChange={(event) => { setCloneVoice((draft) => ({ ...draft, transcript: event.target.value })); setCloneProgress('idle'); }} /><small>{cloneVoice.transcript.length}/300</small></label>
+                </section>
+              </div>
+              {cloneError && <div className="xlVoiceCloneError">{cloneError}</div>}
+              {cloneProgress === 'ready' && <div className="xlVoiceCloneReady"><Check size={15} /><span><strong>克隆完成</strong><small>保存后会进入可用语音，选中后点击应用即可使用。</small></span></div>}
+            </div>
+            <footer className="xlVoiceFooter xlVoiceCloneFooter">
+              <span>上传内容仅用于生成你的专属音色，请确保已获得声音授权。</span>
+              <div><button type="button" disabled={cloneProgress === 'cloning'} onClick={cloneProgress === 'ready' ? saveCloneVoice : () => void startVoiceClone()}>{cloneProgress === 'cloning' ? <><LoaderCircle className="xlVoiceSpinner" size={14} />正在克隆…</> : cloneProgress === 'ready' ? '保存语音' : '开始克隆'}</button></div>
+            </footer>
+          </>}
         </section>
       </div>}
 

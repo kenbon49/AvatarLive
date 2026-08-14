@@ -28,6 +28,7 @@ export interface MuseTalkAvatarCatalog {
 interface MuseTalkTotalOptions {
   profile?: MuseTalkStreamProfile;
   language?: 'ZH' | 'EN';
+  voice?: string;
   speed?: number;
   onMediaActive?: (active: boolean) => void;
   // Resolving this releases the buffered audio/video timeline together.
@@ -654,6 +655,7 @@ export class MuseTalkTotalStream {
           request_id: requestId,
           profile: this.options.profile || 'chinese',
           language: this.options.language || 'ZH',
+          voice: this.options.voice || undefined,
           speed: this.options.speed || 1,
         }),
       );
@@ -682,6 +684,7 @@ export class MuseTalkTotalStream {
           request_id: requestId,
           profile: this.options.profile || 'chinese',
           language: this.options.language || 'ZH',
+          voice: this.options.voice || undefined,
           speed: this.options.speed || 1,
         }),
       );

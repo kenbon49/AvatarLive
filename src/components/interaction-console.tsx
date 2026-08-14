@@ -9,8 +9,10 @@ import {
   type MuseTalkAvatarProfile,
 } from '@/lib/musetalk-total-stream';
 import {
+  AVATAR_VOICE_STORAGE_KEY,
   CUSTOM_AVATAR_STORAGE_KEY,
   DEFAULT_AVATARS,
+  readAvatarVoicePreferences,
   readCustomAvatars,
   type Avatar,
 } from '@/lib/avatar-catalog';
@@ -164,6 +166,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
     const stream = new MuseTalkTotalStream(canvasRef.current, {
       profile: avatar.profile,
       language: avatar.language,
+      voice: avatar.voice,
       onStage: setStage,
       onPlaybackReady: () => new Promise<void>((resolve) => {
         playbackGateResolveRef.current = resolve;
@@ -364,18 +367,22 @@ export function InteractionConsole() {
   const [selected, setSelected] = useState<Avatar | null>(null);
   const [catalogAvatars, setCatalogAvatars] = useState<Avatar[]>(DEFAULT_AVATARS);
   const [customAvatars, setCustomAvatars] = useState<Avatar[]>([]);
+  const [voicePreferences, setVoicePreferences] = useState<Record<string, string>>({});
   const [defaultProfile, setDefaultProfile] = useState<MuseTalkAvatarProfile>('chinese');
   const [catalogError, setCatalogError] = useState('');
 
   const avatars = [
     ...catalogAvatars,
     ...customAvatars.filter((custom) => !catalogAvatars.some((avatar) => avatar.id === custom.id)),
-  ];
+  ].map((avatar) => voicePreferences[avatar.id] ? { ...avatar, voice: voicePreferences[avatar.id] } : avatar);
 
   useEffect(() => {
-    const refreshCustomAvatars = () => setCustomAvatars(readCustomAvatars());
+    const refreshCustomAvatars = () => {
+      setCustomAvatars(readCustomAvatars());
+      setVoicePreferences(readAvatarVoicePreferences());
+    };
     const syncCustomAvatars = (event: StorageEvent) => {
-      if (event.key === CUSTOM_AVATAR_STORAGE_KEY) refreshCustomAvatars();
+      if (event.key === CUSTOM_AVATAR_STORAGE_KEY || event.key === AVATAR_VOICE_STORAGE_KEY) refreshCustomAvatars();
     };
     refreshCustomAvatars();
     window.addEventListener('storage', syncCustomAvatars);
