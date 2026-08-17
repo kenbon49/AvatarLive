@@ -30,6 +30,43 @@ export interface MuseTalkAvatarCatalog {
   defaultAvatarId: string;
 }
 
+export interface MuseTalkVoice {
+  voice_id: string;
+  name: string;
+  kind: 'preset' | 'clone' | string;
+  language?: string;
+  whisper_text?: string;
+  source?: { provider?: string; sample_url?: string } | null;
+}
+
+export async function fetchMuseTalkVoices(): Promise<MuseTalkVoice[]> {
+  const response = await fetch('/musetalk-total-api/v1/voices', { cache: 'no-store' });
+  if (!response.ok) throw new Error(`音色目录加载失败（HTTP ${response.status}）`);
+  const payload = (await response.json()) as { voices?: MuseTalkVoice[] };
+  return Array.isArray(payload.voices) ? payload.voices : [];
+}
+
+export async function cloneMuseTalkVoice(name: string, audio: File): Promise<MuseTalkVoice> {
+  const form = new FormData();
+  form.append('name', name);
+  form.append('audio', audio, audio.name);
+  const response = await fetch('/musetalk-total-api/v1/voices/clone', {
+    method: 'POST',
+    body: form,
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const payload = (await response.json()) as { detail?: unknown };
+      if (typeof payload.detail === 'string') detail = payload.detail;
+    } catch {
+      // Keep the HTTP status when the proxy returns a non-JSON error page.
+    }
+    throw new Error(`音色克隆失败：${detail}`);
+  }
+  return (await response.json()) as MuseTalkVoice;
+}
+
 export interface MuseTalkTotalOptions {
   avatarId?: string;
   profile?: MuseTalkStreamProfile;
@@ -808,7 +845,7 @@ export class ServerTotalStream {
           request_id: requestId,
           profile: this.options.profile || 'chinese',
           language: this.options.language || 'ZH',
-          voice: this.options.voice || undefined,
+          voice_id: this.options.voice || undefined,
           speed: this.options.speed || 1,
         }),
       );
@@ -837,7 +874,7 @@ export class ServerTotalStream {
           request_id: requestId,
           profile: this.options.profile || 'chinese',
           language: this.options.language || 'ZH',
-          voice: this.options.voice || undefined,
+          voice_id: this.options.voice || undefined,
           speed: this.options.speed || 1,
         }),
       );

@@ -37,7 +37,11 @@ import {
   type Avatar,
 } from '@/lib/avatar-catalog';
 import { avatarPreviewVideo } from '@/lib/avatar-preview-media';
-import type { MuseTalkAvatarProfile } from '@/lib/musetalk-total-stream';
+import {
+  cloneMuseTalkVoice,
+  fetchMuseTalkVoices,
+  type MuseTalkAvatarProfile,
+} from '@/lib/musetalk-total-stream';
 
 export type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona' | AvatarCapabilityMode;
 type ChatMessage = { role: 'assistant' | 'user'; text: string };
@@ -81,12 +85,10 @@ const BACKGROUNDS = [
 ];
 
 const DESIGN_VOICES: DesignVoice[] = [
-  { id: '603e674b998943e3b664e3b3f5aff006', name: '专业知性女声', detail: 'Fish Audio · 清晰专业', preview: '/assets/voice-samples/fish-audio/professional-female.mp3', source: 'public' },
-  { id: 'faccba1a8ac54016bcfc02761285e67f', name: '温柔动听女声', detail: 'Fish Audio · 温暖亲和', preview: '/assets/voice-samples/fish-audio/considerate-female.mp3', source: 'public' },
-  { id: '969b367b71224c45b4c86f0266dc0112', name: '活力带货女声', detail: 'Fish Audio · 元气自然', preview: '/assets/voice-samples/fish-audio/commerce-host-female.mp3', source: 'public' },
-  { id: '5a0aac1ed36d47dab16cc27ebebd47af', name: '沉稳讲述男声', detail: 'Fish Audio · 沉稳可信', preview: '/assets/voice-samples/fish-audio/steady-story-male.mp3', source: 'public' },
-  { id: '83f5551b1a554002971d897259bbea3c', name: '清澈青年男声', detail: 'Fish Audio · 清晰自然', preview: '/assets/voice-samples/fish-audio/clear-young-male.mp3', source: 'public' },
-  { id: '507a3b05f3a543f49d35de112b9ee3a6', name: '知性优雅女声', detail: 'Fish Audio · 舒缓可靠', preview: '/assets/voice-samples/fish-audio/elegant-female.mp3', source: 'public' },
+  { id: 'default_female', name: '默认女声', detail: 'CosyVoice · 中文女声', preview: '', source: 'public' },
+  { id: 'customer_service_female', name: '客服女声', detail: 'Fish Audio · 清晰专业', preview: '/assets/voice-samples/fish-audio/professional-female.mp3', source: 'public' },
+  { id: 'gentle_female', name: '温柔女声', detail: 'Fish Audio · 温暖亲和', preview: '/assets/voice-samples/fish-audio/considerate-female.mp3', source: 'public' },
+  { id: 'corporate_narrator_male', name: '企业宣传男声', detail: 'Fish Audio · 沉稳可信', preview: '/assets/voice-samples/fish-audio/steady-story-male.mp3', source: 'public' },
 ];
 
 async function resizeImage(file: File): Promise<string> {
@@ -156,6 +158,7 @@ export function AvatarDesignStudio({
   const [cloneTranscript, setCloneTranscript] = useState('');
   const [cloneState, setCloneState] = useState<'idle' | 'cloning' | 'ready'>('idle');
   const [cloneError, setCloneError] = useState('');
+  const [clonedVoice, setClonedVoice] = useState<DesignVoice | null>(null);
   const [background, setBackground] = useState(initialAvatar?.background ?? 'transparent');
   const [styleSelection, setStyleSelection] = useState<AvatarStyleSelection>(initialAvatar?.style ?? { ...DEFAULT_AVATAR_STYLE_SELECTION });
   const [image, setImage] = useState(initialAvatar?.image ?? '');
@@ -271,12 +274,39 @@ export function AvatarDesignStudio({
     voiceAudioRef.current?.pause();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    void fetchMuseTalkVoices()
+      .then((items) => {
+        if (!active || !items.length) return;
+        const profiles = items.map<DesignVoice>((item) => ({
+          id: item.voice_id,
+          name: item.name,
+          detail: `${item.source?.provider || 'CosyVoice'} · ${item.kind === 'clone' ? '克隆音色' : '可用音色'}`,
+          preview: item.source?.sample_url || DESIGN_VOICES.find((voice) => voice.id === item.voice_id)?.preview || '',
+          source: 'public',
+        }));
+        const ids = new Set(profiles.map((item) => item.id));
+        setVoiceProfiles(profiles);
+        setVoice((current) => ids.has(current) ? current : profiles[0].id);
+        setPendingVoice((current) => ids.has(current) ? current : profiles[0].id);
+      })
+      .catch((cause) => {
+        if (active) setCloneError(cause instanceof Error ? cause.message : '音色目录加载失败');
+      });
+    return () => { active = false; };
+  }, []);
+
   const previewVoice = async (item: DesignVoice) => {
     if (previewVoiceId === item.id) {
       stopVoicePreview();
       return;
     }
     stopVoicePreview();
+    if (!item.preview) {
+      setCloneError('该音色没有可用的试听音频。');
+      return;
+    }
     const audio = new Audio(item.preview);
     voiceAudioRef.current = audio;
     audio.onended = stopVoicePreview;
@@ -303,6 +333,7 @@ export function AvatarDesignStudio({
     setCloneFile(file);
     setClonePreview(URL.createObjectURL(file));
     setCloneName((current) => current || `${file.name.replace(/\.[^.]+$/, '')}的声音`);
+    setClonedVoice(null);
     setCloneState('idle');
     setCloneError('');
   };
@@ -316,32 +347,35 @@ export function AvatarDesignStudio({
       setCloneError('请为克隆语音命名。');
       return;
     }
-    if (cloneTranscript.trim().length < 5) {
-      setCloneError('请输入与录音完全一致的原文，至少 5 个字。');
-      return;
-    }
     setCloneError('');
     setCloneState('cloning');
-    await new Promise((resolve) => window.setTimeout(resolve, 1200));
-    setCloneState('ready');
+    try {
+      const result = await cloneMuseTalkVoice(cloneName.trim(), cloneFile);
+      setClonedVoice({
+        id: result.voice_id,
+        name: result.name,
+        detail: '我的克隆语音 · Whisper 已识别',
+        preview: clonePreview,
+        source: 'public',
+      });
+      setCloneTranscript(result.whisper_text || 'Whisper 已完成识别');
+      setCloneState('ready');
+    } catch (cause) {
+      setCloneState('idle');
+      setCloneError(cause instanceof Error ? cause.message : '音色克隆失败');
+    }
   };
 
   const saveCloneVoice = () => {
-    if (cloneState !== 'ready' || !clonePreview) return;
-    const nextVoice: DesignVoice = {
-      id: `clone-${Date.now()}`,
-      name: cloneName.trim(),
-      detail: '我的克隆语音 · 已就绪',
-      preview: clonePreview,
-      source: 'public',
-    };
-    setVoiceProfiles((items) => [nextVoice, ...items]);
-    setPendingVoice(nextVoice.id);
+    if (cloneState !== 'ready' || !clonedVoice) return;
+    setVoiceProfiles((items) => [clonedVoice, ...items.filter((item) => item.id !== clonedVoice.id)]);
+    setPendingVoice(clonedVoice.id);
     setVoiceSource('public');
     setCloneFile(null);
     setClonePreview('');
     setCloneName('');
     setCloneTranscript('');
+    setClonedVoice(null);
     setCloneState('idle');
   };
 
@@ -452,7 +486,7 @@ export function AvatarDesignStudio({
                   <span>{cloneFile ? <Check size={18} /> : <Upload size={18} />}</span><strong>{cloneFile?.name ?? '上传参考语音'}</strong><small>{cloneFile ? `${(cloneFile.size / 1024 / 1024).toFixed(2)} MB · 点击更换` : '10–30 秒清晰录音，最大 20 MB'}</small>
                 </label>
                 {clonePreview && <audio controls preload="metadata" src={clonePreview} />}
-                <div className="creatorVoiceFields"><label><span>语音名称</span><input value={cloneName} maxLength={20} placeholder="例如：我的直播声音" onChange={(event) => { setCloneName(event.target.value); setCloneState('idle'); }} /></label><label><span>参考语音原文</span><textarea value={cloneTranscript} maxLength={300} placeholder="填写录音中实际说出的完整文字" onChange={(event) => { setCloneTranscript(event.target.value); setCloneState('idle'); }} /></label></div>
+                <div className="creatorVoiceFields"><label><span>语音名称</span><input value={cloneName} maxLength={20} placeholder="例如：我的直播声音" onChange={(event) => { setCloneName(event.target.value); setCloneState('idle'); setClonedVoice(null); }} /></label><label><span>Whisper 识别文本</span><textarea value={cloneTranscript} maxLength={300} placeholder="上传后由后端 Whisper 自动识别" readOnly /></label></div>
                 {cloneError && <div className="creatorVoiceError">{cloneError}</div>}
                 {cloneState === 'ready' && <div className="creatorVoiceReady"><Check size={14} /><span><strong>克隆完成</strong><small>保存后会进入“可用语音”，选中并应用即可使用。</small></span></div>}
                 <button className="creatorVoiceCloneAction" type="button" disabled={cloneState === 'cloning'} onClick={cloneState === 'ready' ? saveCloneVoice : () => void cloneVoice()}>{cloneState === 'cloning' ? <><Loader2 size={14} className="xlVoiceSpinner" />正在克隆…</> : cloneState === 'ready' ? '保存语音' : '开始克隆'}</button>
