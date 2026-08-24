@@ -1070,6 +1070,7 @@ img, video, canvas { display: block; }
 .creatorNotice { min-height: 38px; padding: 0 13px; position: absolute; z-index: 4; left: 18px; right: 18px; top: 14px; border-radius: 7px; display: flex; align-items: center; gap: 8px; color: #556079; background: #e5f4ff; font-size: 9px; }
 .creatorNotice svg { color: #2f7aec; }
 .creatorCanvas { width: min(58vw, 820px); height: calc(100vh - 180px); max-height: 720px; min-height: 480px; overflow: hidden; position: relative; border-radius: 6px; display: grid; place-items: center; background-color: #eee; box-shadow: 0 10px 35px rgba(38, 44, 70, .07); }
+.creatorCanvas.hasImage { width: auto; height: min(calc(100vh - 180px), 720px); max-width: min(58vw, 820px); min-height: 0; aspect-ratio: var(--creator-image-ratio); }
 .creatorCanvas.background-transparent { background-image: linear-gradient(45deg, #ddd 25%, transparent 25%), linear-gradient(-45deg, #ddd 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ddd 75%), linear-gradient(-45deg, transparent 75%, #ddd 75%); background-size: 34px 34px; background-position: 0 0, 0 17px, 17px -17px, -17px 0; }
 .creatorCanvas.background-studio { background: radial-gradient(circle at 50% 25%, #fff, #e4e9f1 62%, #cbd2df); }
 .creatorCanvas.background-warm { background: linear-gradient(145deg, #f5e8d9, #d6b28e); }
@@ -1080,7 +1081,11 @@ img, video, canvas { display: block; }
 .creatorCanvas > button strong { font-size: 12px; }
 .creatorCanvas > button span { font-size: 9px; }
 .creatorAiBadge { padding: 6px 9px; position: absolute; right: 13px; bottom: 13px; border-radius: 7px; display: flex; align-items: center; gap: 5px; color: white; background: rgba(17, 26, 55, .64); font-size: 8px; backdrop-filter: blur(9px); }
+.creatorAiProgress { padding: 9px 12px; position: absolute; left: 50%; top: 50%; border-radius: 8px; display: flex; align-items: center; gap: 7px; color: white; background: rgba(17, 26, 55, .78); font-size: 9px; font-weight: 700; backdrop-filter: blur(10px); transform: translate(-50%, -50%); }
+.creatorAiSpinner { animation: creatorAiSpin .8s linear infinite; }
+@keyframes creatorAiSpin { to { transform: rotate(360deg); } }
 .creatorStageActions { margin-top: 12px; width: min(58vw, 820px); display: flex; align-items: center; justify-content: space-between; }
+.creatorStageActions > div { display: flex; gap: 7px; }
 .creatorStageActions button { height: 34px; padding: 0 11px; border: 1px solid #dfe2e9; border-radius: 7px; display: flex; align-items: center; gap: 6px; color: #686f83; background: white; font-size: 9px; cursor: pointer; }
 .creatorStageActions button:disabled { opacity: .38; cursor: not-allowed; }
 .creatorStageActions > span { color: #959aab; font-size: 8px; }
@@ -1203,6 +1208,7 @@ img, video, canvas { display: block; }
   .creatorCapabilityStage { min-height: 720px; overflow: visible; }
   .creatorCanvas, .creatorStageActions { width: 100%; }
   .creatorCanvas { height: 560px; min-height: 0; }
+  .creatorCanvas.hasImage { width: auto; height: 560px; max-width: 100%; }
 }
 
 @media (max-width: 560px) {
@@ -1268,6 +1274,9 @@ img, video, canvas { display: block; }
   .backgroundOptions { gap: 7px; }
   .creatorStage { min-height: 590px; }
   .creatorCanvas { height: 480px; }
+  .creatorCanvas.hasImage { height: 480px; }
+  .creatorStageActions { align-items: flex-start; gap: 8px; }
+  .creatorStageActions > div { flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {

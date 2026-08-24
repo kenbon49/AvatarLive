@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { CSSProperties, FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -18,7 +18,6 @@ import {
   ScanFace,
   Send,
   Sparkles,
-  Shirt,
   UserRound,
   Upload,
   Volume2,
@@ -46,6 +45,8 @@ import {
 export type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona' | AvatarCapabilityMode;
 type ChatMessage = { role: 'assistant' | 'user'; text: string };
 type DesignVoice = { id: string; name: string; detail: string; preview: string; source: 'public' };
+type ImageRevision = { image: string; filter: string };
+type ImageDimensions = { width: number; height: number };
 
 type StoredAvatar = {
   id: string;
@@ -71,10 +72,8 @@ const CREATOR_TABS = [
   { id: 'appearance' as const, label: '形象', icon: UserRound },
   { id: 'voice' as const, label: '声音', icon: Mic2 },
   { id: 'background' as const, label: '背景', icon: ImageIcon },
-  { id: 'persona' as const, label: '人设', icon: Bot },
   { id: 'expression' as const, label: '表情', icon: ScanFace },
   { id: 'motion' as const, label: '动作', icon: Move3d },
-  { id: 'style' as const, label: '造型', icon: Shirt },
 ];
 
 const BACKGROUNDS = [
@@ -90,6 +89,29 @@ const DESIGN_VOICES: DesignVoice[] = [
   { id: 'gentle_female', name: '温柔女声', detail: 'Fish Audio · 温暖亲和', preview: '/assets/voice-samples/fish-audio/considerate-female.mp3', source: 'public' },
   { id: 'corporate_narrator_male', name: '企业宣传男声', detail: 'Fish Audio · 沉稳可信', preview: '/assets/voice-samples/fish-audio/steady-story-male.mp3', source: 'public' },
 ];
+
+const AI_FULL_BODY_PATTERN = /全身|补全|扩图|扩展画面|下半身|腿部|鞋子|脚部/;
+const AI_IMAGE_RATIOS = [
+  { label: '9:16', value: 9 / 16 },
+  { label: '2:3', value: 2 / 3 },
+  { label: '3:4', value: 3 / 4 },
+  { label: '4:5', value: 4 / 5 },
+  { label: '1:1', value: 1 },
+  { label: '5:4', value: 5 / 4 },
+  { label: '4:3', value: 4 / 3 },
+  { label: '3:2', value: 3 / 2 },
+  { label: '16:9', value: 16 / 9 },
+  { label: '21:9', value: 21 / 9 },
+] as const;
+
+function aiImageAspectRatio(instruction: string, dimensions: ImageDimensions | null) {
+  if (AI_FULL_BODY_PATTERN.test(instruction)) return '9:16';
+  if (!dimensions?.width || !dimensions.height) return '9:16';
+  const ratio = dimensions.width / dimensions.height;
+  return AI_IMAGE_RATIOS.reduce((closest, candidate) => (
+    Math.abs(candidate.value - ratio) < Math.abs(closest.value - ratio) ? candidate : closest
+  )).label;
+}
 
 async function resizeImage(file: File): Promise<string> {
   const source = await new Promise<string>((resolve, reject) => {
@@ -162,6 +184,9 @@ export function AvatarDesignStudio({
   const [background, setBackground] = useState(initialAvatar?.background ?? 'transparent');
   const [styleSelection, setStyleSelection] = useState<AvatarStyleSelection>(initialAvatar?.style ?? { ...DEFAULT_AVATAR_STYLE_SELECTION });
   const [image, setImage] = useState(initialAvatar?.image ?? '');
+  const [imageDimensions, setImageDimensions] = useState<ImageDimensions | null>(null);
+  const [imageHistory, setImageHistory] = useState<ImageRevision[]>([]);
+  const [imageEditing, setImageEditing] = useState(false);
   const [sourceAvatarId, setSourceAvatarId] = useState(initialAvatar?.id ?? initialAvatarId ?? '');
   const [editingCustomAvatar, setEditingCustomAvatar] = useState(initialAvatar?.custom === true);
   const [sourceProfile, setSourceProfile] = useState<MuseTalkAvatarProfile>(initialAvatar?.profile ?? 'chinese');
@@ -169,7 +194,7 @@ export function AvatarDesignStudio({
   const [imageFilter, setImageFilter] = useState('none');
   const [prompt, setPrompt] = useState('');
   const [chat, setChat] = useState<ChatMessage[]>([
-    { role: 'assistant', text: '上传形象后，可以告诉我“亮一点”“偏暖”“黑白”或“恢复原图”。' },
+    { role: 'assistant', text: '上传形象后，可以调整亮度和色调，也可以让 AI 换装、换背景或补全全身。' },
   ]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -221,16 +246,17 @@ export function AvatarDesignStudio({
       setError('');
       setImage(await resizeImage(file));
       setImageFilter('none');
+      setImageHistory([]);
       setChat((items) => [...items, { role: 'assistant', text: '形象已载入。现在可以用自然语言调整画面风格。' }]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '图片处理失败');
     }
   };
 
-  const modifyImage = (event: FormEvent) => {
+  const modifyImage = async (event: FormEvent) => {
     event.preventDefault();
     const instruction = prompt.trim();
-    if (!instruction) return;
+    if (!instruction || imageEditing) return;
     setPrompt('');
     setChat((items) => [...items, { role: 'user', text: instruction }]);
 
@@ -240,7 +266,7 @@ export function AvatarDesignStudio({
     }
 
     let nextFilter = imageFilter;
-    let response = '已记录这条修改要求。换装、发型或重绘需要接入图像编辑模型；当前预览支持亮度、冷暖和黑白调整。';
+    let response = '';
     if (/恢复|还原|原图|重置/.test(instruction)) {
       nextFilter = 'none';
       response = '已恢复原图。';
@@ -260,8 +286,58 @@ export function AvatarDesignStudio({
       nextFilter = 'grayscale(1) contrast(1.08)';
       response = '已经生成黑白风格预览。';
     }
-    setImageFilter(nextFilter);
-    window.setTimeout(() => setChat((items) => [...items, { role: 'assistant', text: response }]), 180);
+    if (response) {
+      setImageFilter(nextFilter);
+      window.setTimeout(() => setChat((items) => [...items, { role: 'assistant', text: response }]), 180);
+      return;
+    }
+
+    setImageEditing(true);
+    setError('');
+    setChat((items) => [...items, { role: 'assistant', text: '正在保持人物身份特征并生成修改后的形象…' }]);
+    try {
+      const renderedImage = await bakeImageFilter(image, imageFilter);
+      const sourceResponse = await fetch(renderedImage);
+      if (!sourceResponse.ok) throw new Error('当前形象读取失败');
+      const sourceBlob = await sourceResponse.blob();
+      const form = new FormData();
+      form.append('prompt', instruction);
+      form.append('aspect_ratio', aiImageAspectRatio(instruction, imageDimensions));
+      form.append('image', sourceBlob, 'avatar-reference.jpg');
+
+      const editResponse = await fetch('/avatar-image-api/edit', { method: 'POST', body: form });
+      const payload = await editResponse.json() as { image?: unknown; message?: unknown; model?: unknown };
+      if (!editResponse.ok || typeof payload.image !== 'string') {
+        throw new Error(typeof payload.message === 'string' ? payload.message : `图像编辑服务返回 HTTP ${editResponse.status}`);
+      }
+      const generatedResponse = await fetch(payload.image);
+      const generatedBlob = await generatedResponse.blob();
+      const normalizedImage = await resizeImage(new File([generatedBlob], 'avatar-generated.png', { type: generatedBlob.type || 'image/png' }));
+
+      setImageHistory((items) => [...items.slice(-4), { image, filter: imageFilter }]);
+      setImage(normalizedImage);
+      setImageFilter('none');
+      setChat((items) => [
+        ...items.slice(0, -1),
+        { role: 'assistant', text: `修改完成${typeof payload.model === 'string' ? ` · ${payload.model}` : ''}。不满意可以撤销后重新描述。` },
+      ]);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'AI 形象修改失败';
+      setError(message);
+      setChat((items) => [...items.slice(0, -1), { role: 'assistant', text: `修改失败：${message}` }]);
+    } finally {
+      setImageEditing(false);
+    }
+  };
+
+  const undoImageEdit = () => {
+    const previous = imageHistory.at(-1);
+    if (!previous || imageEditing) return;
+    setImage(previous.image);
+    setImageFilter(previous.filter);
+    setImageHistory((items) => items.slice(0, -1));
+    setError('');
+    setChat((items) => [...items, { role: 'assistant', text: '已撤销上一次 AI 修改。' }]);
   };
 
   const stopVoicePreview = () => {
@@ -417,6 +493,9 @@ export function AvatarDesignStudio({
 
   const appliedVoiceName = voiceProfiles.find((item) => item.id === voice)?.name ?? voice;
   const pendingVoiceName = voiceProfiles.find((item) => item.id === pendingVoice)?.name ?? pendingVoice;
+  const creatorCanvasStyle = image && imageDimensions
+    ? { '--creator-image-ratio': String(imageDimensions.width / imageDimensions.height) } as CSSProperties
+    : undefined;
 
   return (
     <div className="creatorShell">
@@ -424,7 +503,7 @@ export function AvatarDesignStudio({
         <button className="creatorBack" type="button" onClick={() => router.push('/')} aria-label="返回形象列表"><ArrowLeft size={18} /></button>
         <div className="creatorResourceTitle"><span>图片数字人 /</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="未命名形象" maxLength={16} /></div>
         <span className="creatorSaveHint">配置会保存在当前浏览器</span>
-        <button className="creatorPublish" type="button" onClick={() => void saveAvatar()} disabled={!name.trim() || !image || saving}>{saving ? '正在保存…' : '保存并使用'}</button>
+        <button className="creatorPublish" type="button" onClick={() => void saveAvatar()} disabled={!name.trim() || !image || saving || imageEditing}>{saving ? '正在保存…' : '保存并使用'}</button>
       </header>
 
       <div className="creatorBody">
@@ -461,11 +540,11 @@ export function AvatarDesignStudio({
                 <div className="imageChatMessages">
                   {chat.slice(-4).map((message, index) => <p className={message.role} key={`${message.role}-${index}`}>{message.text}</p>)}
                 </div>
-                <form className="imagePrompt" onSubmit={modifyImage}>
-                  <input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：整体亮一点" />
-                  <button aria-label="发送修改要求" disabled={!prompt.trim()}><Send size={15} /></button>
+                <form className="imagePrompt" onSubmit={(event) => void modifyImage(event)}>
+                  <input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：补全为职业女性全身照" disabled={imageEditing} />
+                  <button aria-label="发送修改要求" disabled={!prompt.trim() || imageEditing}>{imageEditing ? <Loader2 size={15} className="creatorAiSpinner" /> : <Send size={15} />}</button>
                 </form>
-                <div className="apiBoundary"><Sparkles size={13} />复杂重绘已预留图像编辑 API 接入位置</div>
+                <div className="apiBoundary"><Sparkles size={13} />亮度与色调在本地处理，复杂修改由 Nano Banana 生成</div>
               </section>
             </>
           )}
@@ -521,12 +600,16 @@ export function AvatarDesignStudio({
 
         <main className="creatorStage">
           <div className="creatorNotice"><Sparkles size={15} /><span>{background === 'transparent' ? '当前为透明背景预览，保存后可在互动与直播场景中继续配置。' : '当前背景仅用于构图预览，形象会以原始比例完整显示。'}</span></div>
-          <div className={`creatorCanvas background-${background}`}>
-            {image ? <img src={image} alt="数字人预览" style={{ filter: imageFilter }} /> : <button type="button" onClick={() => fileRef.current?.click()}><ImagePlus size={30} /><strong>上传一张图片开始创建</strong><span>人物会在这里以原始比例预览</span></button>}
+          <div className={`creatorCanvas background-${background} ${image ? 'hasImage' : ''}`} style={creatorCanvasStyle}>
+            {image ? <img src={image} alt="数字人预览" style={{ filter: imageFilter }} onLoad={(event) => setImageDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} /> : <button type="button" onClick={() => fileRef.current?.click()}><ImagePlus size={30} /><strong>上传一张图片开始创建</strong><span>人物会在这里以原始比例预览</span></button>}
             {image && <span className="creatorAiBadge"><Sparkles size={12} />图片数字人</span>}
+            {imageEditing && <span className="creatorAiProgress"><Loader2 size={17} className="creatorAiSpinner" />AI 正在修改形象</span>}
           </div>
           <div className="creatorStageActions">
-            <button type="button" onClick={() => setImageFilter('none')} disabled={!image || imageFilter === 'none'}><RotateCcw size={16} />恢复原图</button>
+            <div>
+              <button type="button" onClick={() => setImageFilter('none')} disabled={!image || imageFilter === 'none' || imageEditing}><RotateCcw size={16} />恢复色调</button>
+              <button type="button" onClick={undoImageEdit} disabled={!imageHistory.length || imageEditing}><RotateCcw size={16} />撤销 AI 修改</button>
+            </div>
             <span>{appliedVoiceName}</span>
           </div>
         </main>

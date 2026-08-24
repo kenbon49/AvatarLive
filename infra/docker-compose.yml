@@ -138,6 +138,9 @@ services:
       MUSETALK_UPSTREAM: ${MUSETALK_DOCKER_UPSTREAM:-http://host.docker.internal:8031}
       MUSETALK_TOTAL_UPSTREAM: ${MUSETALK_TOTAL_UPSTREAM:-http://host.docker.internal:8085}
       LIVEACT_UPSTREAM: ${LIVEACT_DOCKER_UPSTREAM:-http://host.docker.internal:5071}
+      SEO_IMAGE_API_BASE_URL: ${SEO_IMAGE_API_BASE_URL:-http://host.docker.internal:8080}
+      SEO_IMAGE_API_KEY: ${SEO_IMAGE_API_KEY:-}
+      SEO_IMAGE_MODEL: ${SEO_IMAGE_MODEL:-gemini-3.1-flash-image}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
