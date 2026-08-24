@@ -98,11 +98,11 @@ const PACKET_HEADER_BYTES = 24;
 const PLAYBACK_LEAD_SECONDS = 0.12;
 const MAX_PENDING_VIDEO_DECODES = 2;
 const configuredPlaybackBufferMs = Number(
-  process.env.NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS || 600,
+  process.env.NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS || 1500,
 );
 const PLAYBACK_BUFFER_MS = Number.isFinite(configuredPlaybackBufferMs)
-  ? Math.min(2_000, Math.max(200, configuredPlaybackBufferMs))
-  : 600;
+  ? Math.min(4_000, Math.max(500, configuredPlaybackBufferMs))
+  : 1500;
 const PLAYBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const PLAYBACK_COMPLETION_FALLBACK_MS = 2_500;
 const SUPPORTED_AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
@@ -259,6 +259,7 @@ export class ServerTotalStream {
   private connectReject: ((error: Error) => void) | null = null;
   private closedByUser = false;
   private audioContext: AudioContext | null = null;
+  private audioWorkletNode: AudioWorkletNode | null = null;
   private audioSources = new Set<AudioBufferSourceNode>();
   private audioScheduledUntil = 0;
   private sessionGeneration = 0;
@@ -282,6 +283,12 @@ export class ServerTotalStream {
   private playbackGateRequested = false;
   private conversationStreamStarted = false;
   private deferredMediaPackets: ArrayBuffer[] = [];
+  private bufferedAudioEndPts = 0;
+  private bufferedVideoReady = false;
+  private playbackBufferSeconds = PLAYBACK_BUFFER_MS / 1000;
+  private conversationEnded = false;
+  private audioWorkletStarted = false;
+  private workletUnderrunBlocks = 0;
   private pendingVideoDecodes = 0;
   private pendingPlaybackCompletion: { active: ActiveRequest; result: MuseTalkTotalResult } | null = null;
   private activeRequest: ActiveRequest | null = null;
@@ -345,13 +352,15 @@ export class ServerTotalStream {
     }
     if (!this.playbackGateOpen) {
       this.deferredMediaPackets.push(buffer);
-      // Wait for a video frame, rather than merely stream_start, so the canvas
-      // never replaces the idle clip with an empty frame.
-      if (packetType === 1 && !this.playbackGateRequested) {
-        this.playbackGateRequested = true;
-        const active = this.activeRequest;
-        if (active) void this.openPlaybackGate(generation, active);
+      if (packetType === 1) {
+        this.bufferedVideoReady = true;
+      } else if (packetType === 2) {
+        this.bufferedAudioEndPts = Math.max(
+          this.bufferedAudioEndPts,
+          ptsSeconds + payloadSize / 2 / 16_000,
+        );
       }
+      this.maybeOpenPlaybackGate(generation);
       return;
     }
     const payload = buffer.slice(PACKET_HEADER_BYTES);
@@ -361,6 +370,14 @@ export class ServerTotalStream {
       }
       const audioContext = this.audioContext;
       if (!audioContext || audioContext.state !== 'running') return;
+      if (this.audioWorkletNode) {
+        this.audioWorkletNode.port.postMessage({ type: 'enqueue', data: payload }, [payload]);
+        this.audioScheduledUntil = Math.max(
+          this.audioScheduledUntil,
+          this.mediaStartAudio + ptsSeconds + payloadSize / 2 / 16_000,
+        );
+        return;
+      }
       const samples = new Int16Array(payload);
       const audioBuffer = audioContext.createBuffer(1, samples.length, 16_000);
       const channel = audioBuffer.getChannelData(0);
@@ -526,6 +543,9 @@ export class ServerTotalStream {
       }
     }
     this.audioSources.clear();
+    this.audioWorkletNode?.port.postMessage({ type: 'stop' });
+    this.audioWorkletNode?.disconnect();
+    this.audioWorkletNode = null;
     this.audioScheduledUntil = 0;
     this.clearVideoPlayback();
     if (this.audioContext && this.audioContext.state !== 'closed') await this.audioContext.close();
@@ -535,6 +555,10 @@ export class ServerTotalStream {
     this.playbackGateRequested = false;
     this.conversationStreamStarted = false;
     this.deferredMediaPackets = [];
+    this.bufferedAudioEndPts = 0;
+    this.bufferedVideoReady = false;
+    this.conversationEnded = false;
+    this.audioWorkletStarted = false;
     this.pendingPlaybackCompletion = null;
   }
 
@@ -636,12 +660,18 @@ export class ServerTotalStream {
     return true;
   }
 
+  private maybeOpenPlaybackGate(generation: number, force = false) {
+    if (this.playbackGateOpen || this.playbackGateRequested) return;
+    if (!this.bufferedVideoReady || this.bufferedAudioEndPts <= 0) return;
+    if (!force && this.bufferedAudioEndPts < this.playbackBufferSeconds) return;
+    const active = this.activeRequest;
+    if (!active) return;
+    this.playbackGateRequested = true;
+    void this.openPlaybackGate(generation, active);
+  }
+
   private async openPlaybackGate(generation: number, active: ActiveRequest) {
     try {
-      // Buffer while the idle video keeps moving; pausing it here would make
-      // the avatar visibly freeze before speech starts.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, PLAYBACK_BUFFER_MS));
-      if (generation !== this.sessionGeneration || this.closedByUser || this.activeRequest !== active) return;
       await this.options.onPlaybackReady?.();
       if (generation !== this.sessionGeneration || this.closedByUser || this.activeRequest !== active) return;
       this.playbackGateOpen = true;
@@ -649,6 +679,14 @@ export class ServerTotalStream {
       const packets = this.deferredMediaPackets;
       this.deferredMediaPackets = [];
       for (const packet of packets) void this.handlePacket(packet, generation);
+      if (this.audioWorkletNode && !this.audioWorkletStarted) {
+        this.audioWorkletStarted = true;
+        this.audioWorkletNode.port.postMessage({
+          type: 'start',
+          delaySamples: Math.round(PLAYBACK_LEAD_SECONDS * 16_000),
+        });
+        if (this.conversationEnded) this.audioWorkletNode.port.postMessage({ type: 'end' });
+      }
       this.finishPendingPlayback();
     } catch (error) {
       this.rejectActive(error instanceof Error ? error : new Error(String(error)));
@@ -659,6 +697,10 @@ export class ServerTotalStream {
     if (generation !== this.sessionGeneration) return;
     const type = String(message.type || 'unknown');
     if (type === 'ready') {
+      const configuredSeconds = Number(message.playback_buffer_seconds);
+      if (Number.isFinite(configuredSeconds)) {
+        this.playbackBufferSeconds = Math.min(4, Math.max(0.5, configuredSeconds));
+      }
       this.resolveConnecting();
       return;
     }
@@ -717,14 +759,19 @@ export class ServerTotalStream {
       this.conversationStreamStarted = true;
       this.deferredMediaPackets = [];
       this.playbackGateRequested = false;
-      this.playbackGateOpen = !this.options.onPlaybackReady;
-      if (this.playbackGateOpen) this.startMediaTimeline(PLAYBACK_LEAD_SECONDS);
+      this.playbackGateOpen = false;
       return;
     }
     if (type === 'conversation_end') {
       const requestId = String(message.request_id || '');
       const active = this.activeRequest;
       if (active && active.requestId === requestId) {
+        this.conversationEnded = true;
+        if (!this.playbackGateOpen) {
+          this.maybeOpenPlaybackGate(generation, true);
+        } else {
+          this.audioWorkletNode?.port.postMessage({ type: 'end' });
+        }
         const answer = String(message.answer || active.streamedText || active.answer);
         this.ensureAnswerVisible(answer, this.textGeneration);
         this.setStage('playing');
@@ -773,7 +820,31 @@ export class ServerTotalStream {
 
   async prepareAudio(): Promise<void> {
     if (!this.audioContext || this.audioContext.state === 'closed') {
-      this.audioContext = new AudioContext({ latencyHint: 'interactive' });
+      this.audioContext = new AudioContext({ latencyHint: 'interactive', sampleRate: 16_000 });
+      if (this.audioContext.sampleRate === 16_000 && this.audioContext.audioWorklet) {
+        try {
+          await this.audioContext.audioWorklet.addModule('/vendor/musetalk-playback-worklet.js');
+          const node = new AudioWorkletNode(this.audioContext, 'musetalk-playback-worklet', {
+            numberOfInputs: 0,
+            numberOfOutputs: 1,
+            outputChannelCount: [1],
+          });
+          node.port.onmessage = (event: MessageEvent<{ type?: string; underrunBlocks?: number }>) => {
+            if (event.data?.type === 'metrics') {
+              const underrunBlocks = Number(event.data.underrunBlocks || 0);
+              if (underrunBlocks > this.workletUnderrunBlocks) {
+                console.warn(`MuseTalk audio buffer underrun: ${underrunBlocks} blocks`);
+              }
+              this.workletUnderrunBlocks = underrunBlocks;
+            }
+          };
+          node.connect(this.audioContext.destination);
+          this.audioWorkletNode = node;
+        } catch (error) {
+          console.warn('MuseTalk AudioWorklet unavailable; using scheduled audio fallback.', error);
+          this.audioWorkletNode = null;
+        }
+      }
     }
     const wasRunning = this.audioContext.state === 'running';
     if (!wasRunning) await this.audioContext.resume();
@@ -834,6 +905,12 @@ export class ServerTotalStream {
     this.mediaTimelineStarted = false;
     this.audioScheduledUntil = 0;
     this.conversationStreamStarted = false;
+    this.bufferedAudioEndPts = 0;
+    this.bufferedVideoReady = false;
+    this.conversationEnded = false;
+    this.audioWorkletStarted = false;
+    this.workletUnderrunBlocks = 0;
+    this.audioWorkletNode?.port.postMessage({ type: 'stop' });
     this.clearVideoPlayback();
     this.pendingPlaybackCompletion = null;
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
@@ -864,6 +941,12 @@ export class ServerTotalStream {
     this.mediaTimelineStarted = false;
     this.audioScheduledUntil = 0;
     this.conversationStreamStarted = false;
+    this.bufferedAudioEndPts = 0;
+    this.bufferedVideoReady = false;
+    this.conversationEnded = false;
+    this.audioWorkletStarted = false;
+    this.workletUnderrunBlocks = 0;
+    this.audioWorkletNode?.port.postMessage({ type: 'stop' });
     this.clearVideoPlayback();
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
       this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
