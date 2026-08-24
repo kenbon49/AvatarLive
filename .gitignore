@@ -17,6 +17,8 @@ tmp/
 
 .venv/
 output/
+runtime/avatar-assets/
+runtime/avatar-base-videos/
 
 # 本地缓存 / 训练产物，不入库
 .pnpm-store/

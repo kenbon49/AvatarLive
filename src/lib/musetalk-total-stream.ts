@@ -7,14 +7,7 @@ export interface MuseTalkTotalResult {
   totalLatencyMs: number;
 }
 
-export type MuseTalkAvatarProfile =
-  | 'chinese'
-  | 'business_male_1'
-  | 'chen_yu'
-  | 'casual_male'
-  | 'middle_aged_male'
-  | 'casual_conversation'
-  | 'casual_female';
+export type MuseTalkAvatarProfile = string;
 type MuseTalkStreamProfile = MuseTalkAvatarProfile;
 
 export interface MuseTalkAvatarCatalogEntry {
@@ -105,18 +98,8 @@ const PLAYBACK_BUFFER_MS = Number.isFinite(configuredPlaybackBufferMs)
   : 1500;
 const PLAYBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const PLAYBACK_COMPLETION_FALLBACK_MS = 2_500;
-const SUPPORTED_AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
-  'chinese',
-  'business_male_1',
-  'chen_yu',
-  'casual_male',
-  'middle_aged_male',
-  'casual_conversation',
-  'casual_female',
-]);
-
 function isAvatarProfile(value: unknown): value is MuseTalkAvatarProfile {
-  return typeof value === 'string' && SUPPORTED_AVATAR_PROFILES.has(value as MuseTalkAvatarProfile);
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,95}$/.test(value);
 }
 
 function nextRequestId(): string {
@@ -143,22 +126,23 @@ export async function fetchMuseTalkAvatarCatalog(): Promise<MuseTalkAvatarCatalo
     if (!response.ok) throw new Error(`server_total HTTP ${response.status}`);
     const payload = (await response.json()) as {
       default?: unknown;
-      avatars?: Array<{ id?: unknown; name?: unknown; default?: unknown }>;
+      avatars?: Array<{ id?: unknown; name?: unknown; default?: unknown; custom?: unknown }>;
     };
     const avatars = (Array.isArray(payload.avatars) ? payload.avatars : [])
-      .filter((item): item is { id: MuseTalkAvatarProfile; name?: unknown; default?: unknown } =>
+      .filter((item): item is { id: MuseTalkAvatarProfile; name?: unknown; default?: unknown; custom?: unknown } =>
         isAvatarProfile(item?.id),
       )
       .map((item) => ({
         id: item.id,
         name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : item.id,
         default: item.default === true,
+        custom: item.custom === true,
       }));
     if (!avatars.length) throw new Error('server_total 没有返回可用的数字人');
     const defaultProfile = isAvatarProfile(payload.default) && avatars.some((item) => item.id === payload.default)
       ? payload.default
       : avatars.find((item) => item.default)?.id || avatars[0].id;
-    const avatarIdByProfile: Partial<Record<MuseTalkAvatarProfile, string>> = {
+    const avatarIdByProfile: Record<string, string> = {
       chinese: 'chinese',
       business_male_1: 'business-male-1',
       chen_yu: 'chenyu',
@@ -166,8 +150,8 @@ export async function fetchMuseTalkAvatarCatalog(): Promise<MuseTalkAvatarCatalo
     return {
       avatars,
       defaultProfile,
-      availableAvatarIds: avatars.flatMap((avatar) => avatarIdByProfile[avatar.id] || []),
-      defaultAvatarId: avatarIdByProfile[defaultProfile] || '',
+      availableAvatarIds: avatars.map((avatar) => avatarIdByProfile[avatar.id] || avatar.id),
+      defaultAvatarId: avatarIdByProfile[defaultProfile] || defaultProfile,
     };
   };
 

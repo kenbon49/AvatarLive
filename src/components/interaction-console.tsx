@@ -30,9 +30,8 @@ const IDLE_SEEK_TIMEOUT_MS = 250;
 const CONFIGURED_INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'business-male-1', 'chenyu', 'suqing', 'guyan']);
 
 function isInteractiveAvatar(avatar: Avatar, availableAvatarIds: Set<string>) {
-  return !avatar.custom
-    && CONFIGURED_INTERACTIVE_AVATAR_IDS.has(avatar.id)
-    && availableAvatarIds.has(avatar.id);
+  if (avatar.custom) return Boolean(avatar.video) && availableAvatarIds.has(avatar.profile);
+  return CONFIGURED_INTERACTIVE_AVATAR_IDS.has(avatar.id) && availableAvatarIds.has(avatar.id);
 }
 
 function IdleAvatarMedia({
@@ -53,7 +52,7 @@ function IdleAvatarMedia({
   const videoRef = useRef<HTMLVideoElement>(null);
   const handoffHandledRef = useRef(false);
   const returnHandledRef = useRef(false);
-  const source = !avatar.custom ? IDLE_VIDEO_BY_AVATAR_ID[avatar.id] : undefined;
+  const source = avatar.video?.idleVideo || (!avatar.custom ? IDLE_VIDEO_BY_AVATAR_ID[avatar.id] : undefined);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -144,11 +143,9 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
   const busy = stage !== 'idle' && stage !== 'conversation_end' && stage !== 'error';
-  const hasIdleVideo = !avatar.custom && Boolean(IDLE_VIDEO_BY_AVATAR_ID[avatar.id]);
-  const showGeneratedMedia = mediaActive && !avatar.custom;
-  const lipSyncStatus = avatar.custom
-    ? '自定义模型待生成/接入'
-    : connectionState === 'failed'
+  const hasIdleVideo = Boolean(avatar.video?.idleVideo || (!avatar.custom && IDLE_VIDEO_BY_AVATAR_ID[avatar.id]));
+  const showGeneratedMedia = mediaActive && (!avatar.custom || Boolean(avatar.video));
+  const lipSyncStatus = connectionState === 'failed'
       ? '连接失败'
       : mediaActive ? '运行中' : '连接中';
 
@@ -331,11 +328,11 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
             <div className="stageWash" />
             {busy && <div className="voiceWave" aria-label="数字人正在响应"><i /><i /><i /><i /><i /></div>}
             <div className="callDock">
-              <span><i />{avatar.custom ? '实时语音' : '实时音视频'}</span>
+              <span><i />实时音视频</span>
               <button type="button" onClick={toggleMic} className={listening ? 'listening' : ''} aria-label={listening ? '停止聆听' : '开始语音输入'}>
                 {listening ? <MicOff size={20} /> : <PhoneCall size={20} />}
               </button>
-              <span>{avatar.custom ? '图片模式' : '低延迟模式'}</span>
+              <span>低延迟模式</span>
             </div>
           </section>
 
@@ -474,18 +471,25 @@ export function InteractionConsole() {
             </Link>
             {avatars.map((avatar) => {
               const avatarIsInteractive = interactive(avatar);
+              const availability = avatar.pendingVideo?.status === 'review'
+                ? '动态视频待确认'
+                : avatar.pendingVideo && ['submitted', 'processing', 'finalizing'].includes(avatar.pendingVideo.status)
+                  ? '动态视频生成中'
+                  : avatar.pendingVideo?.status === 'failed'
+                    ? '动态视频生成失败'
+                    : '暂不可用';
               return (
               <div className="avatarProductCardWrap" key={avatar.id}>
                 <button className="avatarProductCard" type="button" onClick={() => avatarIsInteractive && setSelected(avatar)} disabled={!avatarIsInteractive}>
                   <span className="avatarProductMedia">
                     <AvatarMedia avatar={avatar} />
-                    {!avatarIsInteractive && <span className="avatarAvailabilityBadge">暂不可用</span>}
+                    {!avatarIsInteractive && <span className="avatarAvailabilityBadge">{availability}</span>}
                   </span>
                   <span className="avatarProductInfo">
                     <span><strong>{avatar.name}</strong><small>{avatar.custom ? `专属形象 · ${avatar.description || avatar.role}` : avatar.description || avatar.role}</small></span>
                   </span>
                 </button>
-                {avatarIsInteractive && <Link className="avatarConfigLink" href={avatarDesignHref(avatar)} aria-label={`配置${avatar.name}`}><Settings2 size={13} /><span>配置</span></Link>}
+                {(avatarIsInteractive || avatar.custom) && <Link className="avatarConfigLink" href={avatarDesignHref(avatar)} aria-label={`配置${avatar.name}`}><Settings2 size={13} /><span>配置</span></Link>}
               </div>
               );
             })}

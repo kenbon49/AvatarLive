@@ -141,6 +141,15 @@ services:
       SEO_IMAGE_API_BASE_URL: ${SEO_IMAGE_API_BASE_URL:-http://host.docker.internal:8080}
       SEO_IMAGE_API_KEY: ${SEO_IMAGE_API_KEY:-}
       SEO_IMAGE_MODEL: ${SEO_IMAGE_MODEL:-gemini-3.1-flash-image}
+      SEO_VIDEO_API_BASE_URL: ${SEO_VIDEO_API_BASE_URL:-http://host.docker.internal:8080}
+      SEO_VIDEO_API_KEY: ${SEO_VIDEO_API_KEY:-}
+      SEO_VIDEO_MODEL: ${SEO_VIDEO_MODEL:-happyhorse-1.0-video-edit}
+      SEO_VIDEO_FALLBACK_MODEL: ${SEO_VIDEO_FALLBACK_MODEL:-doubao-seedance-2-5-260628}
+      MUSETALK_ADMIN_UPSTREAM: ${MUSETALK_ADMIN_DOCKER_UPSTREAM:-http://host.docker.internal:8083}
+      AVATAR_REGISTRY_KEY: ${AVATAR_REGISTRY_KEY:-}
+    volumes:
+      - ${AVATAR_ASSET_HOST_DIR:-../runtime/avatar-assets}:/app/runtime/avatar-assets
+      - ${AVATAR_BASE_VIDEO_HOST_DIR:-../../AvatarLive-backend/data/public}:/app/runtime/avatar-base-videos:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

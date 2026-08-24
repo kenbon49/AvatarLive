@@ -34,6 +34,8 @@ import {
   readAvatarVoicePreferences,
   readCustomAvatars,
   type Avatar,
+  type AvatarVideoAsset,
+  type AvatarVideoJob,
 } from '@/lib/avatar-catalog';
 import { avatarPreviewVideo } from '@/lib/avatar-preview-media';
 import {
@@ -60,7 +62,27 @@ type StoredAvatar = {
   voice: string;
   background: string;
   style: AvatarStyleSelection;
+  baseProfile: MuseTalkAvatarProfile;
+  video?: AvatarVideoAsset;
+  pendingVideo?: AvatarVideoJob;
 };
+
+type AvatarVideoJobPayload = {
+  jobId: string;
+  avatarId: string;
+  profile?: string;
+  status: AvatarVideoJob['status'] | 'ready';
+  model?: string;
+  progress?: string;
+  error?: string;
+  image?: string;
+  idleVideo?: string;
+  talkVideo?: string;
+  quality?: { duration?: number; width?: number; height?: number; frames?: number; fps?: number } | null;
+  message?: string;
+};
+
+const SEEDANCE_FALLBACK_MODEL = 'doubao-seedance-2-5-260628';
 
 type AvatarDesignStudioProps = {
   initialAvatar?: Avatar;
@@ -157,6 +179,46 @@ function initialGreeting(avatar?: Avatar) {
   return avatar.custom ? avatar.description : `你好，我是${avatar.name}。有什么可以帮你？`;
 }
 
+function pendingJobFromPayload(payload: AvatarVideoJobPayload): AvatarVideoJob {
+  const allowed = new Set<AvatarVideoJob['status']>(['submitted', 'processing', 'finalizing', 'review', 'failed']);
+  if (!payload.jobId || !allowed.has(payload.status as AvatarVideoJob['status'])) {
+    throw new Error('动态素材服务返回了无效任务状态');
+  }
+  return {
+    jobId: payload.jobId,
+    status: payload.status as AvatarVideoJob['status'],
+    model: payload.model,
+    profile: payload.profile,
+    progress: payload.progress,
+    error: payload.error,
+    idleVideo: payload.idleVideo,
+    talkVideo: payload.talkVideo,
+    image: payload.image,
+  };
+}
+
+function updateStoredAvatarVideo(
+  avatarId: string,
+  pendingVideo: AvatarVideoJob | undefined,
+  video: AvatarVideoAsset | undefined,
+  image?: string,
+) {
+  const avatars = readCustomAvatars();
+  const current = avatars.find((avatar) => avatar.id === avatarId);
+  if (!current) return;
+  const updated = {
+    ...current,
+    image: image || current.image,
+    profile: video?.profile || current.profile,
+    pendingVideo,
+    video,
+  };
+  localStorage.setItem(
+    CUSTOM_AVATAR_STORAGE_KEY,
+    JSON.stringify([updated, ...avatars.filter((avatar) => avatar.id !== avatarId)]),
+  );
+}
+
 export function AvatarDesignStudio({
   initialAvatar,
   initialAvatarId,
@@ -190,7 +252,12 @@ export function AvatarDesignStudio({
   const [sourceAvatarId, setSourceAvatarId] = useState(initialAvatar?.id ?? initialAvatarId ?? '');
   const [editingCustomAvatar, setEditingCustomAvatar] = useState(initialAvatar?.custom === true);
   const [sourceProfile, setSourceProfile] = useState<MuseTalkAvatarProfile>(initialAvatar?.profile ?? 'chinese');
+  const [baseProfile, setBaseProfile] = useState<MuseTalkAvatarProfile>(initialAvatar?.baseProfile ?? initialAvatar?.profile ?? 'chinese');
   const [sourceLanguage, setSourceLanguage] = useState<'ZH' | 'EN'>(initialAvatar?.language ?? 'ZH');
+  const [video, setVideo] = useState<AvatarVideoAsset | undefined>(initialAvatar?.video);
+  const [pendingVideo, setPendingVideo] = useState<AvatarVideoJob | undefined>(initialAvatar?.pendingVideo);
+  const [videoActionPending, setVideoActionPending] = useState(false);
+  const draftAvatarIdRef = useRef(`custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
   const [imageFilter, setImageFilter] = useState('none');
   const [prompt, setPrompt] = useState('');
   const [chat, setChat] = useState<ChatMessage[]>([
@@ -210,6 +277,7 @@ export function AvatarDesignStudio({
     setSourceAvatarId(stored.id);
     setEditingCustomAvatar(true);
     setSourceProfile(stored.profile);
+    setBaseProfile(stored.baseProfile ?? stored.profile);
     setSourceLanguage(stored.language);
     setName(stored.name);
     setRole(stored.role);
@@ -219,6 +287,8 @@ export function AvatarDesignStudio({
     setBackground(stored.background ?? 'transparent');
     setStyleSelection(stored.style ?? { ...DEFAULT_AVATAR_STYLE_SELECTION });
     setImage(stored.image);
+    setVideo(stored.video);
+    setPendingVideo(stored.pendingVideo);
   }, [initialAvatar, initialAvatarId]);
 
   const syncDesignUrl = (tab: CreatorTab) => {
@@ -463,33 +533,134 @@ export function AvatarDesignStudio({
     localStorage.setItem(AVATAR_VOICE_STORAGE_KEY, JSON.stringify({ ...preferences, [avatarId]: pendingVoice }));
   };
 
+  const currentCustomAvatarId = () => (
+    editingCustomAvatar && sourceAvatarId.startsWith('custom-')
+      ? sourceAvatarId
+      : draftAvatarIdRef.current
+  );
+
+  const persistAvatar = (finalImage: string) => {
+    const avatar: StoredAvatar = {
+      id: currentCustomAvatarId(),
+      name: name.trim(),
+      role: role.trim() || '专属数字人',
+      description: greeting.trim() || '专属互动数字人',
+      profile: video?.profile || sourceProfile,
+      baseProfile,
+      language: sourceLanguage,
+      image: finalImage,
+      custom: true,
+      voice,
+      background,
+      style: styleSelection,
+      video,
+      pendingVideo,
+    };
+    const remaining = readCustomAvatars().filter((item) => item.id !== avatar.id);
+    localStorage.setItem(CUSTOM_AVATAR_STORAGE_KEY, JSON.stringify([avatar, ...remaining]));
+    setSourceAvatarId(avatar.id);
+    setEditingCustomAvatar(true);
+    return avatar;
+  };
+
   const saveAvatar = async () => {
     if (!name.trim() || !image || saving) return;
     setSaving(true);
     setError('');
     try {
-      const finalImage = await bakeImageFilter(image, imageFilter);
-      const avatar: StoredAvatar = {
-        id: editingCustomAvatar && sourceAvatarId ? sourceAvatarId : `custom-${Date.now()}`,
-        name: name.trim(),
-        role: role.trim() || '专属数字人',
-        description: greeting.trim() || '专属互动数字人',
-        profile: sourceProfile,
-        language: sourceLanguage,
-        image: finalImage,
-        custom: true,
-        voice,
-        background,
-        style: styleSelection,
-      };
-      const remaining = readCustomAvatars().filter((item) => item.id !== avatar.id);
-      localStorage.setItem(CUSTOM_AVATAR_STORAGE_KEY, JSON.stringify([avatar, ...remaining]));
+      persistAvatar(await bakeImageFilter(image, imageFilter));
       router.push('/');
     } catch (cause) {
       setSaving(false);
       setError(cause instanceof Error ? cause.message : '浏览器存储空间不足，请使用尺寸更小的照片。');
     }
   };
+
+  const startVideoGeneration = async (requestedModel?: string) => {
+    if (!name.trim() || !image || videoActionPending || ['submitted', 'processing', 'finalizing'].includes(pendingVideo?.status || '')) return;
+    setVideoActionPending(true);
+    setError('');
+    try {
+      const finalImage = await bakeImageFilter(image, imageFilter);
+      const avatar = persistAvatar(finalImage);
+      const sourceResponse = await fetch(finalImage);
+      if (!sourceResponse.ok) throw new Error('最终形象图片读取失败');
+      const form = new FormData();
+      form.append('avatar_id', avatar.id);
+      form.append('avatar_name', avatar.name);
+      form.append('base_profile', avatar.baseProfile);
+      form.append('image', await sourceResponse.blob(), 'avatar-reference.jpg');
+      if (requestedModel) form.append('model', requestedModel);
+      const response = await fetch('/avatar-video-api/jobs', { method: 'POST', body: form });
+      const payload = await response.json() as AvatarVideoJobPayload;
+      if (!response.ok) throw new Error(payload.message || payload.error || `动态素材服务 HTTP ${response.status}`);
+      const nextJob = pendingJobFromPayload(payload);
+      setImage(finalImage);
+      setImageFilter('none');
+      setPendingVideo(nextJob);
+      updateStoredAvatarVideo(avatar.id, nextJob, video, finalImage);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '动态素材任务创建失败');
+    } finally {
+      setVideoActionPending(false);
+    }
+  };
+
+  const publishVideo = async () => {
+    if (!pendingVideo || pendingVideo.status !== 'review' || videoActionPending) return;
+    setVideoActionPending(true);
+    setError('');
+    try {
+      const response = await fetch(`/avatar-video-api/jobs/${encodeURIComponent(pendingVideo.jobId)}/publish`, { method: 'POST' });
+      const payload = await response.json() as AvatarVideoJobPayload;
+      if (!response.ok || payload.status !== 'ready' || !payload.profile || !payload.idleVideo || !payload.talkVideo) {
+        throw new Error(payload.message || payload.error || '动态素材应用失败');
+      }
+      const nextVideo: AvatarVideoAsset = {
+        jobId: payload.jobId,
+        profile: payload.profile,
+        idleVideo: payload.idleVideo,
+        talkVideo: payload.talkVideo,
+        image: payload.image,
+      };
+      setVideo(nextVideo);
+      setPendingVideo(undefined);
+      setSourceProfile(nextVideo.profile);
+      if (payload.image) setImage(payload.image);
+      updateStoredAvatarVideo(currentCustomAvatarId(), undefined, nextVideo, payload.image);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '动态素材应用失败');
+    } finally {
+      setVideoActionPending(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!pendingVideo || ['review', 'failed'].includes(pendingVideo.status)) return;
+    let active = true;
+    let timeout: number | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/avatar-video-api/jobs/${encodeURIComponent(pendingVideo.jobId)}`, { cache: 'no-store' });
+        const payload = await response.json() as AvatarVideoJobPayload;
+        if (!payload.jobId) throw new Error(payload.message || `动态素材任务查询 HTTP ${response.status}`);
+        const nextJob = pendingJobFromPayload(payload);
+        if (!active) return;
+        setPendingVideo(nextJob);
+        updateStoredAvatarVideo(currentCustomAvatarId(), nextJob, video, payload.image);
+        if (!['review', 'failed'].includes(nextJob.status)) timeout = window.setTimeout(poll, 5_000);
+      } catch (cause) {
+        if (!active) return;
+        setError(cause instanceof Error ? cause.message : '动态素材任务查询失败');
+        timeout = window.setTimeout(poll, 8_000);
+      }
+    };
+    void poll();
+    return () => {
+      active = false;
+      if (timeout) window.clearTimeout(timeout);
+    };
+  }, [pendingVideo?.jobId, pendingVideo?.status, sourceAvatarId, video]);
 
   const appliedVoiceName = voiceProfiles.find((item) => item.id === voice)?.name ?? voice;
   const pendingVoiceName = voiceProfiles.find((item) => item.id === pendingVoice)?.name ?? pendingVoice;
@@ -520,7 +691,7 @@ export function AvatarDesignStudio({
               mode={capabilityMode}
               avatarImage={image}
               avatarName={name}
-              avatarVideo={avatarPreviewVideo(sourceAvatarId)}
+              avatarVideo={pendingVideo?.idleVideo || video?.idleVideo || avatarPreviewVideo(sourceAvatarId)}
               styleSelection={styleSelection}
               onStyleSelectionChange={setStyleSelection}
             />
@@ -545,6 +716,26 @@ export function AvatarDesignStudio({
                   <button aria-label="发送修改要求" disabled={!prompt.trim() || imageEditing}>{imageEditing ? <Loader2 size={15} className="creatorAiSpinner" /> : <Send size={15} />}</button>
                 </form>
                 <div className="apiBoundary"><Sparkles size={13} />亮度与色调在本地处理，复杂修改由 Nano Banana 生成</div>
+              </section>
+
+              <section className="creatorMotionCard">
+                <div className="creatorMotionTitle"><Play size={15} /><span><strong>动态形象素材</strong><small>同一底片生成静息循环并供 MuseTalk 实时换口型</small></span></div>
+                {video && !pendingVideo && <div className="creatorMotionState ready"><Check size={14} /><span><strong>动态素材已应用</strong><small>当前形象可以进入实时音视频互动</small></span></div>}
+                {video && !pendingVideo && <video className="creatorMotionPreview" src={video.idleVideo} muted autoPlay loop playsInline controls />}
+                {pendingVideo && <div className={`creatorMotionState ${pendingVideo.status}`}>
+                  {['submitted', 'processing', 'finalizing'].includes(pendingVideo.status) ? <Loader2 size={14} className="creatorAiSpinner" /> : pendingVideo.status === 'review' ? <Play size={14} /> : <RotateCcw size={14} />}
+                  <span><strong>{pendingVideo.status === 'review' ? '候选视频等待确认' : pendingVideo.status === 'failed' ? '动态素材生成失败' : '正在生成动态素材'}</strong><small>{pendingVideo.error || pendingVideo.progress || '任务正在处理中'}</small></span>
+                </div>}
+                {pendingVideo?.status === 'review' && pendingVideo.idleVideo && <video className="creatorMotionPreview" src={pendingVideo.idleVideo} muted autoPlay loop playsInline controls />}
+                {pendingVideo?.status === 'review'
+                  ? <button className="creatorMotionAction primary" type="button" disabled={videoActionPending} onClick={() => void publishVideo()}>{videoActionPending ? '正在应用…' : '确认并应用动态素材'}</button>
+                  : !pendingVideo || pendingVideo.status === 'failed'
+                    ? <>
+                      <button className="creatorMotionAction" type="button" disabled={!image || !name.trim() || videoActionPending} onClick={() => void startVideoGeneration()}>{videoActionPending ? '正在提交…' : video ? '用 HappyHorse 重新生成' : '生成动态形象'}</button>
+                      {pendingVideo?.status === 'failed' && pendingVideo.model !== SEEDANCE_FALLBACK_MODEL && <button className="creatorMotionAction" type="button" disabled={!image || !name.trim() || videoActionPending} onClick={() => void startVideoGeneration(SEEDANCE_FALLBACK_MODEL)}>改用 Seedance 2.5</button>}
+                    </>
+                    : null}
+                <p>优先使用 HappyHorse 720P（预计约 10.8–14.4 元/次）；失败时可显式改用 Seedance 2.5，生成结果需预览确认后才会切换。</p>
               </section>
             </>
           )}

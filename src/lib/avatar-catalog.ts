@@ -6,6 +6,26 @@ export type AvatarStyle = {
   accessory: string;
 };
 
+export type AvatarVideoAsset = {
+  jobId: string;
+  profile: MuseTalkAvatarProfile;
+  idleVideo: string;
+  talkVideo: string;
+  image?: string;
+};
+
+export type AvatarVideoJob = {
+  jobId: string;
+  status: 'submitted' | 'processing' | 'finalizing' | 'review' | 'failed';
+  model?: string;
+  profile?: MuseTalkAvatarProfile;
+  progress?: string;
+  error?: string;
+  idleVideo?: string;
+  talkVideo?: string;
+  image?: string;
+};
+
 export type Avatar = {
   id: string;
   profile: MuseTalkAvatarProfile;
@@ -18,6 +38,9 @@ export type Avatar = {
   voice?: string;
   background?: string;
   style?: AvatarStyle;
+  baseProfile?: MuseTalkAvatarProfile;
+  video?: AvatarVideoAsset;
+  pendingVideo?: AvatarVideoJob;
 };
 
 export const DEFAULT_AVATARS: Avatar[] = [
@@ -126,7 +149,7 @@ export function readAvatarVoicePreferences(): Record<string, string> {
   }
 }
 
-const AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
+const BASE_AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
   'chinese',
   'business_male_1',
   'chen_yu',
@@ -135,6 +158,47 @@ const AVATAR_PROFILES = new Set<MuseTalkAvatarProfile>([
   'casual_conversation',
   'casual_female',
 ]);
+const AVATAR_PROFILE_PATTERN = /^[a-z0-9][a-z0-9_-]{0,95}$/;
+
+function storedVideoAsset(value: unknown): AvatarVideoAsset | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const stored = value as Record<string, unknown>;
+  if (
+    typeof stored.jobId !== 'string'
+    || typeof stored.profile !== 'string'
+    || !AVATAR_PROFILE_PATTERN.test(stored.profile)
+    || typeof stored.idleVideo !== 'string'
+    || typeof stored.talkVideo !== 'string'
+  ) return undefined;
+  return {
+    jobId: stored.jobId,
+    profile: stored.profile,
+    idleVideo: stored.idleVideo,
+    talkVideo: stored.talkVideo,
+    image: typeof stored.image === 'string' ? stored.image : undefined,
+  };
+}
+
+function storedVideoJob(value: unknown): AvatarVideoJob | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const stored = value as Record<string, unknown>;
+  const statuses = new Set(['submitted', 'processing', 'finalizing', 'review', 'failed']);
+  if (typeof stored.jobId !== 'string' || typeof stored.status !== 'string' || !statuses.has(stored.status)) return undefined;
+  const profile = typeof stored.profile === 'string' && AVATAR_PROFILE_PATTERN.test(stored.profile)
+    ? stored.profile
+    : undefined;
+  return {
+    jobId: stored.jobId,
+    status: stored.status as AvatarVideoJob['status'],
+    model: typeof stored.model === 'string' ? stored.model : undefined,
+    profile,
+    progress: typeof stored.progress === 'string' ? stored.progress : undefined,
+    error: typeof stored.error === 'string' ? stored.error : undefined,
+    idleVideo: typeof stored.idleVideo === 'string' ? stored.idleVideo : undefined,
+    talkVideo: typeof stored.talkVideo === 'string' ? stored.talkVideo : undefined,
+    image: typeof stored.image === 'string' ? stored.image : undefined,
+  };
+}
 
 export function readCustomAvatars(): Avatar[] {
   try {
@@ -157,9 +221,14 @@ export function readCustomAvatars(): Avatar[] {
         ? stored.style as Record<string, unknown>
         : null;
       ids.add(id);
-      const profile = typeof stored.profile === 'string' && AVATAR_PROFILES.has(stored.profile as MuseTalkAvatarProfile)
+      const video = storedVideoAsset(stored.video);
+      const pendingVideo = storedVideoJob(stored.pendingVideo);
+      const profile = typeof stored.profile === 'string' && AVATAR_PROFILE_PATTERN.test(stored.profile)
         ? stored.profile as MuseTalkAvatarProfile
-        : 'chinese';
+        : video?.profile || 'chinese';
+      const baseProfile = typeof stored.baseProfile === 'string' && BASE_AVATAR_PROFILES.has(stored.baseProfile)
+        ? stored.baseProfile
+        : BASE_AVATAR_PROFILES.has(profile) ? profile : 'chinese';
       return [{
         id,
         profile,
@@ -173,6 +242,9 @@ export function readCustomAvatars(): Avatar[] {
         custom: true,
         voice: typeof stored.voice === 'string' ? stored.voice : undefined,
         background: typeof stored.background === 'string' ? stored.background : undefined,
+        baseProfile,
+        video,
+        pendingVideo,
         style: storedStyle
           && typeof storedStyle.outfit === 'string'
           && typeof storedStyle.hair === 'string'

@@ -997,6 +997,21 @@ img, video, canvas { display: block; }
 .imagePrompt button { width: 31px; height: 31px; padding: 0; border: 0; border-radius: 7px; display: grid; place-items: center; color: white; background: var(--blue); cursor: pointer; }
 .imagePrompt button:disabled { opacity: .35; }
 .apiBoundary { padding: 0 10px 10px; display: flex; align-items: center; gap: 5px; color: #989daf; font-size: 7px; }
+.creatorMotionCard { margin-top: 13px; padding: 12px; border: 1px solid #dfe3f0; border-radius: 11px; display: grid; gap: 9px; background: linear-gradient(145deg, #fbfcff, #f3f5ff); }
+.creatorMotionTitle { display: flex; align-items: flex-start; gap: 8px; color: var(--blue); }
+.creatorMotionTitle > span, .creatorMotionState > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.creatorMotionTitle strong { color: #3d4357; font-size: 9px; }
+.creatorMotionTitle small { color: #858b9e; font-size: 7px; line-height: 1.45; }
+.creatorMotionState { padding: 9px; border-radius: 8px; display: flex; align-items: flex-start; gap: 7px; color: #5867b5; background: #e9edff; }
+.creatorMotionState.ready, .creatorMotionState.review { color: #24766b; background: #eaf8f4; }
+.creatorMotionState.failed { color: #b9504b; background: #fff0ef; }
+.creatorMotionState strong { font-size: 8px; }
+.creatorMotionState small { color: inherit; opacity: .72; font-size: 7px; line-height: 1.45; }
+.creatorMotionPreview { width: 100%; max-height: 270px; border-radius: 8px; object-fit: contain; background: #dfe2e9; }
+.creatorMotionAction { min-height: 34px; border: 1px solid #b8c1eb; border-radius: 8px; color: #4c5eaf; background: white; font-size: 8px; font-weight: 700; cursor: pointer; }
+.creatorMotionAction.primary { border-color: var(--blue); color: white; background: var(--blue); }
+.creatorMotionAction:disabled { opacity: .55; cursor: wait; }
+.creatorMotionCard > p { margin: 0; color: #999eae; font-size: 7px; line-height: 1.45; }
 .voiceOptions { display: grid; gap: 8px; }
 .voiceOptions button { min-height: 58px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; display: flex; align-items: center; text-align: left; background: white; cursor: pointer; }
 .voiceOptions button.active { border-color: #9aa8ff; background: #f7f8ff; }
