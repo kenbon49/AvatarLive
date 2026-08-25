@@ -26,6 +26,7 @@ export async function POST(request: Request) {
   try {
     const input = await request.formData();
     const image = input.get('image');
+    const garmentInput = input.get('garment_reference');
     const prompt = String(input.get('prompt') || '').trim();
     const requestedRatio = String(input.get('aspect_ratio') || '9:16');
     const aspectRatio = ALLOWED_ASPECT_RATIOS.has(requestedRatio) ? requestedRatio : '9:16';
@@ -33,11 +34,24 @@ export async function POST(request: Request) {
     if (!(image instanceof File)) return errorResponse('请上传需要修改的形象图片', 400);
     if (!ALLOWED_IMAGE_TYPES.has(image.type)) return errorResponse('形象图片仅支持 JPG、PNG 或 WebP', 400);
     if (!image.size || image.size > MAX_IMAGE_BYTES) return errorResponse('形象图片大小必须在 20 MB 以内', 400);
+    if (garmentInput !== null && !(garmentInput instanceof File)) return errorResponse('服装参考图格式无效', 400);
+    const garmentReference = garmentInput instanceof File ? garmentInput : null;
+    if (garmentReference && !ALLOWED_IMAGE_TYPES.has(garmentReference.type)) return errorResponse('服装参考图仅支持 JPG、PNG 或 WebP', 400);
+    if (garmentReference && (!garmentReference.size || garmentReference.size > MAX_IMAGE_BYTES)) return errorResponse('服装参考图大小必须在 20 MB 以内', 400);
     if (!prompt || prompt.length > 1200) return errorResponse('修改要求长度必须在 1 到 1200 个字符之间', 400);
 
     const guardedPrompt = [
-      'Edit the supplied portrait according to the user request.',
-      'Keep the same person, facial identity, age, facial proportions and skin tone unless explicitly requested otherwise.',
+      garmentReference
+        ? 'Use the two supplied images according to their explicitly assigned roles.'
+        : 'Edit the supplied portrait according to the user request.',
+      garmentReference
+        ? 'Image 1 is the identity portrait. Preserve this person, face, hair, age, skin tone, body proportions and overall identity.'
+        : 'Keep the same person, facial identity, age, facial proportions and skin tone unless explicitly requested otherwise.',
+      ...(garmentReference ? [
+        'Image 2 is a garment-only visual reference. Transfer only its clothing silhouette, cut, colors, materials, pattern and clearly visible styling details onto the person in Image 1.',
+        'Do not copy the person, face, body proportions, pose, hands, background, text, watermark or unrelated objects from Image 2.',
+        'Fit the referenced garment naturally to the person in Image 1 with plausible anatomy, draping and proportions.',
+      ] : []),
       'Keep the result photorealistic, naturally lit, front-facing and suitable as a digital-human avatar.',
       'Do not add text, logos, watermarks, extra people or duplicated body parts.',
       `User request: ${prompt}`,
@@ -50,6 +64,7 @@ export async function POST(request: Request) {
     body.append('aspect_ratio', aspectRatio);
     body.append('size', '1K');
     body.append('reference_images', image, image.name || 'avatar-reference.jpg');
+    if (garmentReference) body.append('reference_images', garmentReference, garmentReference.name || 'garment-reference.jpg');
 
     const generated = await fetch(`${upstream}/api/ai/generate-image`, {
       method: 'POST',

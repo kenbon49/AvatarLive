@@ -16,10 +16,12 @@ import {
   RotateCcw,
   ScanFace,
   Send,
+  Shirt,
   Sparkles,
   UserRound,
   Upload,
   Volume2,
+  X,
 } from 'lucide-react';
 import {
   AvatarCapabilityPanel,
@@ -53,6 +55,7 @@ type VoicePreview = { id: string; status: 'loading' | 'playing' };
 type FishVoicePreset = { id: string; name: string; detail: string; tags: string[]; audio_url: string };
 type ImageRevision = { image: string; filter: string };
 type ImageDimensions = { width: number; height: number };
+type GarmentReference = { image: string; name: string };
 
 type StoredAvatar = {
   id: string;
@@ -107,6 +110,9 @@ const DESIGN_VOICES: DesignVoice[] = [
 
 const DEFAULT_DESIGN_PROMPT = '一位二十多岁的普通话女声，音色自然温暖、亲和清晰，语速适中，表达有轻微笑意，像专业的品牌讲解员，不夸张、不嗲。';
 const DEFAULT_VOICE_PREVIEW_TEXT = '你好，很高兴认识你。接下来，我会用自然、清晰的声音，为你介绍今天的精彩内容。';
+const DEFAULT_GARMENT_PROMPT = '参考服装图，为人物换上这套服装，保持人物身份和自然体型，生成正面全身数字人形象。';
+const MAX_UPLOAD_IMAGE_BYTES = 20 * 1024 * 1024;
+const ALLOWED_UPLOAD_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 const AI_FULL_BODY_PATTERN = /全身|补全|扩图|扩展画面|下半身|腿部|鞋子|脚部/;
 const AI_IMAGE_RATIOS = [
@@ -129,6 +135,12 @@ function aiImageAspectRatio(instruction: string, dimensions: ImageDimensions | n
   return AI_IMAGE_RATIOS.reduce((closest, candidate) => (
     Math.abs(candidate.value - ratio) < Math.abs(closest.value - ratio) ? candidate : closest
   )).label;
+}
+
+function imageUploadError(file: File, label: string) {
+  if (!ALLOWED_UPLOAD_IMAGE_TYPES.has(file.type)) return `${label}仅支持 JPG、PNG 或 WebP。`;
+  if (!file.size || file.size > MAX_UPLOAD_IMAGE_BYTES) return `${label}大小必须在 20 MB 以内。`;
+  return '';
 }
 
 async function resizeImage(file: File): Promise<string> {
@@ -222,6 +234,7 @@ export function AvatarDesignStudio({
 }: AvatarDesignStudioProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const garmentFileRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<CreatorTab>(initialTab);
   const [name, setName] = useState(initialAvatar?.name ?? '');
   const [role, setRole] = useState(initialAvatar?.role ?? '品牌数字人');
@@ -255,6 +268,7 @@ export function AvatarDesignStudio({
   const [styleSelection, setStyleSelection] = useState<AvatarStyleSelection>(initialAvatar?.style ?? { ...DEFAULT_AVATAR_STYLE_SELECTION });
   const [image, setImage] = useState(initialAvatar?.image ?? '');
   const [imageDimensions, setImageDimensions] = useState<ImageDimensions | null>(null);
+  const [garmentReference, setGarmentReference] = useState<GarmentReference | null>(null);
   const [imageHistory, setImageHistory] = useState<ImageRevision[]>([]);
   const [imageEditing, setImageEditing] = useState(false);
   const [sourceAvatarId, setSourceAvatarId] = useState(initialAvatar?.id ?? initialAvatarId ?? '');
@@ -269,7 +283,7 @@ export function AvatarDesignStudio({
   const [imageFilter, setImageFilter] = useState('none');
   const [prompt, setPrompt] = useState('');
   const [chat, setChat] = useState<ChatMessage[]>([
-    { role: 'assistant', text: '上传形象后，可以调整亮度和色调，也可以让 AI 换装、换背景或补全全身。' },
+    { role: 'assistant', text: '上传形象后，可以用文字换装；也可以添加服装参考图，让 AI 按照版型、颜色和材质完成设计。' },
   ]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -316,8 +330,9 @@ export function AvatarDesignStudio({
 
   const loadImage = async (file?: File) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('请选择 JPG、PNG 或 WebP 图片。');
+    const validationError = imageUploadError(file, '人物图片');
+    if (validationError) {
+      setError(validationError);
       return;
     }
     try {
@@ -329,6 +344,28 @@ export function AvatarDesignStudio({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '图片处理失败');
     }
+  };
+
+  const loadGarmentReference = async (file?: File) => {
+    if (!file) return;
+    const validationError = imageUploadError(file, '服装参考图');
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    try {
+      setError('');
+      setGarmentReference({ image: await resizeImage(file), name: file.name || '服装参考图' });
+      setPrompt((current) => current.trim() ? current : DEFAULT_GARMENT_PROMPT);
+      setChat((items) => [...items, { role: 'assistant', text: '服装参考图已载入。生成时只会参考服装，不会复制图片中的模特、姿势或背景。' }]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '服装参考图处理失败');
+    }
+  };
+
+  const clearGarmentReference = () => {
+    setGarmentReference(null);
+    setChat((items) => [...items, { role: 'assistant', text: '已移除服装参考图，后续修改只使用当前人物形象和文字要求。' }]);
   };
 
   const modifyImage = async (event: FormEvent) => {
@@ -372,7 +409,10 @@ export function AvatarDesignStudio({
 
     setImageEditing(true);
     setError('');
-    setChat((items) => [...items, { role: 'assistant', text: '正在保持人物身份特征并生成修改后的形象…' }]);
+    setChat((items) => [...items, {
+      role: 'assistant',
+      text: garmentReference ? '正在保持人物身份，并参考服装版型、颜色和材质完成换装…' : '正在保持人物身份特征并生成修改后的形象…',
+    }]);
     try {
       const renderedImage = await bakeImageFilter(image, imageFilter);
       const sourceResponse = await fetch(renderedImage);
@@ -382,6 +422,11 @@ export function AvatarDesignStudio({
       form.append('prompt', instruction);
       form.append('aspect_ratio', aiImageAspectRatio(instruction, imageDimensions));
       form.append('image', sourceBlob, 'avatar-reference.jpg');
+      if (garmentReference) {
+        const garmentResponse = await fetch(garmentReference.image);
+        if (!garmentResponse.ok) throw new Error('服装参考图读取失败');
+        form.append('garment_reference', await garmentResponse.blob(), 'garment-reference.jpg');
+      }
 
       const editResponse = await fetch('/avatar-image-api/edit', { method: 'POST', body: form });
       const payload = await editResponse.json() as { image?: unknown; message?: unknown; model?: unknown };
@@ -397,7 +442,7 @@ export function AvatarDesignStudio({
       setImageFilter('none');
       setChat((items) => [
         ...items.slice(0, -1),
-        { role: 'assistant', text: `修改完成${typeof payload.model === 'string' ? ` · ${payload.model}` : ''}。不满意可以撤销后重新描述。` },
+        { role: 'assistant', text: `${garmentReference ? '参考换装' : '修改'}完成${typeof payload.model === 'string' ? ` · ${payload.model}` : ''}。不满意可以撤销后重新描述。` },
       ]);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'AI 形象修改失败';
@@ -907,13 +952,30 @@ export function AvatarDesignStudio({
               </button>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => void loadImage(event.target.files?.[0])} />
 
+              <section className={`creatorGarmentReference ${garmentReference ? 'hasImage' : ''}`}>
+                <div className="creatorGarmentHeader">
+                  <span><Shirt size={16} /></span>
+                  <div><strong>服装参考图 <em>可选</em></strong><small>仅参考版型、颜色、材质与图案</small></div>
+                </div>
+                {garmentReference ? (
+                  <div className="creatorGarmentPreview">
+                    <img src={garmentReference.image} alt="服装参考图预览" />
+                    <span><strong title={garmentReference.name}>{garmentReference.name}</strong><small>生成时作为第二张参考图</small><button type="button" disabled={imageEditing} onClick={() => garmentFileRef.current?.click()}>更换图片</button></span>
+                    <button className="creatorGarmentRemove" type="button" aria-label="移除服装参考图" disabled={imageEditing} onClick={clearGarmentReference}><X size={14} /></button>
+                  </div>
+                ) : (
+                  <button className="creatorGarmentUpload" type="button" disabled={imageEditing} onClick={() => garmentFileRef.current?.click()}><Upload size={15} /><span><strong>上传一张衣服图片</strong><small>支持平铺图、商品图或模特穿搭图</small></span></button>
+                )}
+                <input ref={garmentFileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; void loadGarmentReference(file); }} />
+              </section>
+
               <section className="imageChat">
-                <div className="imageChatTitle"><MessageSquareText size={16} /><span><strong>对话修改形象</strong><small>当前支持本地画面风格指令</small></span></div>
+                <div className="imageChatTitle"><MessageSquareText size={16} /><span><strong>对话修改形象</strong><small>{garmentReference ? '已启用人物与服装双图参考' : '复杂修改由 AI 保持人物身份生成'}</small></span></div>
                 <div className="imageChatMessages">
                   {chat.slice(-4).map((message, index) => <p className={message.role} key={`${message.role}-${index}`}>{message.text}</p>)}
                 </div>
                 <form className="imagePrompt" onSubmit={(event) => void modifyImage(event)}>
-                  <input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：补全为职业女性全身照" disabled={imageEditing} />
+                  <input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={garmentReference ? '例如：参考服装图，为人物换上这套衣服' : '例如：补全为职业女性全身照'} disabled={imageEditing} />
                   <button aria-label="发送修改要求" disabled={!prompt.trim() || imageEditing}>{imageEditing ? <Loader2 size={15} className="creatorAiSpinner" /> : <Send size={15} />}</button>
                 </form>
                 <div className="apiBoundary"><Sparkles size={13} />亮度与色调在本地处理，复杂修改由 Nano Banana 生成</div>
