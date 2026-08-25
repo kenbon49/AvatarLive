@@ -49,6 +49,8 @@ import {
 export type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona' | AvatarCapabilityMode;
 type ChatMessage = { role: 'assistant' | 'user'; text: string };
 type DesignVoice = { id: string; name: string; detail: string; preview: string; source: 'public' };
+type VoiceSource = 'public' | 'design' | 'clone';
+type FishVoicePreset = { id: string; name: string; detail: string; tags: string[]; audio_url: string };
 type ImageRevision = { image: string; filter: string };
 type ImageDimensions = { width: number; height: number };
 
@@ -110,6 +112,27 @@ const BACKGROUNDS = [
 const DESIGN_VOICES: DesignVoice[] = [
   { id: DEFAULT_AVATAR_VOICE_ID, name: '默认音色', detail: 'OpenVoice · 可用音色', preview: '', source: 'public' },
 ];
+
+const VOICE_DESIGN_TEMPLATES = [
+  {
+    label: '亲和讲解',
+    prompt: '一位二十多岁的普通话女声，音色自然温暖、亲和清晰，语速适中，表达有轻微笑意，像专业的品牌讲解员，不夸张、不嗲。',
+  },
+  {
+    label: '知性专业',
+    prompt: '一位三十岁左右的普通话女声，知性沉稳、吐字清晰，音域自然，语气专业可信，适合企业介绍和知识讲解。',
+  },
+  {
+    label: '青年活力',
+    prompt: '一位年轻普通话男声，音色清澈有活力，节奏明快但不急促，表达自然、有感染力，适合科技产品和直播互动。',
+  },
+  {
+    label: '沉稳叙述',
+    prompt: '一位成熟普通话男声，音色厚实沉稳，语速从容，吐字准确，叙述感强，适合纪录片、课程和商务内容。',
+  },
+] as const;
+
+const DEFAULT_VOICE_PREVIEW_TEXT = '你好，很高兴认识你。接下来，我会用自然、清晰的声音，为你介绍今天的精彩内容。';
 
 const AI_FULL_BODY_PATTERN = /全身|补全|扩图|扩展画面|下半身|腿部|鞋子|脚部/;
 const AI_IMAGE_RATIOS = [
@@ -231,10 +254,22 @@ export function AvatarDesignStudio({
   const [greeting, setGreeting] = useState(initialGreeting(initialAvatar));
   const [voice, setVoice] = useState(normalizeAvatarVoiceId(initialAvatar?.voice) ?? DEFAULT_AVATAR_VOICE_ID);
   const [pendingVoice, setPendingVoice] = useState(normalizeAvatarVoiceId(initialAvatar?.voice) ?? DEFAULT_AVATAR_VOICE_ID);
-  const [voiceSource, setVoiceSource] = useState<'public' | 'clone'>('public');
+  const [voiceSource, setVoiceSource] = useState<VoiceSource>('public');
   const [voiceProfiles, setVoiceProfiles] = useState<DesignVoice[]>(DESIGN_VOICES);
+  const [voiceCatalogError, setVoiceCatalogError] = useState('');
   const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [fishPresets, setFishPresets] = useState<FishVoicePreset[]>([]);
+  const [fishState, setFishState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [fishError, setFishError] = useState('');
+  const [fishCloneId, setFishCloneId] = useState<string | null>(null);
+  const [designPrompt, setDesignPrompt] = useState<string>(VOICE_DESIGN_TEMPLATES[0].prompt);
+  const [designPreviewText, setDesignPreviewText] = useState<string>(DEFAULT_VOICE_PREVIEW_TEXT);
+  const [designName, setDesignName] = useState('我的设计音色');
+  const [designAudio, setDesignAudio] = useState('');
+  const [designVoiceId, setDesignVoiceId] = useState('');
+  const [designState, setDesignState] = useState<'idle' | 'generating' | 'ready' | 'cloning'>('idle');
+  const [designError, setDesignError] = useState('');
   const [cloneFile, setCloneFile] = useState<File | null>(null);
   const [clonePreview, setClonePreview] = useState('');
   const [cloneName, setCloneName] = useState('');
@@ -424,6 +459,7 @@ export function AvatarDesignStudio({
     void fetchMuseTalkVoices()
       .then((items) => {
         if (!active || !items.length) return;
+        setVoiceCatalogError('');
         const profiles = items.map<DesignVoice>((item) => ({
           id: item.voice_id,
           name: item.name,
@@ -437,30 +473,190 @@ export function AvatarDesignStudio({
         setPendingVoice((current) => ids.has(current) ? current : profiles[0].id);
       })
       .catch((cause) => {
-        if (active) setCloneError(cause instanceof Error ? cause.message : '音色目录加载失败');
+        if (active) setVoiceCatalogError(cause instanceof Error ? cause.message : '音色目录加载失败');
       });
     return () => { active = false; };
   }, []);
 
-  const previewVoice = async (item: DesignVoice) => {
-    if (previewVoiceId === item.id) {
+  const loadFishVoicePresets = async () => {
+    if (fishState === 'loading') return;
+    setFishState('loading');
+    setFishError('');
+    try {
+      const response = await fetch('/avatar-voice-api/presets', { cache: 'no-store' });
+      const payload = await response.json() as { presets?: unknown; message?: unknown };
+      if (!response.ok) throw new Error(typeof payload.message === 'string' ? payload.message : `推荐声音加载失败（HTTP ${response.status}）`);
+      const presets = Array.isArray(payload.presets)
+        ? payload.presets.filter((item): item is FishVoicePreset => {
+          if (!item || typeof item !== 'object') return false;
+          const candidate = item as Partial<FishVoicePreset>;
+          return typeof candidate.id === 'string'
+            && typeof candidate.name === 'string'
+            && typeof candidate.detail === 'string'
+            && Array.isArray(candidate.tags)
+            && typeof candidate.audio_url === 'string';
+        })
+        : [];
+      if (!presets.length) throw new Error('Fish Audio 暂无可用的推荐试听');
+      setFishPresets(presets);
+      setFishState('ready');
+    } catch (cause) {
+      setFishError(cause instanceof Error ? cause.message : '推荐声音加载失败');
+      setFishState('error');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'voice' && fishState === 'idle') void loadFishVoicePresets();
+    // The catalog is loaded once on entry; the retry button invokes the same loader explicitly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const previewAudio = async (id: string, preview: string, onError: (message: string) => void) => {
+    if (previewVoiceId === id) {
       stopVoicePreview();
       return;
     }
     stopVoicePreview();
-    if (!item.preview) {
-      setCloneError('该音色没有可用的试听音频。');
+    if (!preview) {
+      onError('该音色没有可用的试听音频。');
       return;
     }
-    const audio = new Audio(item.preview);
+    const audio = new Audio(preview);
     voiceAudioRef.current = audio;
     audio.onended = stopVoicePreview;
-    audio.onerror = stopVoicePreview;
+    audio.onerror = () => {
+      stopVoicePreview();
+      onError('试听音频加载失败，请稍后重试。');
+    };
     try {
       await audio.play();
-      setPreviewVoiceId(item.id);
+      setPreviewVoiceId(id);
     } catch {
-      setCloneError('试听音频播放失败，请检查浏览器的音频播放权限。');
+      onError('试听音频播放失败，请检查浏览器的音频播放权限。');
+    }
+  };
+
+  const previewVoice = async (item: DesignVoice) => {
+    await previewAudio(item.id, item.preview, setVoiceCatalogError);
+  };
+
+  const audioFileFromUrl = async (url: string, fileStem: string) => {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const payload = await response.json() as { message?: unknown };
+        if (typeof payload.message === 'string') detail = payload.message;
+      } catch {
+        // Keep the HTTP status for non-JSON audio proxy errors.
+      }
+      throw new Error(`参考音频读取失败：${detail}`);
+    }
+    const blob = await response.blob();
+    if (!blob.size || blob.size > 20 * 1024 * 1024) throw new Error('参考音频大小必须在 20 MB 以内');
+    if (!blob.type.startsWith('audio/')) throw new Error('参考音频格式无效');
+    const extension = blob.type.includes('wav') ? 'wav' : blob.type.includes('ogg') ? 'ogg' : 'mp3';
+    return new File([blob], `${fileStem}.${extension}`, { type: blob.type });
+  };
+
+  const registerReferenceVoice = async (audioUrl: string, voiceName: string, detail: string, fileStem: string) => {
+    const file = await audioFileFromUrl(audioUrl, fileStem);
+    const result = await cloneMuseTalkVoice(voiceName, file);
+    const profile: DesignVoice = {
+      id: result.voice_id,
+      name: result.name,
+      detail,
+      preview: audioUrl,
+      source: 'public',
+    };
+    setVoiceProfiles((items) => [profile, ...items.filter((item) => item.id !== profile.id)]);
+    setPendingVoice(profile.id);
+    return profile;
+  };
+
+  const generateDesignedVoice = async () => {
+    const voicePrompt = designPrompt.trim();
+    const previewText = designPreviewText.trim();
+    if (!voicePrompt) {
+      setDesignError('请先描述希望生成的声音。');
+      return;
+    }
+    if (!previewText) {
+      setDesignError('请输入一段用于试听的文本。');
+      return;
+    }
+    setDesignError('');
+    setDesignAudio('');
+    setDesignVoiceId('');
+    setDesignState('generating');
+    try {
+      const response = await fetch('/avatar-voice-api/design', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice_prompt: voicePrompt, preview_text: previewText }),
+      });
+      const payload = await response.json() as {
+        success?: unknown;
+        message?: unknown;
+        provider_accepted?: unknown;
+        voice?: unknown;
+        audio_url?: unknown;
+      };
+      if (!response.ok || payload.success !== true || typeof payload.audio_url !== 'string') {
+        const detail = typeof payload.message === 'string' ? payload.message : `HTTP ${response.status}`;
+        const accepted = payload.provider_accepted === true ? '；百炼已受理本次请求，可能已产生费用' : '';
+        throw new Error(`${detail}${accepted}`);
+      }
+      setDesignAudio(payload.audio_url);
+      setDesignVoiceId(typeof payload.voice === 'string' ? payload.voice : '百炼设计音色');
+      setDesignState('ready');
+    } catch (cause) {
+      setDesignState('idle');
+      setDesignError(cause instanceof Error ? cause.message : '声音设计失败');
+    }
+  };
+
+  const cloneDesignedVoice = async () => {
+    if (!designAudio || designState !== 'ready') return;
+    if (!designName.trim()) {
+      setDesignError('请为设计声音命名。');
+      return;
+    }
+    setDesignError('');
+    setDesignState('cloning');
+    try {
+      await registerReferenceVoice(
+        designAudio,
+        designName.trim(),
+        `OpenVoice 克隆 · 来自百炼声音设计`,
+        'bailian-designed-voice',
+      );
+      setDesignState('ready');
+      setVoiceSource('public');
+    } catch (cause) {
+      setDesignState('ready');
+      setDesignError(cause instanceof Error ? cause.message : '设计声音克隆失败');
+    }
+  };
+
+  const cloneFishPreset = async (preset: FishVoicePreset) => {
+    if (fishCloneId) return;
+    stopVoicePreview();
+    setFishCloneId(preset.id);
+    setFishError('');
+    try {
+      await registerReferenceVoice(
+        preset.audio_url,
+        preset.name,
+        'OpenVoice 克隆 · 来自 Fish Audio 推荐参考',
+        `fish-${preset.id}`,
+      );
+      setVoiceSource('public');
+    } catch (cause) {
+      setFishError(cause instanceof Error ? cause.message : '推荐声音克隆失败');
+    } finally {
+      setFishCloneId(null);
     }
   };
 
@@ -741,15 +937,52 @@ export function AvatarDesignStudio({
 
           {activeTab === 'voice' && (
             <>
-              <div className="inspectorHeading"><div><h1>声音设置</h1><p>试听经典音色，或克隆你的专属声音</p></div><Volume2 size={19} /></div>
+              <div className="inspectorHeading"><div><h1>声音设置</h1><p>选择已有音色，设计新声音，或上传参考语音</p></div><Volume2 size={19} /></div>
               <div className="creatorVoiceTabs" role="tablist" aria-label="声音来源">
-                <button className={voiceSource === 'public' ? 'active' : ''} type="button" onClick={() => { stopVoicePreview(); setVoiceSource('public'); }}>可用语音</button>
-                <button className={voiceSource === 'clone' ? 'active' : ''} type="button" onClick={() => { stopVoicePreview(); setVoiceSource('clone'); }}>克隆语音</button>
+                <button className={voiceSource === 'public' ? 'active' : ''} role="tab" aria-selected={voiceSource === 'public'} type="button" onClick={() => { stopVoicePreview(); setVoiceSource('public'); }}>可用语音</button>
+                <button className={voiceSource === 'design' ? 'active' : ''} role="tab" aria-selected={voiceSource === 'design'} type="button" onClick={() => { stopVoicePreview(); setVoiceSource('design'); }}>声音设计</button>
+                <button className={voiceSource === 'clone' ? 'active' : ''} role="tab" aria-selected={voiceSource === 'clone'} type="button" onClick={() => { stopVoicePreview(); setVoiceSource('clone'); }}>克隆语音</button>
               </div>
-              {voiceSource !== 'clone' ? <div className="voiceOptions creatorVoiceList">
-                {voiceProfiles.map((item) => <div className={pendingVoice === item.id ? 'active' : ''} role="radio" aria-checked={pendingVoice === item.id} tabIndex={0} key={item.id} onClick={() => setPendingVoice(item.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoice(item.id); } }}><button className="creatorVoicePlay" type="button" aria-label={`试听${item.name}`} onClick={(event) => { event.stopPropagation(); void previewVoice(item); }}>{previewVoiceId === item.id ? <Volume2 size={14} /> : <Play size={14} fill="currentColor" />}</button><span><strong>{item.name}</strong><small>{item.detail}{voice === item.id ? ' · 使用中' : ''}</small></span>{pendingVoice === item.id && <Check size={16} />}</div>)}
-                <button className="creatorVoiceApply" type="button" disabled={pendingVoice === voice} onClick={applyVoice}>{pendingVoice === voice ? '当前语音已应用' : `应用“${pendingVoiceName}”`}</button>
-              </div> : <div className="creatorVoiceClone">
+              {voiceSource === 'public' && <div className="creatorVoiceAvailable">
+                <div className="creatorVoiceSectionTitle"><span><strong>OpenVoice 可用音色</strong><small>{voiceProfiles.length} 个，可直接用于实时对话</small></span></div>
+                <div className="voiceOptions creatorVoiceList">
+                  {voiceProfiles.map((item) => <div className={pendingVoice === item.id ? 'active' : ''} role="radio" aria-checked={pendingVoice === item.id} tabIndex={0} key={item.id} onClick={() => setPendingVoice(item.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoice(item.id); } }}><button className="creatorVoicePlay" type="button" aria-label={`试听${item.name}`} onClick={(event) => { event.stopPropagation(); void previewVoice(item); }}>{previewVoiceId === item.id ? <Volume2 size={14} /> : <Play size={14} fill="currentColor" />}</button><span><strong>{item.name}</strong><small>{item.detail}{voice === item.id ? ' · 使用中' : ''}</small></span>{pendingVoice === item.id && <Check size={16} />}</div>)}
+                  <button className="creatorVoiceApply" type="button" disabled={pendingVoice === voice} onClick={applyVoice}>{pendingVoice === voice ? '当前语音已应用' : `应用“${pendingVoiceName}”`}</button>
+                </div>
+                {voiceCatalogError && <div className="creatorVoiceError">{voiceCatalogError}</div>}
+
+                <div className="creatorVoiceSectionTitle fish"><span><strong>推荐参考声音</strong><small>来自 Fish Audio，试听满意后克隆到 OpenVoice</small></span><em>仅作参考</em></div>
+                {fishState === 'loading' && <div className="creatorVoiceLoading"><Loader2 size={15} className="creatorAiSpinner" />正在查询 Fish Audio 音色库…</div>}
+                {fishState === 'error' && <div className="creatorVoiceEmpty"><Volume2 size={20} /><strong>推荐声音暂时不可用</strong><small>{fishError}</small><button type="button" onClick={() => void loadFishVoicePresets()}>重新加载</button></div>}
+                {fishState === 'ready' && <div className="creatorFishList">
+                  {fishPresets.map((preset) => <article className="creatorFishCard" key={preset.id}>
+                    <button className="creatorVoicePlay" type="button" aria-label={`试听${preset.name}`} onClick={() => void previewAudio(`fish-${preset.id}`, preset.audio_url, setFishError)}>{previewVoiceId === `fish-${preset.id}` ? <Volume2 size={14} /> : <Play size={14} fill="currentColor" />}</button>
+                    <span><strong>{preset.name}</strong><small>{preset.detail}</small><i>{preset.tags.map((tag) => <em key={tag}>{tag}</em>)}</i></span>
+                    <button className="creatorFishClone" type="button" disabled={fishCloneId !== null} onClick={() => void cloneFishPreset(preset)}>{fishCloneId === preset.id ? <><Loader2 size={12} className="creatorAiSpinner" />克隆中</> : '克隆使用'}</button>
+                  </article>)}
+                </div>}
+                {fishState !== 'error' && fishError && <div className="creatorVoiceError">{fishError}</div>}
+                <p className="creatorVoiceLegal">推荐项仅提供公开样例试听。使用前请确认目标场景、声音授权及 Fish Audio 模型条款。</p>
+              </div>}
+
+              {voiceSource === 'design' && <div className="creatorVoiceDesign">
+                <div className="creatorVoiceDesignIntro"><Sparkles size={16} /><span><strong>用自然语言设计声音</strong><small>百炼只生成一段试听；确认满意后，仍由本项目 OpenVoice 克隆并用于对话。</small></span></div>
+                <div className="creatorVoiceDesignTemplates" aria-label="声音描述模板">
+                  {VOICE_DESIGN_TEMPLATES.map((template) => <button type="button" key={template.label} disabled={designState === 'generating' || designState === 'cloning'} onClick={() => { setDesignPrompt(template.prompt); setDesignAudio(''); setDesignVoiceId(''); setDesignState('idle'); setDesignError(''); }}>{template.label}</button>)}
+                </div>
+                <div className="creatorVoiceFields">
+                  <label><span>希望声音听起来怎样</span><textarea value={designPrompt} maxLength={1200} disabled={designState === 'generating' || designState === 'cloning'} placeholder="例如：年轻、清澈、专业、有亲和力的普通话女声" onChange={(event) => { setDesignPrompt(event.target.value); setDesignAudio(''); setDesignVoiceId(''); setDesignState('idle'); }} /></label>
+                  <label><span>试听文本</span><textarea value={designPreviewText} maxLength={500} disabled={designState === 'generating' || designState === 'cloning'} placeholder="输入希望试听的内容" onChange={(event) => { setDesignPreviewText(event.target.value); setDesignAudio(''); setDesignVoiceId(''); setDesignState('idle'); }} /></label>
+                </div>
+                <button className="creatorVoiceCloneAction design" type="button" disabled={designState === 'generating' || designState === 'cloning'} onClick={() => void generateDesignedVoice()}>{designState === 'generating' ? <><Loader2 size={14} className="creatorAiSpinner" />百炼正在生成试听…</> : designAudio ? '重新生成试听' : '生成声音试听'}</button>
+                <p className="creatorVoiceCharge">生成试听会调用百炼 qwen-voice-design，可能产生费用；不会把百炼音色直接用于实时对话。</p>
+                {designAudio && <div className="creatorDesignedPreview"><span><Check size={14} /><strong>试听已生成</strong><small>{designVoiceId}</small></span><audio controls preload="metadata" src={designAudio} /></div>}
+                {designAudio && <div className="creatorVoiceFields"><label><span>保存到 OpenVoice 的名称</span><input value={designName} maxLength={20} placeholder="例如：我的品牌声音" onChange={(event) => setDesignName(event.target.value)} /></label></div>}
+                {designError && <div className="creatorVoiceError">{designError}</div>}
+                {designAudio && <button className="creatorVoiceCloneAction confirm" type="button" disabled={designState === 'cloning'} onClick={() => void cloneDesignedVoice()}>{designState === 'cloning' ? <><Loader2 size={14} className="creatorAiSpinner" />正在克隆到 OpenVoice…</> : '满意，克隆到 OpenVoice'}</button>}
+              </div>}
+
+              {voiceSource === 'clone' && <div className="creatorVoiceClone">
                 <label className={cloneFile ? 'hasFile' : ''} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); loadCloneAudio(event.dataTransfer.files[0]); }}>
                   <input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg" onChange={(event) => loadCloneAudio(event.target.files?.[0])} />
                   <span>{cloneFile ? <Check size={18} /> : <Upload size={18} />}</span><strong>{cloneFile?.name ?? '上传参考语音'}</strong><small>{cloneFile ? `${(cloneFile.size / 1024 / 1024).toFixed(2)} MB · 点击更换` : '10–30 秒清晰录音，最大 20 MB'}</small>

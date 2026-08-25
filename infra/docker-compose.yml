@@ -141,6 +141,11 @@ services:
       SEO_IMAGE_API_BASE_URL: ${SEO_IMAGE_API_BASE_URL:-http://host.docker.internal:8080}
       SEO_IMAGE_API_KEY: ${SEO_IMAGE_API_KEY:-}
       SEO_IMAGE_MODEL: ${SEO_IMAGE_MODEL:-gemini-3.1-flash-image}
+      SEO_VOICE_API_BASE_URL: ${SEO_VOICE_API_BASE_URL:-${SEO_IMAGE_API_BASE_URL:-http://host.docker.internal:8080}}
+      SEO_VOICE_API_KEY: ${SEO_VOICE_API_KEY:-${SEO_IMAGE_API_KEY:-}}
+      # Node 22 通过环境代理访问 Fish Audio CDN；未配置代理时保持直连。
+      HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
+      NO_PROXY: host.docker.internal,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}
       SEO_VIDEO_API_BASE_URL: ${SEO_VIDEO_API_BASE_URL:-http://host.docker.internal:8080}
       SEO_VIDEO_API_KEY: ${SEO_VIDEO_API_KEY:-}
       SEO_VIDEO_MODEL: ${SEO_VIDEO_MODEL:-happyhorse-1.0-video-edit}

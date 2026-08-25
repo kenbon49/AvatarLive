@@ -47,7 +47,8 @@ RUN pnpm run build
 
 FROM ${REGISTRY}node:22-alpine AS runner
 WORKDIR /app
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    NODE_USE_ENV_PROXY=1
 RUN apk add --no-cache ffmpeg
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
