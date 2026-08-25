@@ -48,14 +48,31 @@ function speakerVoice(value: MuseTalkSpeaker): MuseTalkVoice | null {
   };
 }
 
+function withPreviewUrl(voice: MuseTalkVoice): MuseTalkVoice {
+  const provided = voice.source?.sample_url?.trim();
+  const sampleUrl = provided
+    ? provided.startsWith('/') && !provided.startsWith('/musetalk-total-api/')
+      ? `/musetalk-total-api${provided}`
+      : provided
+    : `/musetalk-total-api/v1/voices/${encodeURIComponent(voice.voice_id)}/preview`;
+  return {
+    ...voice,
+    source: {
+      ...voice.source,
+      provider: voice.source?.provider || 'OpenVoice',
+      sample_url: sampleUrl,
+    },
+  };
+}
+
 export async function fetchMuseTalkVoices(): Promise<MuseTalkVoice[]> {
   const response = await fetch('/musetalk-total-api/v1/voices', { cache: 'no-store' });
   if (!response.ok) throw new Error(`音色目录加载失败（HTTP ${response.status}）`);
   const payload = (await response.json()) as { voices?: MuseTalkVoice[]; speakers?: MuseTalkSpeaker[] };
-  if (Array.isArray(payload.voices)) return payload.voices;
-  return Array.isArray(payload.speakers)
+  const voices = Array.isArray(payload.voices) ? payload.voices : Array.isArray(payload.speakers)
     ? payload.speakers.flatMap((speaker) => speakerVoice(speaker) || [])
     : [];
+  return voices.map(withPreviewUrl);
 }
 
 export async function cloneMuseTalkVoice(name: string, audio: File): Promise<MuseTalkVoice> {

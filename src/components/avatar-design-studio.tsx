@@ -6,13 +6,11 @@ import {
   ArrowLeft,
   Bot,
   Check,
-  Image as ImageIcon,
   ImagePlus,
   Loader2,
   MessageSquareText,
   Mic2,
   Move3d,
-  Palette,
   Pause,
   Play,
   RotateCcw,
@@ -47,7 +45,7 @@ import {
   type MuseTalkAvatarProfile,
 } from '@/lib/musetalk-total-stream';
 
-export type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona' | AvatarCapabilityMode;
+export type CreatorTab = 'appearance' | 'voice' | 'persona' | AvatarCapabilityMode;
 type ChatMessage = { role: 'assistant' | 'user'; text: string };
 type DesignVoice = { id: string; name: string; detail: string; preview: string; source: 'public' };
 type VoiceSource = 'public' | 'design' | 'clone';
@@ -99,41 +97,15 @@ type AvatarDesignStudioProps = {
 const CREATOR_TABS = [
   { id: 'appearance' as const, label: '形象', icon: UserRound },
   { id: 'voice' as const, label: '声音', icon: Mic2 },
-  { id: 'background' as const, label: '背景', icon: ImageIcon },
   { id: 'expression' as const, label: '表情', icon: ScanFace },
   { id: 'motion' as const, label: '动作', icon: Move3d },
-];
-
-const BACKGROUNDS = [
-  { id: 'transparent', label: '透明', className: 'transparent' },
-  { id: 'studio', label: '演播室', className: 'studio' },
-  { id: 'warm', label: '暖调空间', className: 'warm' },
-  { id: 'brand', label: '品牌蓝', className: 'brand' },
 ];
 
 const DESIGN_VOICES: DesignVoice[] = [
   { id: DEFAULT_AVATAR_VOICE_ID, name: '默认音色', detail: 'OpenVoice · 可用音色', preview: '', source: 'public' },
 ];
 
-const VOICE_DESIGN_TEMPLATES = [
-  {
-    label: '亲和讲解',
-    prompt: '一位二十多岁的普通话女声，音色自然温暖、亲和清晰，语速适中，表达有轻微笑意，像专业的品牌讲解员，不夸张、不嗲。',
-  },
-  {
-    label: '知性专业',
-    prompt: '一位三十岁左右的普通话女声，知性沉稳、吐字清晰，音域自然，语气专业可信，适合企业介绍和知识讲解。',
-  },
-  {
-    label: '青年活力',
-    prompt: '一位年轻普通话男声，音色清澈有活力，节奏明快但不急促，表达自然、有感染力，适合科技产品和直播互动。',
-  },
-  {
-    label: '沉稳叙述',
-    prompt: '一位成熟普通话男声，音色厚实沉稳，语速从容，吐字准确，叙述感强，适合纪录片、课程和商务内容。',
-  },
-] as const;
-
+const DEFAULT_DESIGN_PROMPT = '一位二十多岁的普通话女声，音色自然温暖、亲和清晰，语速适中，表达有轻微笑意，像专业的品牌讲解员，不夸张、不嗲。';
 const DEFAULT_VOICE_PREVIEW_TEXT = '你好，很高兴认识你。接下来，我会用自然、清晰的声音，为你介绍今天的精彩内容。';
 
 const AI_FULL_BODY_PATTERN = /全身|补全|扩图|扩展画面|下半身|腿部|鞋子|脚部/;
@@ -265,7 +237,7 @@ export function AvatarDesignStudio({
   const [fishState, setFishState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [fishError, setFishError] = useState('');
   const [fishCloneId, setFishCloneId] = useState<string | null>(null);
-  const [designPrompt, setDesignPrompt] = useState<string>(VOICE_DESIGN_TEMPLATES[0].prompt);
+  const [designPrompt, setDesignPrompt] = useState<string>(DEFAULT_DESIGN_PROMPT);
   const [designPreviewText, setDesignPreviewText] = useState<string>(DEFAULT_VOICE_PREVIEW_TEXT);
   const [designName, setDesignName] = useState('我的设计音色');
   const [designAudio, setDesignAudio] = useState('');
@@ -1000,10 +972,6 @@ export function AvatarDesignStudio({
               </div>}
 
               {voiceSource === 'design' && <div className="creatorVoiceDesign">
-                <div className="creatorVoiceDesignIntro"><Sparkles size={16} /><span><strong>用自然语言设计声音</strong><small>百炼只生成一段试听；确认满意后，仍由本项目 OpenVoice 克隆并用于对话。</small></span></div>
-                <div className="creatorVoiceDesignTemplates" aria-label="声音描述模板">
-                  {VOICE_DESIGN_TEMPLATES.map((template) => <button type="button" key={template.label} disabled={designState === 'generating' || designState === 'cloning'} onClick={() => { setDesignPrompt(template.prompt); setDesignAudio(''); setDesignVoiceId(''); setDesignState('idle'); setDesignError(''); }}>{template.label}</button>)}
-                </div>
                 <div className="creatorVoiceFields">
                   <label><span>希望声音听起来怎样</span><textarea value={designPrompt} maxLength={1200} disabled={designState === 'generating' || designState === 'cloning'} placeholder="例如：年轻、清澈、专业、有亲和力的普通话女声" onChange={(event) => { setDesignPrompt(event.target.value); setDesignAudio(''); setDesignVoiceId(''); setDesignState('idle'); }} /></label>
                   <label><span>试听文本</span><textarea value={designPreviewText} maxLength={500} disabled={designState === 'generating' || designState === 'cloning'} placeholder="输入希望试听的内容" onChange={(event) => { setDesignPreviewText(event.target.value); setDesignAudio(''); setDesignVoiceId(''); setDesignState('idle'); }} /></label>
@@ -1028,16 +996,6 @@ export function AvatarDesignStudio({
                 <button className="creatorVoiceCloneAction" type="button" disabled={cloneState === 'cloning'} onClick={cloneState === 'ready' ? saveCloneVoice : () => void cloneVoice()}>{cloneState === 'cloning' ? <><Loader2 size={14} className="xlVoiceSpinner" />正在克隆…</> : cloneState === 'ready' ? '保存语音' : '开始克隆'}</button>
                 <p>上传内容仅用于生成专属音色，请确保已获得声音授权。</p>
               </div>}
-              <div className="creatorInfoNote"><Volume2 size={16} /><span><strong>当前播报声音：{appliedVoiceName}</strong><small>应用后会绑定到当前数字人，并随实时互动推理请求发送。</small></span></div>
-            </>
-          )}
-
-          {activeTab === 'background' && (
-            <>
-              <div className="inspectorHeading"><div><h1>背景设置</h1><p>选择预览和直播画布背景</p></div><Palette size={19} /></div>
-              <div className="backgroundOptions">
-                {BACKGROUNDS.map((item) => <button key={item.id} className={background === item.id ? 'active' : ''} type="button" onClick={() => setBackground(item.id)}><i className={item.className} /> <span>{item.label}</span>{background === item.id && <Check size={14} />}</button>)}
-              </div>
             </>
           )}
 
@@ -1056,7 +1014,7 @@ export function AvatarDesignStudio({
         </aside>
 
         <main className="creatorStage">
-          <div className="creatorNotice"><Sparkles size={15} /><span>{background === 'transparent' ? '当前为透明背景预览，保存后可在互动与直播场景中继续配置。' : '当前背景仅用于构图预览，形象会以原始比例完整显示。'}</span></div>
+          <div className="creatorNotice"><Sparkles size={15} /><span>当前画布仅用于构图预览，保存后可在互动与直播场景中继续配置。</span></div>
           <div className={`creatorCanvas background-${background} ${image ? 'hasImage' : ''}`} style={creatorCanvasStyle}>
             {image ? <img src={image} alt="数字人预览" style={{ filter: imageFilter }} onLoad={(event) => setImageDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} /> : <button type="button" onClick={() => fileRef.current?.click()}><ImagePlus size={30} /><strong>上传一张图片开始创建</strong><span>人物会在这里以原始比例预览</span></button>}
             {image && <span className="creatorAiBadge"><Sparkles size={12} />图片数字人</span>}

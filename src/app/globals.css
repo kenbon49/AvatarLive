@@ -1055,13 +1055,6 @@ img, video, canvas { display: block; }
 .creatorFishClone:disabled { opacity: .55; cursor: wait; }
 .creatorVoiceLegal, .creatorVoiceCharge { margin: 0; color: #9a9fac; font-size: 7px; line-height: 1.5; }
 .creatorVoiceDesign { display: grid; gap: 11px; }
-.creatorVoiceDesignIntro { padding: 11px; border: 1px solid #dfe3f6; border-radius: 10px; display: flex; align-items: flex-start; gap: 8px; color: #5668be; background: linear-gradient(145deg, #f8f9ff, #eef2ff); }
-.creatorVoiceDesignIntro > span { display: flex; flex-direction: column; gap: 3px; }
-.creatorVoiceDesignIntro strong { color: #434b68; font-size: 9px; }
-.creatorVoiceDesignIntro small { color: #7c849f; font-size: 7px; line-height: 1.5; }
-.creatorVoiceDesignTemplates { display: flex; flex-wrap: wrap; gap: 5px; }
-.creatorVoiceDesignTemplates button { min-height: 26px; padding: 0 8px; border: 1px solid #dce0ec; border-radius: 999px; color: #687086; background: white; font-size: 7px; cursor: pointer; }
-.creatorVoiceDesignTemplates button:hover { border-color: #9aa8ff; color: #4356bd; background: #f7f8ff; }
 .creatorVoiceCloneAction.design { color: #3248bc; background: #e9edff; }
 .creatorVoiceCloneAction.confirm { background: #287b72; }
 .creatorVoiceCharge { margin-top: -5px; text-align: center; }
@@ -1093,20 +1086,6 @@ img, video, canvas { display: block; }
 .creatorVoiceCloneAction { height: 36px; border: 0; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; color: white; background: var(--blue); font-size: 9px; font-weight: 700; cursor: pointer; }
 .creatorVoiceCloneAction:disabled { opacity: .6; cursor: wait; }
 .creatorVoiceClone > p { margin: -3px 0 0; color: #a0a4b2; font-size: 7px; line-height: 13px; text-align: center; }
-.creatorInfoNote { margin-top: 17px; padding: 12px; border-radius: 9px; display: flex; align-items: flex-start; gap: 9px; color: #5663ad; background: #f0f2ff; }
-.creatorInfoNote > span { display: flex; flex-direction: column; gap: 3px; }
-.creatorInfoNote strong { font-size: 9px; }
-.creatorInfoNote small { color: #7982ae; font-size: 8px; line-height: 1.5; }
-.backgroundOptions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.backgroundOptions button { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 9px; position: relative; background: white; cursor: pointer; }
-.backgroundOptions button.active { border-color: #8394ff; box-shadow: 0 0 0 2px rgba(61, 90, 254, .08); }
-.backgroundOptions button > i { height: 85px; border-radius: 6px; display: block; }
-.backgroundOptions button > span { padding: 7px 2px 2px; display: block; text-align: left; font-size: 9px; }
-.backgroundOptions button > svg { position: absolute; right: 9px; bottom: 9px; color: var(--blue); }
-.backgroundOptions .transparent { background-color: #f2f2f2; background-image: linear-gradient(45deg, #ddd 25%, transparent 25%), linear-gradient(-45deg, #ddd 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ddd 75%), linear-gradient(-45deg, transparent 75%, #ddd 75%); background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; }
-.backgroundOptions .studio { background: radial-gradient(circle at 50% 28%, #fff, #dfe5ef 60%, #c8d0de); }
-.backgroundOptions .warm { background: linear-gradient(145deg, #f5e4d0, #e1c2a2); }
-.backgroundOptions .brand { background: linear-gradient(145deg, #99aaff, #344bd2); }
 .personaFields { display: grid; gap: 15px; }
 .personaFields label { display: grid; gap: 7px; }
 .personaFields label > span { font-size: 9px; font-weight: 700; }
@@ -1320,7 +1299,6 @@ img, video, canvas { display: block; }
   .creatorResourceTitle > span { display: none; }
   .creatorPublish { padding-inline: 10px; }
   .creatorInspector { padding: 20px 15px; }
-  .backgroundOptions { gap: 7px; }
   .creatorStage { min-height: 590px; }
   .creatorCanvas { height: 480px; }
   .creatorCanvas.hasImage { height: 480px; }

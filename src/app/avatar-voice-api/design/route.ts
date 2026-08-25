@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { voiceServiceConfig } from '@/lib/server/avatar-voice-service';
 
 export const runtime = 'nodejs';
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
     const previewText = typeof input.preview_text === 'string' ? input.preview_text.trim() : '';
     if (!voicePrompt || voicePrompt.length > 1200) return errorResponse('声音描述长度必须在 1 到 1200 个字符之间', 400);
     if (!previewText || previewText.length > 500) return errorResponse('试听文本长度必须在 1 到 500 个字符之间', 400);
+    const preferredName = `avatar_${randomUUID().replaceAll('-', '').slice(0, 9)}`;
 
     const response = await fetch(`${upstream}/api/bailian-tts/create-voice`, {
       method: 'POST',
@@ -54,6 +57,7 @@ export async function POST(request: Request) {
         preview_text: previewText,
         target_model: DESIGN_MODEL,
         language: 'zh',
+        preferred_name: preferredName,
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(150_000),

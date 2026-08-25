@@ -7,7 +7,7 @@ type DesignPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const CREATOR_TABS = new Set<CreatorTab>(['appearance', 'voice', 'background', 'expression', 'motion']);
+const CREATOR_TABS = new Set<CreatorTab>(['appearance', 'voice', 'expression', 'motion']);
 
 function firstValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
