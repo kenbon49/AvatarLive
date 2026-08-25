@@ -32,11 +32,30 @@ export interface MuseTalkVoice {
   source?: { provider?: string; sample_url?: string } | null;
 }
 
+type MuseTalkSpeaker = {
+  id?: unknown;
+  name?: unknown;
+  default?: unknown;
+};
+
+function speakerVoice(value: MuseTalkSpeaker): MuseTalkVoice | null {
+  if (typeof value.id !== 'string' || !value.id.trim()) return null;
+  return {
+    voice_id: value.id,
+    name: typeof value.name === 'string' && value.name.trim() ? value.name : value.id,
+    kind: value.default === true ? 'preset' : 'clone',
+    source: { provider: 'OpenVoice' },
+  };
+}
+
 export async function fetchMuseTalkVoices(): Promise<MuseTalkVoice[]> {
   const response = await fetch('/musetalk-total-api/v1/voices', { cache: 'no-store' });
   if (!response.ok) throw new Error(`音色目录加载失败（HTTP ${response.status}）`);
-  const payload = (await response.json()) as { voices?: MuseTalkVoice[] };
-  return Array.isArray(payload.voices) ? payload.voices : [];
+  const payload = (await response.json()) as { voices?: MuseTalkVoice[]; speakers?: MuseTalkSpeaker[] };
+  if (Array.isArray(payload.voices)) return payload.voices;
+  return Array.isArray(payload.speakers)
+    ? payload.speakers.flatMap((speaker) => speakerVoice(speaker) || [])
+    : [];
 }
 
 export async function cloneMuseTalkVoice(name: string, audio: File): Promise<MuseTalkVoice> {
@@ -57,7 +76,11 @@ export async function cloneMuseTalkVoice(name: string, audio: File): Promise<Mus
     }
     throw new Error(`音色克隆失败：${detail}`);
   }
-  return (await response.json()) as MuseTalkVoice;
+  const payload = (await response.json()) as MuseTalkVoice & { voice?: MuseTalkSpeaker };
+  if (typeof payload.voice_id === 'string' && typeof payload.name === 'string') return payload;
+  const normalized = payload.voice ? speakerVoice(payload.voice) : null;
+  if (!normalized) throw new Error('音色克隆失败：服务返回了无效音色');
+  return normalized;
 }
 
 export interface MuseTalkTotalOptions {

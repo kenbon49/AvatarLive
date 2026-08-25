@@ -138,12 +138,29 @@ export const DEFAULT_AVATARS: Avatar[] = [
 
 export const CUSTOM_AVATAR_STORAGE_KEY = 'lingjing-custom-avatars';
 export const AVATAR_VOICE_STORAGE_KEY = 'lingjing-avatar-voices';
+export const DEFAULT_AVATAR_VOICE_ID = 'default';
+
+const LEGACY_AVATAR_VOICE_IDS = new Set([
+  'default_female',
+  'customer_service_female',
+  'gentle_female',
+  'corporate_narrator_male',
+]);
+
+export function normalizeAvatarVoiceId(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const voiceId = value.trim();
+  return LEGACY_AVATAR_VOICE_IDS.has(voiceId) ? DEFAULT_AVATAR_VOICE_ID : voiceId;
+}
 
 export function readAvatarVoicePreferences(): Record<string, string> {
   try {
     const stored = JSON.parse(localStorage.getItem(AVATAR_VOICE_STORAGE_KEY) || '{}') as unknown;
     if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
-    return Object.fromEntries(Object.entries(stored).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+    return Object.fromEntries(Object.entries(stored).flatMap(([avatarId, value]) => {
+      const voiceId = normalizeAvatarVoiceId(value);
+      return voiceId ? [[avatarId, voiceId]] : [];
+    }));
   } catch {
     return {};
   }
@@ -240,7 +257,7 @@ export function readCustomAvatars(): Avatar[] {
           : '专属互动数字人',
         image,
         custom: true,
-        voice: typeof stored.voice === 'string' ? stored.voice : undefined,
+        voice: normalizeAvatarVoiceId(stored.voice),
         background: typeof stored.background === 'string' ? stored.background : undefined,
         baseProfile,
         video,

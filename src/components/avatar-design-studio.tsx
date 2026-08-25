@@ -31,6 +31,8 @@ import {
 import {
   AVATAR_VOICE_STORAGE_KEY,
   CUSTOM_AVATAR_STORAGE_KEY,
+  DEFAULT_AVATAR_VOICE_ID,
+  normalizeAvatarVoiceId,
   readAvatarVoicePreferences,
   readCustomAvatars,
   type Avatar,
@@ -106,10 +108,7 @@ const BACKGROUNDS = [
 ];
 
 const DESIGN_VOICES: DesignVoice[] = [
-  { id: 'default_female', name: '默认女声', detail: 'CosyVoice · 中文女声', preview: '', source: 'public' },
-  { id: 'customer_service_female', name: '客服女声', detail: 'Fish Audio · 清晰专业', preview: '/assets/voice-samples/fish-audio/professional-female.mp3', source: 'public' },
-  { id: 'gentle_female', name: '温柔女声', detail: 'Fish Audio · 温暖亲和', preview: '/assets/voice-samples/fish-audio/considerate-female.mp3', source: 'public' },
-  { id: 'corporate_narrator_male', name: '企业宣传男声', detail: 'Fish Audio · 沉稳可信', preview: '/assets/voice-samples/fish-audio/steady-story-male.mp3', source: 'public' },
+  { id: DEFAULT_AVATAR_VOICE_ID, name: '默认音色', detail: 'OpenVoice · 可用音色', preview: '', source: 'public' },
 ];
 
 const AI_FULL_BODY_PATTERN = /全身|补全|扩图|扩展画面|下半身|腿部|鞋子|脚部/;
@@ -230,8 +229,8 @@ export function AvatarDesignStudio({
   const [name, setName] = useState(initialAvatar?.name ?? '');
   const [role, setRole] = useState(initialAvatar?.role ?? '品牌数字人');
   const [greeting, setGreeting] = useState(initialGreeting(initialAvatar));
-  const [voice, setVoice] = useState(initialAvatar?.voice ?? DESIGN_VOICES[0].id);
-  const [pendingVoice, setPendingVoice] = useState(initialAvatar?.voice ?? DESIGN_VOICES[0].id);
+  const [voice, setVoice] = useState(normalizeAvatarVoiceId(initialAvatar?.voice) ?? DEFAULT_AVATAR_VOICE_ID);
+  const [pendingVoice, setPendingVoice] = useState(normalizeAvatarVoiceId(initialAvatar?.voice) ?? DEFAULT_AVATAR_VOICE_ID);
   const [voiceSource, setVoiceSource] = useState<'public' | 'clone'>('public');
   const [voiceProfiles, setVoiceProfiles] = useState<DesignVoice[]>(DESIGN_VOICES);
   const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
