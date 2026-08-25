@@ -1035,7 +1035,7 @@ img, video, canvas { display: block; }
 .creatorVoiceList > div > span { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .creatorVoiceList > div > span strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .creatorVoiceList > div > svg { color: var(--blue); }
-.creatorVoicePlay { width: 32px; height: 32px; padding: 0 !important; border: 0 !important; border-radius: 50% !important; display: grid !important; place-items: center; color: var(--blue); background: #eef0ff !important; }
+.creatorVoicePlay { width: 32px; min-width: 32px; height: 32px; min-height: 32px !important; padding: 0 !important; border: 0 !important; border-radius: 50% !important; display: grid !important; flex: 0 0 32px; place-items: center; color: var(--blue); background: #eef0ff !important; }
 .creatorVoicePlay svg { margin: 0; }
 .creatorVoiceApply { min-height: 36px !important; padding: 0 12px !important; border: 0 !important; border-radius: 8px !important; justify-content: center; color: white; background: var(--blue) !important; font-size: 9px; font-weight: 700; }
 .creatorVoiceApply:disabled { color: #868c9f; background: #eef0f5 !important; cursor: default; }

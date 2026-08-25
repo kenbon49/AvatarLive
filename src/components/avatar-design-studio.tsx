@@ -13,6 +13,7 @@ import {
   Mic2,
   Move3d,
   Palette,
+  Pause,
   Play,
   RotateCcw,
   ScanFace,
@@ -50,6 +51,7 @@ export type CreatorTab = 'appearance' | 'voice' | 'background' | 'persona' | Ava
 type ChatMessage = { role: 'assistant' | 'user'; text: string };
 type DesignVoice = { id: string; name: string; detail: string; preview: string; source: 'public' };
 type VoiceSource = 'public' | 'design' | 'clone';
+type VoicePreview = { id: string; status: 'loading' | 'playing' };
 type FishVoicePreset = { id: string; name: string; detail: string; tags: string[]; audio_url: string };
 type ImageRevision = { image: string; filter: string };
 type ImageDimensions = { width: number; height: number };
@@ -257,8 +259,8 @@ export function AvatarDesignStudio({
   const [voiceSource, setVoiceSource] = useState<VoiceSource>('public');
   const [voiceProfiles, setVoiceProfiles] = useState<DesignVoice[]>(DESIGN_VOICES);
   const [voiceCatalogError, setVoiceCatalogError] = useState('');
-  const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
-  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [voicePreview, setVoicePreview] = useState<VoicePreview | null>(null);
+  const voiceAudioRef = useRef<{ id: string; audio: HTMLAudioElement } | null>(null);
   const [fishPresets, setFishPresets] = useState<FishVoicePreset[]>([]);
   const [fishState, setFishState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [fishError, setFishError] = useState('');
@@ -445,13 +447,25 @@ export function AvatarDesignStudio({
   };
 
   const stopVoicePreview = () => {
-    voiceAudioRef.current?.pause();
+    const current = voiceAudioRef.current;
     voiceAudioRef.current = null;
-    setPreviewVoiceId(null);
+    if (current) {
+      current.audio.onended = null;
+      current.audio.onerror = null;
+      current.audio.onpause = null;
+      current.audio.onplaying = null;
+      current.audio.onwaiting = null;
+      current.audio.pause();
+      current.audio.removeAttribute('src');
+      current.audio.load();
+    }
+    setVoicePreview(null);
   };
 
   useEffect(() => () => {
-    voiceAudioRef.current?.pause();
+    const current = voiceAudioRef.current;
+    voiceAudioRef.current = null;
+    current?.audio.pause();
   }, []);
 
   useEffect(() => {
@@ -513,26 +527,46 @@ export function AvatarDesignStudio({
   }, [activeTab]);
 
   const previewAudio = async (id: string, preview: string, onError: (message: string) => void) => {
-    if (previewVoiceId === id) {
+    if (voiceAudioRef.current?.id === id) {
       stopVoicePreview();
       return;
     }
     stopVoicePreview();
+    onError('');
     if (!preview) {
       onError('该音色没有可用的试听音频。');
       return;
     }
     const audio = new Audio(preview);
-    voiceAudioRef.current = audio;
-    audio.onended = stopVoicePreview;
+    audio.preload = 'auto';
+    voiceAudioRef.current = { id, audio };
+    setVoicePreview({ id, status: 'loading' });
+    audio.onplaying = () => {
+      if (voiceAudioRef.current?.audio === audio) setVoicePreview({ id, status: 'playing' });
+    };
+    audio.onwaiting = () => {
+      if (voiceAudioRef.current?.audio === audio) setVoicePreview({ id, status: 'loading' });
+    };
+    audio.onpause = () => {
+      if (voiceAudioRef.current?.audio !== audio || audio.ended) return;
+      voiceAudioRef.current = null;
+      setVoicePreview(null);
+    };
+    audio.onended = () => {
+      if (voiceAudioRef.current?.audio !== audio) return;
+      voiceAudioRef.current = null;
+      setVoicePreview(null);
+    };
     audio.onerror = () => {
+      if (voiceAudioRef.current?.audio !== audio) return;
       stopVoicePreview();
       onError('试听音频加载失败，请稍后重试。');
     };
     try {
       await audio.play();
-      setPreviewVoiceId(id);
     } catch {
+      if (voiceAudioRef.current?.audio !== audio) return;
+      stopVoicePreview();
       onError('试听音频播放失败，请检查浏览器的音频播放权限。');
     }
   };
@@ -946,7 +980,7 @@ export function AvatarDesignStudio({
               {voiceSource === 'public' && <div className="creatorVoiceAvailable">
                 <div className="creatorVoiceSectionTitle"><span><strong>OpenVoice 可用音色</strong><small>{voiceProfiles.length} 个，可直接用于实时对话</small></span></div>
                 <div className="voiceOptions creatorVoiceList">
-                  {voiceProfiles.map((item) => <div className={pendingVoice === item.id ? 'active' : ''} role="radio" aria-checked={pendingVoice === item.id} tabIndex={0} key={item.id} onClick={() => setPendingVoice(item.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoice(item.id); } }}><button className="creatorVoicePlay" type="button" aria-label={`试听${item.name}`} onClick={(event) => { event.stopPropagation(); void previewVoice(item); }}>{previewVoiceId === item.id ? <Volume2 size={14} /> : <Play size={14} fill="currentColor" />}</button><span><strong>{item.name}</strong><small>{item.detail}{voice === item.id ? ' · 使用中' : ''}</small></span>{pendingVoice === item.id && <Check size={16} />}</div>)}
+                  {voiceProfiles.map((item) => <div className={pendingVoice === item.id ? 'active' : ''} role="radio" aria-checked={pendingVoice === item.id} tabIndex={0} key={item.id} onClick={() => setPendingVoice(item.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoice(item.id); } }}><button className="creatorVoicePlay" type="button" aria-label={voicePreview?.id === item.id ? `${voicePreview.status === 'loading' ? '取消加载' : '暂停'}${item.name}` : `试听${item.name}`} aria-pressed={voicePreview?.id === item.id} onClick={(event) => { event.stopPropagation(); void previewVoice(item); }}>{voicePreview?.id === item.id ? voicePreview.status === 'loading' ? <Loader2 size={14} className="creatorAiSpinner" /> : <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}</button><span><strong>{item.name}</strong><small>{item.detail}{voice === item.id ? ' · 使用中' : ''}</small></span>{pendingVoice === item.id && <Check size={16} />}</div>)}
                   <button className="creatorVoiceApply" type="button" disabled={pendingVoice === voice} onClick={applyVoice}>{pendingVoice === voice ? '当前语音已应用' : `应用“${pendingVoiceName}”`}</button>
                 </div>
                 {voiceCatalogError && <div className="creatorVoiceError">{voiceCatalogError}</div>}
@@ -956,7 +990,7 @@ export function AvatarDesignStudio({
                 {fishState === 'error' && <div className="creatorVoiceEmpty"><Volume2 size={20} /><strong>推荐声音暂时不可用</strong><small>{fishError}</small><button type="button" onClick={() => void loadFishVoicePresets()}>重新加载</button></div>}
                 {fishState === 'ready' && <div className="creatorFishList">
                   {fishPresets.map((preset) => <article className="creatorFishCard" key={preset.id}>
-                    <button className="creatorVoicePlay" type="button" aria-label={`试听${preset.name}`} onClick={() => void previewAudio(`fish-${preset.id}`, preset.audio_url, setFishError)}>{previewVoiceId === `fish-${preset.id}` ? <Volume2 size={14} /> : <Play size={14} fill="currentColor" />}</button>
+                    <button className="creatorVoicePlay" type="button" aria-label={voicePreview?.id === `fish-${preset.id}` ? `${voicePreview.status === 'loading' ? '取消加载' : '暂停'}${preset.name}` : `试听${preset.name}`} aria-pressed={voicePreview?.id === `fish-${preset.id}`} onClick={() => void previewAudio(`fish-${preset.id}`, preset.audio_url, setFishError)}>{voicePreview?.id === `fish-${preset.id}` ? voicePreview.status === 'loading' ? <Loader2 size={14} className="creatorAiSpinner" /> : <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}</button>
                     <span><strong>{preset.name}</strong><small>{preset.detail}</small><i>{preset.tags.map((tag) => <em key={tag}>{tag}</em>)}</i></span>
                     <button className="creatorFishClone" type="button" disabled={fishCloneId !== null} onClick={() => void cloneFishPreset(preset)}>{fishCloneId === preset.id ? <><Loader2 size={12} className="creatorAiSpinner" />克隆中</> : '克隆使用'}</button>
                   </article>)}
