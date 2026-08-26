@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test:avatar-motion": "node --experimental-strip-types --test tests/avatar-motion.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

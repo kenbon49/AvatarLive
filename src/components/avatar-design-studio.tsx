@@ -39,6 +39,17 @@ import {
   type AvatarVideoAsset,
   type AvatarVideoJob,
 } from '@/lib/avatar-catalog';
+import {
+  DEFAULT_AVATAR_MOTION_SETTINGS,
+  MAX_AVATAR_MOTION_DURATION,
+  MAX_AVATAR_MOTION_PROMPT_LENGTH,
+  MIN_AVATAR_MOTION_DURATION,
+  cleanAvatarMotionPrompt,
+  normalizeAvatarMotionSettings,
+  type AvatarMotionIntensity,
+  type AvatarMotionMode,
+  type AvatarMotionSettings,
+} from '@/lib/avatar-motion';
 import { avatarPreviewVideo } from '@/lib/avatar-preview-media';
 import {
   cloneMuseTalkVoice,
@@ -71,6 +82,7 @@ type StoredAvatar = {
   baseProfile: MuseTalkAvatarProfile;
   video?: AvatarVideoAsset;
   pendingVideo?: AvatarVideoJob;
+  motion: AvatarMotionSettings;
 };
 
 type AvatarVideoJobPayload = {
@@ -85,10 +97,22 @@ type AvatarVideoJobPayload = {
   idleVideo?: string;
   talkVideo?: string;
   quality?: { duration?: number; width?: number; height?: number; frames?: number; fps?: number } | null;
+  motion?: unknown;
   message?: string;
 };
 
 const SEEDANCE_FALLBACK_MODEL = 'doubao-seedance-2-5-260628';
+const AVATAR_MOTION_PRESETS = [
+  { label: '自然讲解', prompt: '自然微笑，轻微点头，配合克制的单手讲解动作，最后回到正面站立。' },
+  { label: '挥手问候', prompt: '面向镜头微笑，抬起右手自然挥手两次，然后放下手臂回到中性姿态。' },
+  { label: '侧身指引', prompt: '身体轻微侧转，用左手向身旁做一次自然指引，目光随后回到镜头。' },
+] as const;
+const AVATAR_MOTION_MODE_LABELS: Record<AvatarMotionMode, string> = { loop: '循环待机', once: '单次动作' };
+const AVATAR_MOTION_INTENSITY_LABELS: Record<AvatarMotionIntensity, string> = {
+  subtle: '轻微',
+  natural: '自然',
+  expressive: '鲜明',
+};
 
 type AvatarDesignStudioProps = {
   initialAvatar?: Avatar;
@@ -186,6 +210,17 @@ function initialGreeting(avatar?: Avatar) {
   return avatar.custom ? avatar.description : `你好，我是${avatar.name}。有什么可以帮你？`;
 }
 
+function avatarMotionSettingsFromAvatar(avatar?: Avatar) {
+  return normalizeAvatarMotionSettings(
+    avatar?.motion ?? avatar?.pendingVideo?.motion ?? avatar?.video?.motion ?? DEFAULT_AVATAR_MOTION_SETTINGS,
+  );
+}
+
+function avatarMotionSummary(settings?: AvatarMotionSettings) {
+  if (!settings) return '';
+  return `${AVATAR_MOTION_MODE_LABELS[settings.mode]} · ${AVATAR_MOTION_INTENSITY_LABELS[settings.intensity]}幅度 · ${settings.duration} 秒节奏`;
+}
+
 function pendingJobFromPayload(payload: AvatarVideoJobPayload): AvatarVideoJob {
   const allowed = new Set<AvatarVideoJob['status']>(['submitted', 'processing', 'finalizing', 'review', 'failed']);
   if (!payload.jobId || !allowed.has(payload.status as AvatarVideoJob['status'])) {
@@ -201,6 +236,9 @@ function pendingJobFromPayload(payload: AvatarVideoJobPayload): AvatarVideoJob {
     idleVideo: payload.idleVideo,
     talkVideo: payload.talkVideo,
     image: payload.image,
+    motion: payload.motion && typeof payload.motion === 'object'
+      ? normalizeAvatarMotionSettings(payload.motion)
+      : undefined,
   };
 }
 
@@ -234,6 +272,7 @@ export function AvatarDesignStudio({
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const garmentFileRef = useRef<HTMLInputElement>(null);
+  const initialMotionSettings = avatarMotionSettingsFromAvatar(initialAvatar);
   const [activeTab, setActiveTab] = useState<CreatorTab>(initialTab);
   const [name, setName] = useState(initialAvatar?.name ?? '');
   const [role, setRole] = useState(initialAvatar?.role ?? '品牌数字人');
@@ -278,6 +317,10 @@ export function AvatarDesignStudio({
   const [video, setVideo] = useState<AvatarVideoAsset | undefined>(initialAvatar?.video);
   const [pendingVideo, setPendingVideo] = useState<AvatarVideoJob | undefined>(initialAvatar?.pendingVideo);
   const [videoActionPending, setVideoActionPending] = useState(false);
+  const [motionPrompt, setMotionPrompt] = useState(initialMotionSettings.prompt);
+  const [motionMode, setMotionMode] = useState<AvatarMotionMode>(initialMotionSettings.mode);
+  const [motionIntensity, setMotionIntensity] = useState<AvatarMotionIntensity>(initialMotionSettings.intensity);
+  const [motionDuration, setMotionDuration] = useState(initialMotionSettings.duration);
   const draftAvatarIdRef = useRef(`custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
   const [imageFilter, setImageFilter] = useState('none');
   const [prompt, setPrompt] = useState('');
@@ -310,6 +353,11 @@ export function AvatarDesignStudio({
     setImage(stored.image);
     setVideo(stored.video);
     setPendingVideo(stored.pendingVideo);
+    const storedMotion = avatarMotionSettingsFromAvatar(stored);
+    setMotionPrompt(storedMotion.prompt);
+    setMotionMode(storedMotion.mode);
+    setMotionIntensity(storedMotion.intensity);
+    setMotionDuration(storedMotion.duration);
   }, [initialAvatar, initialAvatarId]);
 
   const syncDesignUrl = (tab: CreatorTab) => {
@@ -788,6 +836,13 @@ export function AvatarDesignStudio({
       : draftAvatarIdRef.current
   );
 
+  const currentMotionSettings = (): AvatarMotionSettings => normalizeAvatarMotionSettings({
+    prompt: motionPrompt,
+    mode: motionMode,
+    intensity: motionIntensity,
+    duration: motionDuration,
+  });
+
   const persistAvatar = (finalImage: string) => {
     const avatar: StoredAvatar = {
       id: currentCustomAvatarId(),
@@ -804,6 +859,7 @@ export function AvatarDesignStudio({
       style: styleSelection,
       video,
       pendingVideo,
+      motion: currentMotionSettings(),
     };
     const remaining = readCustomAvatars().filter((item) => item.id !== avatar.id);
     localStorage.setItem(CUSTOM_AVATAR_STORAGE_KEY, JSON.stringify([avatar, ...remaining]));
@@ -827,9 +883,14 @@ export function AvatarDesignStudio({
 
   const startVideoGeneration = async (requestedModel?: string) => {
     if (!name.trim() || !image || videoActionPending || ['submitted', 'processing', 'finalizing'].includes(pendingVideo?.status || '')) return;
+    if (!cleanAvatarMotionPrompt(motionPrompt)) {
+      setError('请先描述希望数字人完成的动作。');
+      return;
+    }
     setVideoActionPending(true);
     setError('');
     try {
+      const motion = currentMotionSettings();
       const finalImage = await bakeImageFilter(image, imageFilter);
       const avatar = persistAvatar(finalImage);
       const sourceResponse = await fetch(finalImage);
@@ -838,6 +899,10 @@ export function AvatarDesignStudio({
       form.append('avatar_id', avatar.id);
       form.append('avatar_name', avatar.name);
       form.append('base_profile', avatar.baseProfile);
+      form.append('motion_prompt', motion.prompt);
+      form.append('motion_mode', motion.mode);
+      form.append('motion_intensity', motion.intensity);
+      form.append('motion_duration', String(motion.duration));
       form.append('image', await sourceResponse.blob(), 'avatar-reference.jpg');
       if (requestedModel) form.append('model', requestedModel);
       const response = await fetch('/avatar-video-api/jobs', { method: 'POST', body: form });
@@ -871,6 +936,9 @@ export function AvatarDesignStudio({
         idleVideo: payload.idleVideo,
         talkVideo: payload.talkVideo,
         image: payload.image,
+        motion: payload.motion && typeof payload.motion === 'object'
+          ? normalizeAvatarMotionSettings(payload.motion)
+          : pendingVideo.motion,
       };
       setVideo(nextVideo);
       setPendingVideo(undefined);
@@ -913,6 +981,7 @@ export function AvatarDesignStudio({
 
   const appliedVoiceName = voiceProfiles.find((item) => item.id === voice)?.name ?? voice;
   const pendingVoiceName = voiceProfiles.find((item) => item.id === pendingVoice)?.name ?? pendingVoice;
+  const motionConfigurationLocked = videoActionPending || Boolean(pendingVideo && pendingVideo.status !== 'failed');
   const creatorCanvasStyle = image && imageDimensions
     ? { '--creator-image-ratio': String(imageDimensions.width / imageDimensions.height) } as CSSProperties
     : undefined;
@@ -940,7 +1009,7 @@ export function AvatarDesignStudio({
               mode={capabilityMode}
               avatarImage={image}
               avatarName={name}
-              avatarVideo={pendingVideo?.idleVideo || video?.idleVideo || avatarPreviewVideo(sourceAvatarId)}
+              avatarVideo={pendingVideo?.talkVideo || pendingVideo?.idleVideo || video?.talkVideo || video?.idleVideo || avatarPreviewVideo(sourceAvatarId)}
               styleSelection={styleSelection}
               onStyleSelectionChange={setStyleSelection}
             />
@@ -967,23 +1036,57 @@ export function AvatarDesignStudio({
               </section>
 
               <section className="creatorMotionCard">
-                <div className="creatorMotionTitle"><Play size={15} /><span><strong>动态形象素材</strong><small>同一底片生成静息循环并供 MuseTalk 实时换口型</small></span></div>
-                {video && !pendingVideo && <div className="creatorMotionState ready"><Check size={14} /><span><strong>动态素材已应用</strong><small>当前形象可以进入实时音视频互动</small></span></div>}
-                {video && !pendingVideo && <video className="creatorMotionPreview" src={video.idleVideo} muted autoPlay loop playsInline controls />}
+                <div className="creatorMotionTitle"><Play size={15} /><span><strong>动作驱动的动态形象</strong><small>描述动作，模型会在现有底片和当前形象基础上生成候选视频</small></span></div>
+                <label className="creatorMotionPrompt">
+                  <span><strong>动作描述</strong><em>{motionPrompt.length}/{MAX_AVATAR_MOTION_PROMPT_LENGTH}</em></span>
+                  <textarea
+                    value={motionPrompt}
+                    maxLength={MAX_AVATAR_MOTION_PROMPT_LENGTH}
+                    rows={3}
+                    disabled={motionConfigurationLocked}
+                    placeholder="例如：面向镜头微笑，抬起右手挥手两次，然后回到自然站立姿态"
+                    onChange={(event) => setMotionPrompt(event.target.value)}
+                  />
+                </label>
+                <div className="creatorMotionPresets" aria-label="动作描述模板">
+                  {AVATAR_MOTION_PRESETS.map((preset) => <button key={preset.label} type="button" disabled={motionConfigurationLocked} onClick={() => setMotionPrompt(preset.prompt)}>{preset.label}</button>)}
+                </div>
+                <div className="creatorMotionSettings">
+                  <div className="creatorMotionSetting">
+                    <span>动作方式</span>
+                    <div className="creatorMotionMode" role="group" aria-label="动作方式">
+                      {(['loop', 'once'] as const).map((mode) => <button key={mode} className={motionMode === mode ? 'active' : ''} type="button" aria-pressed={motionMode === mode} disabled={motionConfigurationLocked} onClick={() => setMotionMode(mode)}>{AVATAR_MOTION_MODE_LABELS[mode]}</button>)}
+                    </div>
+                  </div>
+                  <label className="creatorMotionSetting">
+                    <span>动作幅度</span>
+                    <select value={motionIntensity} disabled={motionConfigurationLocked} onChange={(event) => setMotionIntensity(event.target.value as AvatarMotionIntensity)}>
+                      <option value="subtle">轻微克制</option>
+                      <option value="natural">自然标准</option>
+                      <option value="expressive">鲜明有力</option>
+                    </select>
+                  </label>
+                  <label className="creatorMotionSetting duration">
+                    <span>动作节奏 <output>{motionDuration} 秒</output></span>
+                    <input type="range" min={MIN_AVATAR_MOTION_DURATION} max={MAX_AVATAR_MOTION_DURATION} step="1" value={motionDuration} disabled={motionConfigurationLocked} onChange={(event) => setMotionDuration(Number(event.target.value))} />
+                  </label>
+                </div>
+                {video && !pendingVideo && <div className="creatorMotionState ready"><Check size={14} /><span><strong>动态素材已应用</strong><small>{avatarMotionSummary(video.motion) || '当前形象可以进入实时音视频互动'}</small></span></div>}
+                {video && !pendingVideo && <video className="creatorMotionPreview" src={video.talkVideo} muted autoPlay loop={video.motion?.mode === 'loop'} playsInline controls />}
                 {pendingVideo && <div className={`creatorMotionState ${pendingVideo.status}`}>
                   {['submitted', 'processing', 'finalizing'].includes(pendingVideo.status) ? <Loader2 size={14} className="creatorAiSpinner" /> : pendingVideo.status === 'review' ? <Play size={14} /> : <RotateCcw size={14} />}
-                  <span><strong>{pendingVideo.status === 'review' ? '候选视频等待确认' : pendingVideo.status === 'failed' ? '动态素材生成失败' : '正在生成动态素材'}</strong><small>{pendingVideo.error || pendingVideo.progress || '任务正在处理中'}</small></span>
+                  <span><strong>{pendingVideo.status === 'review' ? '候选视频等待确认' : pendingVideo.status === 'failed' ? '动态素材生成失败' : '正在生成动态素材'}</strong><small>{pendingVideo.error || pendingVideo.progress || avatarMotionSummary(pendingVideo.motion) || '任务正在处理中'}</small></span>
                 </div>}
-                {pendingVideo?.status === 'review' && pendingVideo.idleVideo && <video className="creatorMotionPreview" src={pendingVideo.idleVideo} muted autoPlay loop playsInline controls />}
+                {pendingVideo?.status === 'review' && (pendingVideo.talkVideo || pendingVideo.idleVideo) && <video className="creatorMotionPreview" src={pendingVideo.talkVideo || pendingVideo.idleVideo} muted autoPlay loop={pendingVideo.motion?.mode === 'loop'} playsInline controls />}
                 {pendingVideo?.status === 'review'
                   ? <button className="creatorMotionAction primary" type="button" disabled={videoActionPending} onClick={() => void publishVideo()}>{videoActionPending ? '正在应用…' : '确认并应用动态素材'}</button>
                   : !pendingVideo || pendingVideo.status === 'failed'
                     ? <>
-                      <button className="creatorMotionAction" type="button" disabled={!image || !name.trim() || videoActionPending} onClick={() => void startVideoGeneration()}>{videoActionPending ? '正在提交…' : video ? '用 HappyHorse 重新生成' : '生成动态形象'}</button>
-                      {pendingVideo?.status === 'failed' && pendingVideo.model !== SEEDANCE_FALLBACK_MODEL && <button className="creatorMotionAction" type="button" disabled={!image || !name.trim() || videoActionPending} onClick={() => void startVideoGeneration(SEEDANCE_FALLBACK_MODEL)}>改用 Seedance 2.5</button>}
+                      <button className="creatorMotionAction" type="button" disabled={!image || !name.trim() || !motionPrompt.trim() || videoActionPending} onClick={() => void startVideoGeneration()}>{videoActionPending ? '正在提交…' : video ? '按新动作重新生成' : '生成动态形象'}</button>
+                      {pendingVideo?.status === 'failed' && pendingVideo.model !== SEEDANCE_FALLBACK_MODEL && <button className="creatorMotionAction" type="button" disabled={!image || !name.trim() || !motionPrompt.trim() || videoActionPending} onClick={() => void startVideoGeneration(SEEDANCE_FALLBACK_MODEL)}>按当前动作改用 Seedance 2.5</button>}
                     </>
                     : null}
-                <p>优先使用 HappyHorse 720P（预计约 10.8–14.4 元/次）；失败时可显式改用 Seedance 2.5，生成结果需预览确认后才会切换。</p>
+                <p>时长控制动作完成节奏，不改变固定底片总时长。优先使用 HappyHorse 720P；失败时可改用 Seedance 2.5，预览确认后才会切换。</p>
               </section>
             </>
           )}

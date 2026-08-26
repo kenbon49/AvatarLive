@@ -1001,6 +1001,25 @@ img, video, canvas { display: block; }
 .creatorMotionTitle > span, .creatorMotionState > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .creatorMotionTitle strong { color: #3d4357; font-size: 9px; }
 .creatorMotionTitle small { color: #858b9e; font-size: 7px; line-height: 1.45; }
+.creatorMotionPrompt { display: grid; gap: 5px; }
+.creatorMotionPrompt > span, .creatorMotionSetting > span { display: flex; align-items: center; justify-content: space-between; color: #666d82; font-size: 8px; }
+.creatorMotionPrompt > span strong { color: #52596e; font-size: 8px; }
+.creatorMotionPrompt > span em { color: #a0a5b4; font-size: 7px; font-style: normal; }
+.creatorMotionPrompt textarea { width: 100%; min-height: 64px; padding: 9px; border: 1px solid #d9deec; border-radius: 8px; outline: 0; resize: vertical; color: #3f4659; background: rgba(255, 255, 255, .88); font: inherit; font-size: 8px; line-height: 1.55; }
+.creatorMotionPrompt textarea:focus { border-color: #8fa0ef; box-shadow: 0 0 0 2px rgba(78, 98, 205, .08); }
+.creatorMotionPrompt textarea:disabled, .creatorMotionSettings :disabled, .creatorMotionPresets button:disabled { opacity: .58; cursor: not-allowed; }
+.creatorMotionPresets { display: flex; flex-wrap: wrap; gap: 5px; }
+.creatorMotionPresets button { height: 24px; padding: 0 8px; border: 1px solid #d6dcef; border-radius: 999px; color: #6875ad; background: rgba(255, 255, 255, .76); font-size: 7px; cursor: pointer; }
+.creatorMotionPresets button:hover:not(:disabled) { border-color: #9daae3; color: #4255b4; }
+.creatorMotionSettings { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr); gap: 8px; }
+.creatorMotionSetting { min-width: 0; display: grid; gap: 5px; }
+.creatorMotionSetting select { width: 100%; height: 30px; padding: 0 7px; border: 1px solid #d9deec; border-radius: 7px; outline: 0; color: #555d73; background: white; font-size: 7px; }
+.creatorMotionSetting.duration { grid-column: 1 / -1; }
+.creatorMotionSetting output { color: #5061b2; font-size: 7px; }
+.creatorMotionSetting input[type='range'] { width: 100%; accent-color: var(--blue); }
+.creatorMotionMode { padding: 2px; border-radius: 7px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: #e9ecf6; }
+.creatorMotionMode button { min-width: 0; height: 26px; padding: 0 3px; border: 0; border-radius: 5px; color: #7f8699; background: transparent; font-size: 7px; cursor: pointer; }
+.creatorMotionMode button.active { color: #3d50b1; background: white; box-shadow: 0 2px 7px rgba(45, 57, 112, .1); }
 .creatorMotionState { padding: 9px; border-radius: 8px; display: flex; align-items: flex-start; gap: 7px; color: #5867b5; background: #e9edff; }
 .creatorMotionState.ready, .creatorMotionState.review { color: #24766b; background: #eaf8f4; }
 .creatorMotionState.failed { color: #b9504b; background: #fff0ef; }

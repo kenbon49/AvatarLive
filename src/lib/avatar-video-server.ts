@@ -6,6 +6,8 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promis
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import type { AvatarMotionSettings } from '@/lib/avatar-motion';
+
 const execFileAsync = promisify(execFile);
 
 export const MAX_AVATAR_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -36,6 +38,7 @@ export type AvatarVideoJob = {
   version: string;
   imageFile: string;
   imageMime: string;
+  motion: AvatarMotionSettings;
   createdAt: string;
   updatedAt: string;
   finalizingAt?: string;
@@ -128,6 +131,7 @@ export function publicAvatarVideoJob(job: AvatarVideoJob) {
     idleVideo: job.idleVideo || '',
     talkVideo: job.talkVideo || '',
     quality: job.quality || null,
+    motion: job.motion || null,
   };
 }
 
@@ -292,6 +296,7 @@ export async function finalizeAvatarVideoJob(job: AvatarVideoJob) {
     idle_video: 'idle.mp4',
     image: job.imageFile,
     model: job.model,
+    motion: job.motion || null,
     created_at: job.createdAt,
   };
   await writeJsonAtomic(manifestPath, manifest);

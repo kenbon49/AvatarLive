@@ -1,4 +1,5 @@
 import type { MuseTalkAvatarProfile } from '@/lib/musetalk-total-stream';
+import { normalizeAvatarMotionSettings, type AvatarMotionSettings } from '@/lib/avatar-motion';
 
 export type AvatarStyle = {
   outfit: string;
@@ -12,6 +13,7 @@ export type AvatarVideoAsset = {
   idleVideo: string;
   talkVideo: string;
   image?: string;
+  motion?: AvatarMotionSettings;
 };
 
 export type AvatarVideoJob = {
@@ -24,6 +26,7 @@ export type AvatarVideoJob = {
   idleVideo?: string;
   talkVideo?: string;
   image?: string;
+  motion?: AvatarMotionSettings;
 };
 
 export type Avatar = {
@@ -41,6 +44,7 @@ export type Avatar = {
   baseProfile?: MuseTalkAvatarProfile;
   video?: AvatarVideoAsset;
   pendingVideo?: AvatarVideoJob;
+  motion?: AvatarMotionSettings;
 };
 
 export const DEFAULT_AVATARS: Avatar[] = [
@@ -193,6 +197,9 @@ function storedVideoAsset(value: unknown): AvatarVideoAsset | undefined {
     idleVideo: stored.idleVideo,
     talkVideo: stored.talkVideo,
     image: typeof stored.image === 'string' ? stored.image : undefined,
+    motion: stored.motion && typeof stored.motion === 'object'
+      ? normalizeAvatarMotionSettings(stored.motion)
+      : undefined,
   };
 }
 
@@ -214,6 +221,9 @@ function storedVideoJob(value: unknown): AvatarVideoJob | undefined {
     idleVideo: typeof stored.idleVideo === 'string' ? stored.idleVideo : undefined,
     talkVideo: typeof stored.talkVideo === 'string' ? stored.talkVideo : undefined,
     image: typeof stored.image === 'string' ? stored.image : undefined,
+    motion: stored.motion && typeof stored.motion === 'object'
+      ? normalizeAvatarMotionSettings(stored.motion)
+      : undefined,
   };
 }
 
@@ -262,6 +272,9 @@ export function readCustomAvatars(): Avatar[] {
         baseProfile,
         video,
         pendingVideo,
+        motion: stored.motion && typeof stored.motion === 'object'
+          ? normalizeAvatarMotionSettings(stored.motion)
+          : pendingVideo?.motion || video?.motion,
         style: storedStyle
           && typeof storedStyle.outfit === 'string'
           && typeof storedStyle.hair === 'string'

@@ -3,6 +3,21 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  AVATAR_MOTION_INTENSITIES,
+  AVATAR_MOTION_MODES,
+  DEFAULT_AVATAR_MOTION_DURATION,
+  DEFAULT_AVATAR_MOTION_INTENSITY,
+  DEFAULT_AVATAR_MOTION_MODE,
+  DEFAULT_AVATAR_MOTION_PROMPT,
+  MAX_AVATAR_MOTION_DURATION,
+  MAX_AVATAR_MOTION_PROMPT_LENGTH,
+  MIN_AVATAR_MOTION_DURATION,
+  buildAvatarMotionGenerationPrompt,
+  cleanAvatarMotionPrompt,
+  type AvatarMotionIntensity,
+  type AvatarMotionMode,
+} from '@/lib/avatar-motion';
+import {
   AVATAR_ID_PATTERN,
   HAPPYHORSE_VIDEO_MODEL,
   MAX_AVATAR_IMAGE_BYTES,
@@ -52,9 +67,29 @@ export async function POST(request: Request) {
     const avatarId = String(form.get('avatar_id') || '').trim().toLowerCase();
     const avatarName = String(form.get('avatar_name') || '').trim();
     const baseProfile = String(form.get('base_profile') || '').trim();
+    const requestedMotionPrompt = cleanAvatarMotionPrompt(form.get('motion_prompt'));
+    const motionPrompt = requestedMotionPrompt || DEFAULT_AVATAR_MOTION_PROMPT;
+    const motionModeValue = String(form.get('motion_mode') || DEFAULT_AVATAR_MOTION_MODE);
+    const motionIntensityValue = String(form.get('motion_intensity') || DEFAULT_AVATAR_MOTION_INTENSITY);
+    const motionDurationValue = String(form.get('motion_duration') || DEFAULT_AVATAR_MOTION_DURATION);
+    const motionDuration = Number(motionDurationValue);
     const image = form.get('image');
     if (!AVATAR_ID_PATTERN.test(avatarId)) return errorResponse('自定义形象编号无效', 400);
     if (!avatarName || avatarName.length > 80) return errorResponse('形象名称长度必须在 1 到 80 个字符之间', 400);
+    if (motionPrompt.length > MAX_AVATAR_MOTION_PROMPT_LENGTH) {
+      return errorResponse(`动作描述不能超过 ${MAX_AVATAR_MOTION_PROMPT_LENGTH} 个字符`, 400);
+    }
+    if (!AVATAR_MOTION_MODES.some((value) => value === motionModeValue)) {
+      return errorResponse('动作方式无效', 400);
+    }
+    if (!AVATAR_MOTION_INTENSITIES.some((value) => value === motionIntensityValue)) {
+      return errorResponse('动作幅度无效', 400);
+    }
+    if (!Number.isInteger(motionDuration)
+      || motionDuration < MIN_AVATAR_MOTION_DURATION
+      || motionDuration > MAX_AVATAR_MOTION_DURATION) {
+      return errorResponse(`动作节奏必须在 ${MIN_AVATAR_MOTION_DURATION} 到 ${MAX_AVATAR_MOTION_DURATION} 秒之间`, 400);
+    }
     if (!(image instanceof File)) return errorResponse('请上传最终形象图片', 400);
     if (!image.size || image.size > MAX_AVATAR_IMAGE_BYTES) return errorResponse('形象图片大小必须在 20 MB 以内', 400);
 
@@ -87,6 +122,12 @@ export async function POST(request: Request) {
       version,
       imageFile,
       imageMime: imageType.mime,
+      motion: {
+        prompt: motionPrompt,
+        mode: motionModeValue as AvatarMotionMode,
+        intensity: motionIntensityValue as AvatarMotionIntensity,
+        duration: motionDuration,
+      },
       createdAt: now,
       updatedAt: now,
     };
@@ -111,13 +152,7 @@ export async function POST(request: Request) {
       throw new Error(typeof uploadPayload.message === 'string' ? uploadPayload.message : `动作模板上传 HTTP ${uploadResponse.status}`);
     }
 
-    const prompt = [
-      'Use reference image 1 as the exact identity and appearance of the only person in the source video.',
-      'Replace the source person while preserving the original fixed camera, framing, lighting, timing, body position and subtle natural movements.',
-      'Keep the same face, hairstyle, clothing and body proportions from reference image 1 in every frame.',
-      'No camera movement, cuts, zoom, text, logo, watermark, extra person, identity drift, clothing change or exaggerated gesture.',
-      'The result must be a stable photorealistic digital-human base video suitable for later lip-sync processing.',
-    ].join(' ');
+    const prompt = buildAvatarMotionGenerationPrompt(job.motion);
     let generationPath = '/api/ai/generate-bailian-video';
     let generationBody: Record<string, unknown> = {
       model,
