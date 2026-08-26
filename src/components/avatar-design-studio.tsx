@@ -29,6 +29,7 @@ import {
   type AvatarStyleSelection,
 } from '@/components/avatar-capability-panel';
 import {
+  ACTIVE_AVATAR_STORAGE_KEY,
   AVATAR_VOICE_STORAGE_KEY,
   CUSTOM_AVATAR_STORAGE_KEY,
   DEFAULT_AVATAR_VOICE_ID,
@@ -873,8 +874,9 @@ export function AvatarDesignStudio({
     setSaving(true);
     setError('');
     try {
-      persistAvatar(await bakeImageFilter(image, imageFilter));
-      router.push('/');
+      const avatar = persistAvatar(await bakeImageFilter(image, imageFilter));
+      localStorage.setItem(ACTIVE_AVATAR_STORAGE_KEY, avatar.id);
+      router.push(`/?avatar=${encodeURIComponent(avatar.id)}`);
     } catch (cause) {
       setSaving(false);
       setError(cause instanceof Error ? cause.message : '浏览器存储空间不足，请使用尺寸更小的照片。');

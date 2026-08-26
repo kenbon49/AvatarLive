@@ -142,6 +142,7 @@ export const DEFAULT_AVATARS: Avatar[] = [
 
 export const CUSTOM_AVATAR_STORAGE_KEY = 'lingjing-custom-avatars';
 export const AVATAR_VOICE_STORAGE_KEY = 'lingjing-avatar-voices';
+export const ACTIVE_AVATAR_STORAGE_KEY = 'lingjing-active-avatar';
 export const DEFAULT_AVATAR_VOICE_ID = 'default';
 
 const LEGACY_AVATAR_VOICE_IDS = new Set([

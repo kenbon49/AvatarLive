@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test:avatar-motion": "node --experimental-strip-types --test tests/avatar-motion.test.mjs",
+    "test:avatar-selection": "node --experimental-strip-types --test tests/avatar-selection.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

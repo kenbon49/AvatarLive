@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Headphones, ImagePlus, Mic, MicOff, PhoneCall, Send, Settings2, Sparkles } from 'lucide-react';
 import {
@@ -9,6 +9,7 @@ import {
   type MuseTalkAvatarProfile,
 } from '@/lib/musetalk-total-stream';
 import {
+  ACTIVE_AVATAR_STORAGE_KEY,
   AVATAR_VOICE_STORAGE_KEY,
   CUSTOM_AVATAR_STORAGE_KEY,
   DEFAULT_AVATARS,
@@ -16,7 +17,7 @@ import {
   readCustomAvatars,
   type Avatar,
 } from '@/lib/avatar-catalog';
-import { IDLE_VIDEO_BY_AVATAR_ID } from '@/lib/avatar-preview-media';
+import { avatarIdleVideo } from '@/lib/avatar-preview-media';
 import { ProductShell } from '@/components/product-shell';
 
 type Message = { role: 'user' | 'avatar'; text: string };
@@ -52,7 +53,7 @@ function IdleAvatarMedia({
   const videoRef = useRef<HTMLVideoElement>(null);
   const handoffHandledRef = useRef(false);
   const returnHandledRef = useRef(false);
-  const source = avatar.video?.idleVideo || (!avatar.custom ? IDLE_VIDEO_BY_AVATAR_ID[avatar.id] : undefined);
+  const source = avatarIdleVideo(avatar);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -143,7 +144,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
   const busy = stage !== 'idle' && stage !== 'conversation_end' && stage !== 'error';
-  const hasIdleVideo = Boolean(avatar.video?.idleVideo || (!avatar.custom && IDLE_VIDEO_BY_AVATAR_ID[avatar.id]));
+  const hasIdleVideo = Boolean(avatarIdleVideo(avatar));
   const showGeneratedMedia = mediaActive && (!avatar.custom || Boolean(avatar.video));
   const lipSyncStatus = connectionState === 'failed'
       ? '连接失败'
@@ -373,6 +374,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
 }
 
 export function InteractionConsole() {
+  const requestedAvatarIdRef = useRef('');
   const [selected, setSelected] = useState<Avatar | null>(null);
   const [catalogAvatars, setCatalogAvatars] = useState<Avatar[]>(DEFAULT_AVATARS);
   const [customAvatars, setCustomAvatars] = useState<Avatar[]>([]);
@@ -381,20 +383,40 @@ export function InteractionConsole() {
   const [defaultAvatarId, setDefaultAvatarId] = useState('');
   const [availableAvatarIds, setAvailableAvatarIds] = useState<Set<string>>(new Set());
   const [catalogError, setCatalogError] = useState('');
+  const [preferredAvatarId, setPreferredAvatarId] = useState('');
 
-  const avatars = [
-    ...catalogAvatars,
-    ...customAvatars.filter((custom) => !catalogAvatars.some((avatar) => avatar.id === custom.id)),
-  ].map((avatar) => voicePreferences[avatar.id] ? { ...avatar, voice: voicePreferences[avatar.id] } : avatar);
+  const avatars = useMemo(() => [
+      ...catalogAvatars,
+      ...customAvatars.filter((custom) => !catalogAvatars.some((avatar) => avatar.id === custom.id)),
+    ].map((avatar) => voicePreferences[avatar.id] ? { ...avatar, voice: voicePreferences[avatar.id] } : avatar),
+  [catalogAvatars, customAvatars, voicePreferences]);
+
+  const enterAvatar = useCallback((avatar: Avatar) => {
+    try {
+      localStorage.setItem(ACTIVE_AVATAR_STORAGE_KEY, avatar.id);
+    } catch {
+      // The current selection still works when browser storage is unavailable.
+    }
+    setPreferredAvatarId(avatar.id);
+    setSelected(avatar);
+  }, []);
 
   useEffect(() => {
     const refreshCustomAvatars = () => {
       setCustomAvatars(readCustomAvatars());
       setVoicePreferences(readAvatarVoicePreferences());
+      try {
+        setPreferredAvatarId(localStorage.getItem(ACTIVE_AVATAR_STORAGE_KEY) || '');
+      } catch {
+        setPreferredAvatarId('');
+      }
     };
     const syncCustomAvatars = (event: StorageEvent) => {
-      if (event.key === CUSTOM_AVATAR_STORAGE_KEY || event.key === AVATAR_VOICE_STORAGE_KEY) refreshCustomAvatars();
+      if (event.key === CUSTOM_AVATAR_STORAGE_KEY
+        || event.key === AVATAR_VOICE_STORAGE_KEY
+        || event.key === ACTIVE_AVATAR_STORAGE_KEY) refreshCustomAvatars();
     };
+    requestedAvatarIdRef.current = new URLSearchParams(window.location.search).get('avatar')?.trim() || '';
     refreshCustomAvatars();
     window.addEventListener('storage', syncCustomAvatars);
     window.addEventListener('focus', refreshCustomAvatars);
@@ -403,6 +425,18 @@ export function InteractionConsole() {
       window.removeEventListener('focus', refreshCustomAvatars);
     };
   }, []);
+
+  useEffect(() => {
+    const requestedAvatarId = requestedAvatarIdRef.current;
+    if (!requestedAvatarId || selected || !availableAvatarIds.size) return;
+    const avatar = avatars.find((item) => item.id === requestedAvatarId);
+    if (!avatar || !isInteractiveAvatar(avatar, availableAvatarIds)) return;
+    requestedAvatarIdRef.current = '';
+    enterAvatar(avatar);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('avatar');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [availableAvatarIds, avatars, enterAvatar, selected]);
 
   useEffect(() => {
     let active = true;
@@ -433,7 +467,8 @@ export function InteractionConsole() {
   if (selected) return <Conversation avatar={selected} onBack={() => setSelected(null)} />;
 
   const interactive = (avatar: Avatar) => isInteractiveAvatar(avatar, availableAvatarIds);
-  const featuredAvatar = avatars.find((avatar) => interactive(avatar) && avatar.id === defaultAvatarId)
+  const featuredAvatar = avatars.find((avatar) => interactive(avatar) && avatar.id === preferredAvatarId)
+    || avatars.find((avatar) => interactive(avatar) && avatar.id === defaultAvatarId)
     || avatars.find((avatar) => interactive(avatar) && avatar.profile === defaultProfile)
     || avatars.find(interactive);
   const interactiveAvatarCount = avatars.filter(interactive).length;
@@ -446,7 +481,7 @@ export function InteractionConsole() {
             <h1>来和你的数字人聊聊吧</h1>
             <p>选择数字人形象，即刻体验低延迟、可打断的自然对话。适用于客户接待、产品咨询与品牌服务。</p>
             <div className="catalogHeroActions">
-              <button className="primaryAction" type="button" onClick={() => featuredAvatar && setSelected(featuredAvatar)} disabled={!featuredAvatar}><Sparkles size={17} />立即开始</button>
+              <button className="primaryAction" type="button" onClick={() => featuredAvatar && enterAvatar(featuredAvatar)} disabled={!featuredAvatar}><Sparkles size={17} />立即开始</button>
               {featuredAvatar && <Link className="secondaryAction" href={avatarDesignHref(featuredAvatar)}><Settings2 size={16} />配置形象</Link>}
             </div>
           </div>
@@ -454,7 +489,7 @@ export function InteractionConsole() {
             <div className="heroOrb one" />
             <div className="heroOrb two" />
             {featuredAvatar && <div className="heroPortrait"><img src={featuredAvatar.image} alt="" /></div>}
-            {featuredAvatar && <div className="heroFloatingCard"><span><i />{catalogError ? '服务未连接' : '在线'}</span><strong>{featuredAvatar.name}</strong><small>{featuredAvatar.role}</small></div>}
+            {featuredAvatar && <div className="heroFloatingCard"><span><i />{catalogError ? '服务未连接' : '在线'}</span><strong>{featuredAvatar.name}<em>{featuredAvatar.custom ? '自定义' : '内置'}</em></strong><small>{featuredAvatar.role}</small></div>}
           </div>
         </section>
 
@@ -480,9 +515,11 @@ export function InteractionConsole() {
                     : '暂不可用';
               return (
               <div className="avatarProductCardWrap" key={avatar.id}>
-                <button className="avatarProductCard" type="button" onClick={() => avatarIsInteractive && setSelected(avatar)} disabled={!avatarIsInteractive}>
+                <button className="avatarProductCard" type="button" onClick={() => avatarIsInteractive && enterAvatar(avatar)} disabled={!avatarIsInteractive}>
                   <span className="avatarProductMedia">
                     <AvatarMedia avatar={avatar} />
+                    <span className={`avatarIdentityBadge ${avatar.custom ? 'custom' : 'builtIn'}`}>{avatar.custom ? '自定义' : '内置'}</span>
+                    {avatar.id === preferredAvatarId && avatarIsInteractive && <span className="avatarRecentBadge">最近使用</span>}
                     {!avatarIsInteractive && <span className="avatarAvailabilityBadge">{availability}</span>}
                   </span>
                   <span className="avatarProductInfo">
