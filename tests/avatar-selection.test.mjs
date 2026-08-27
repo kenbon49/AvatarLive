@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { avatarIdleVideo } from '../src/lib/avatar-preview-media.ts';
+import {
+  avatarIdleVideo,
+  avatarUsesSharedMuseTalkCycle,
+} from '../src/lib/avatar-preview-media.ts';
 
 function customAvatar(mode) {
   return {
@@ -41,5 +44,23 @@ test('keeps curated idle media for built-in avatars', () => {
     role: '顾问',
     description: '内置',
     image: '/chinese.jpg',
-  }), '/assets/musetalk-default/idle-chinese2-0to1-d0853621.mp4');
+  }), '/assets/musetalk-default/chinese2-cycle-4to7-d0853621.mp4');
+});
+
+test('only synchronizes source phase for the unchanged shared Chinese cycle', () => {
+  const chinese = {
+    id: 'chinese',
+    profile: 'chinese',
+    language: 'ZH',
+    name: '中文女',
+    role: '顾问',
+    description: '内置',
+    image: '/chinese.jpg',
+  };
+  assert.equal(avatarUsesSharedMuseTalkCycle(chinese), true);
+  assert.equal(avatarUsesSharedMuseTalkCycle({ ...chinese, id: 'business-male-1' }), false);
+  assert.equal(avatarUsesSharedMuseTalkCycle({
+    ...chinese,
+    video: customAvatar('loop').video,
+  }), false);
 });

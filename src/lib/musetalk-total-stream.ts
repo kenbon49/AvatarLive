@@ -1,5 +1,9 @@
 import { getMuseTalkAvatars } from './api';
 import { LocalMuseTalkStream } from './musetalk-local-stream';
+import {
+  selectVideoFrameForDecode,
+  selectVideoFramesToDrop,
+} from './musetalk-video-queue';
 
 export interface MuseTalkTotalResult {
   answer: string;
@@ -106,11 +110,12 @@ export interface MuseTalkTotalOptions {
   language?: 'ZH' | 'EN';
   voice?: string;
   speed?: number;
+  getSourceTimeSeconds?: () => number | undefined;
   onMediaActive?: (active: boolean) => void;
   // Resolving this releases the buffered audio/video timeline together.
   onPlaybackReady?: () => Promise<void> | void;
   // Resolving this lets the UI reveal its neutral idle pose before the canvas fades out.
-  onPlaybackFinished?: () => Promise<void> | void;
+  onPlaybackFinished?: (sourceTimeSeconds?: number) => Promise<void> | void;
   onStage?: (stage: string) => void;
   onTextUnit?: (unit: string, text: string) => void;
 }
@@ -123,6 +128,7 @@ interface ActiveRequest {
   answer: string;
   streamedText: string;
   llmLatencyMs: number;
+  sourceTimeSeconds: number | null;
   resolve: (value: MuseTalkTotalResult) => void;
   reject: (error: Error) => void;
 }
@@ -130,6 +136,7 @@ interface ActiveRequest {
 const PACKET_HEADER_BYTES = 24;
 const PLAYBACK_LEAD_SECONDS = 0.12;
 const MAX_PENDING_VIDEO_DECODES = 2;
+const MAX_QUEUED_VIDEO_FRAMES = 90;
 const configuredPlaybackBufferMs = Number(
   process.env.NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS || 1500,
 );
@@ -300,6 +307,11 @@ export class ServerTotalStream {
   private playbackEndTimer: number | null = null;
   private playbackFallbackTimer: number | null = null;
   private decodedVideoFrames = new Map<number, ImageBitmap>();
+  private queuedVideoFrames = new Map<number, {
+    payload: ArrayBuffer;
+    generation: number;
+    request: ActiveRequest | null;
+  }>();
   private videoFrameRequest: number | null = null;
   private lastDrawnVideoPts = -Infinity;
   private videoEndPts = 0;
@@ -308,12 +320,14 @@ export class ServerTotalStream {
   private conversationStreamStarted = false;
   private deferredMediaPackets: ArrayBuffer[] = [];
   private bufferedAudioEndPts = 0;
+  private audioEndPts = 0;
   private bufferedVideoReady = false;
   private playbackBufferSeconds = PLAYBACK_BUFFER_MS / 1000;
   private conversationEnded = false;
   private audioWorkletStarted = false;
   private workletUnderrunBlocks = 0;
   private pendingVideoDecodes = 0;
+  private mediaFps = 15;
   private pendingPlaybackCompletion: { active: ActiveRequest; result: MuseTalkTotalResult } | null = null;
   private activeRequest: ActiveRequest | null = null;
 
@@ -374,6 +388,12 @@ export class ServerTotalStream {
     if (payloadSize !== buffer.byteLength - PACKET_HEADER_BYTES) {
       throw new Error('MSTK 媒体包长度不匹配');
     }
+    if (packetType === 2) {
+      this.audioEndPts = Math.max(
+        this.audioEndPts,
+        ptsSeconds + payloadSize / 2 / 16_000,
+      );
+    }
     if (!this.playbackGateOpen) {
       this.deferredMediaPackets.push(buffer);
       if (packetType === 1) {
@@ -422,13 +442,45 @@ export class ServerTotalStream {
     if (packetType !== 1) return;
     const packetRequest = this.activeRequest;
     this.videoEndPts = Math.max(this.videoEndPts, ptsSeconds);
-    if (this.pendingVideoDecodes >= MAX_PENDING_VIDEO_DECODES) return;
-    this.pendingVideoDecodes += 1;
+    this.queuedVideoFrames.set(ptsSeconds, {
+      payload,
+      generation,
+      request: packetRequest,
+    });
+    for (const overflowPts of selectVideoFramesToDrop(
+      this.queuedVideoFrames.keys(),
+      MAX_QUEUED_VIDEO_FRAMES,
+    )) this.queuedVideoFrames.delete(overflowPts);
+    this.pumpVideoDecodes();
+  }
+
+  private pumpVideoDecodes() {
+    while (this.pendingVideoDecodes < MAX_PENDING_VIDEO_DECODES && this.queuedVideoFrames.size) {
+      const audioContext = this.audioContext;
+      const mediaPts = this.mediaTimelineStarted && audioContext
+        ? audioContext.currentTime - this.mediaStartAudio
+        : null;
+      const selection = selectVideoFrameForDecode(this.queuedVideoFrames.keys(), mediaPts);
+      for (const stalePts of selection.stalePts) this.queuedVideoFrames.delete(stalePts);
+      if (selection.nextPts === null) return;
+      const queued = this.queuedVideoFrames.get(selection.nextPts);
+      this.queuedVideoFrames.delete(selection.nextPts);
+      if (!queued) continue;
+
+      this.pendingVideoDecodes += 1;
+      void this.decodeVideoFrame(selection.nextPts, queued);
+    }
+  }
+
+  private async decodeVideoFrame(
+    ptsSeconds: number,
+    queued: { payload: ArrayBuffer; generation: number; request: ActiveRequest | null },
+  ) {
     try {
-      const bitmap = await createImageBitmap(new Blob([payload], { type: 'image/jpeg' }));
+      const bitmap = await createImageBitmap(new Blob([queued.payload], { type: 'image/jpeg' }));
       if (
-        generation !== this.sessionGeneration
-        || this.activeRequest !== packetRequest
+        queued.generation !== this.sessionGeneration
+        || this.activeRequest !== queued.request
         || ptsSeconds <= this.lastDrawnVideoPts
       ) {
         bitmap.close();
@@ -436,9 +488,10 @@ export class ServerTotalStream {
       }
       this.decodedVideoFrames.get(ptsSeconds)?.close();
       this.decodedVideoFrames.set(ptsSeconds, bitmap);
-      this.requestVideoRender(generation);
+      this.requestVideoRender(queued.generation);
     } finally {
       this.pendingVideoDecodes = Math.max(0, this.pendingVideoDecodes - 1);
+      this.pumpVideoDecodes();
       this.finishPendingPlayback();
     }
   }
@@ -498,6 +551,7 @@ export class ServerTotalStream {
     }
     for (const bitmap of this.decodedVideoFrames.values()) bitmap.close();
     this.decodedVideoFrames.clear();
+    this.queuedVideoFrames.clear();
     this.lastDrawnVideoPts = -Infinity;
     this.videoEndPts = 0;
   }
@@ -580,6 +634,7 @@ export class ServerTotalStream {
     this.conversationStreamStarted = false;
     this.deferredMediaPackets = [];
     this.bufferedAudioEndPts = 0;
+    this.audioEndPts = 0;
     this.bufferedVideoReady = false;
     this.conversationEnded = false;
     this.audioWorkletStarted = false;
@@ -614,13 +669,13 @@ export class ServerTotalStream {
     }, Math.max(audioDelay, videoDelay) + PLAYBACK_COMPLETION_FALLBACK_MS);
   }
 
-  private async finishPlaybackHandoff() {
+  private async finishPlaybackHandoff(sourceTimeSeconds?: number) {
     const callback = this.options.onPlaybackFinished;
     if (!callback) return;
     let timeout: number | null = null;
     try {
       await Promise.race([
-        Promise.resolve().then(() => callback()),
+        Promise.resolve().then(() => callback(sourceTimeSeconds)),
         new Promise<void>((resolve) => {
           timeout = window.setTimeout(resolve, PLAYBACK_HANDOFF_TIMEOUT_MS);
         }),
@@ -639,6 +694,12 @@ export class ServerTotalStream {
     }
     this.playbackEndTimer = null;
     if (this.activeRequest !== active) return;
+    const sourceTimeSeconds = active.sourceTimeSeconds === null
+      ? undefined
+      : (
+          Math.floor(active.sourceTimeSeconds * this.mediaFps) / this.mediaFps
+          + this.audioEndPts
+        );
     this.activeRequest = null;
     this.mediaTimelineStarted = false;
     this.audioScheduledUntil = 0;
@@ -647,11 +708,12 @@ export class ServerTotalStream {
     this.deferredMediaPackets = [];
     this.playbackGateOpen = true;
     this.playbackGateRequested = false;
+    this.audioEndPts = 0;
     this.setStage('idle');
     active.resolve(result);
     // The visual handoff is best effort and must never own the request lock.
     // Keep the final canvas frame visible until the idle source is ready.
-    void this.finishPlaybackHandoff().finally(() => this.setMediaActive(false, true));
+    void this.finishPlaybackHandoff(sourceTimeSeconds).finally(() => this.setMediaActive(false, true));
   }
 
   private finishAfterPlayback(active: ActiveRequest, result: MuseTalkTotalResult) {
@@ -702,7 +764,7 @@ export class ServerTotalStream {
       this.startMediaTimeline(PLAYBACK_LEAD_SECONDS);
       const packets = this.deferredMediaPackets;
       this.deferredMediaPackets = [];
-      for (const packet of packets) void this.handlePacket(packet, generation);
+      for (const packet of packets) await this.handlePacket(packet, generation);
       if (this.audioWorkletNode && !this.audioWorkletStarted) {
         this.audioWorkletStarted = true;
         this.audioWorkletNode.port.postMessage({
@@ -730,6 +792,11 @@ export class ServerTotalStream {
     }
     const requestId = message.request_id === undefined ? null : String(message.request_id);
     if (requestId && requestId !== this.activeRequest?.requestId) {
+      return;
+    }
+    if (type === 'musetalk_ready') {
+      const fps = Number(message.fps);
+      if (Number.isFinite(fps) && fps > 0) this.mediaFps = fps;
       return;
     }
     if (type === 'llm_start' || type === 'llm_delta') {
@@ -924,12 +991,19 @@ export class ServerTotalStream {
     const websocket = this.requireLive();
     const requestId = nextRequestId();
     const startedAt = performance.now();
+    const sourceTime = this.options.getSourceTimeSeconds
+      ? Number(this.options.getSourceTimeSeconds())
+      : null;
+    const sourceTimeSeconds = sourceTime !== null && Number.isFinite(sourceTime) && sourceTime >= 0
+      ? sourceTime
+      : null;
     this.textGeneration += 1;
     this.resetTextTimeline();
     this.mediaTimelineStarted = false;
     this.audioScheduledUntil = 0;
     this.conversationStreamStarted = false;
     this.bufferedAudioEndPts = 0;
+    this.audioEndPts = 0;
     this.bufferedVideoReady = false;
     this.conversationEnded = false;
     this.audioWorkletStarted = false;
@@ -938,7 +1012,16 @@ export class ServerTotalStream {
     this.clearVideoPlayback();
     this.pendingPlaybackCompletion = null;
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
-      this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
+      this.activeRequest = {
+        requestId,
+        startedAt,
+        answer: '',
+        streamedText: '',
+        llmLatencyMs: 0,
+        sourceTimeSeconds,
+        resolve,
+        reject,
+      };
       websocket.send(
         JSON.stringify({
           type: 'ask',
@@ -948,6 +1031,7 @@ export class ServerTotalStream {
           language: this.options.language || 'ZH',
           voice_id: this.options.voice || undefined,
           speed: this.options.speed || 1,
+          ...(sourceTimeSeconds === null ? {} : { source_time_seconds: sourceTimeSeconds }),
         }),
       );
       this.setStage('llm_start');
@@ -960,12 +1044,19 @@ export class ServerTotalStream {
     const websocket = this.requireLive();
     const requestId = nextRequestId();
     const startedAt = performance.now();
+    const sourceTime = this.options.getSourceTimeSeconds
+      ? Number(this.options.getSourceTimeSeconds())
+      : null;
+    const sourceTimeSeconds = sourceTime !== null && Number.isFinite(sourceTime) && sourceTime >= 0
+      ? sourceTime
+      : null;
     this.textGeneration += 1;
     this.resetTextTimeline();
     this.mediaTimelineStarted = false;
     this.audioScheduledUntil = 0;
     this.conversationStreamStarted = false;
     this.bufferedAudioEndPts = 0;
+    this.audioEndPts = 0;
     this.bufferedVideoReady = false;
     this.conversationEnded = false;
     this.audioWorkletStarted = false;
@@ -973,7 +1064,16 @@ export class ServerTotalStream {
     this.audioWorkletNode?.port.postMessage({ type: 'stop' });
     this.clearVideoPlayback();
     return new Promise<MuseTalkTotalResult>((resolve, reject) => {
-      this.activeRequest = { requestId, startedAt, answer: '', streamedText: '', llmLatencyMs: 0, resolve, reject };
+      this.activeRequest = {
+        requestId,
+        startedAt,
+        answer: '',
+        streamedText: '',
+        llmLatencyMs: 0,
+        sourceTimeSeconds,
+        resolve,
+        reject,
+      };
       websocket.send(
         JSON.stringify({
           type: 'speak',
@@ -983,6 +1083,7 @@ export class ServerTotalStream {
           language: this.options.language || 'ZH',
           voice_id: this.options.voice || undefined,
           speed: this.options.speed || 1,
+          ...(sourceTimeSeconds === null ? {} : { source_time_seconds: sourceTimeSeconds }),
         }),
       );
       this.setStage('tts_start');

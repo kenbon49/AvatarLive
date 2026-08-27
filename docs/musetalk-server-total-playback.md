@@ -16,20 +16,26 @@ server_total :8080
 
 The MuseTalk stage has one visible media layer at a time:
 
-1. `idle`: muted `/assets/musetalk-default/chinese-idle-3f.mp4`, repeatedly seeking
-   over the interval `[0, 1)` seconds.
-2. `stream_start`: establish a 650 ms jitter buffer, then use the PCM clock and
+1. `idle`: play the same 15 FPS `4s -> 7s -> 4s` source cycle used by the Chinese
+   MuseTalk profile.
+2. `stream_start`: establish the configured jitter buffer, then use the PCM clock and
    each packet's `pts_us` to schedule PCM and JPEG frames. The idle layer stays
    visible until the first generated JPEG is actually painted, avoiding a
    black transition frame.
-3. `stream_end`: keep playing already scheduled packets; switch to idle only
-   after the greatest audio/video PTS has elapsed.
+3. `stream_end`: keep playing already scheduled packets; switch to idle at the
+   next source-cycle phase after the greatest audio/video PTS has elapsed.
 4. disconnect, error, renderer switch, or a new question: stop old audio,
    invalidate delayed frames, close the old WebSocket, and return to idle.
 
-The inference source is `D:/code/avatar/MuseTalk/data/avatar_image/chinese.mp4`.
-The browser idle asset contains only source frames 16, 17, and 18 at 3 FPS;
-the three unique frames repeat while the full source remains unchanged.
+The inference and browser idle sources are byte-identical derivatives of
+`data/public/chinese2.mp4`. JPEG packets are queued for bounded concurrent decode;
+only frames already behind the audio clock may be collapsed. Source-phase handoff
+is enabled only for profiles whose idle and inference videos share this exact
+cycle.
+
+PCM packet timing follows the exact 16 kHz sample count. The final MuseTalk batch
+keeps any audio tail shorter than one video frame, preventing repeated clipped
+syllables at TTS chunk boundaries.
 
 ## Start the inference stack
 

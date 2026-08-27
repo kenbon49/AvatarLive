@@ -9,6 +9,7 @@
     "start": "next start",
     "test:avatar-motion": "node --experimental-strip-types --test tests/avatar-motion.test.mjs",
     "test:avatar-selection": "node --experimental-strip-types --test tests/avatar-selection.test.mjs",
+    "test:musetalk-video-queue": "node --experimental-strip-types --test tests/musetalk-video-queue.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

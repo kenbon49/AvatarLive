@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Headphones, ImagePlus, Mic, MicOff, PhoneCall, Send, Settings2, Sparkles } from 'lucide-react';
 import {
@@ -17,7 +17,7 @@ import {
   readCustomAvatars,
   type Avatar,
 } from '@/lib/avatar-catalog';
-import { avatarIdleVideo } from '@/lib/avatar-preview-media';
+import { avatarIdleVideo, avatarUsesSharedMuseTalkCycle } from '@/lib/avatar-preview-media';
 import { ProductShell } from '@/components/product-shell';
 
 type Message = { role: 'user' | 'avatar'; text: string };
@@ -26,7 +26,6 @@ function AvatarMedia({ avatar, className = '' }: { avatar: Avatar; className?: s
   return <img className={className} src={avatar.image} alt={`${avatar.name} 数字人形象`} />;
 }
 
-const IDLE_HANDOFF_SECONDS = 0;
 const IDLE_SEEK_TIMEOUT_MS = 250;
 const CONFIGURED_INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'business-male-1', 'chenyu', 'suqing', 'guyan']);
 
@@ -37,20 +36,21 @@ function isInteractiveAvatar(avatar: Avatar, availableAvatarIds: Set<string>) {
 
 function IdleAvatarMedia({
   avatar,
+  videoRef,
   className,
   handoffRequested,
-  returnRequested,
+  returnTimeSeconds,
   onForwardBoundary,
   onReturnBoundary,
 }: {
   avatar: Avatar;
+  videoRef: RefObject<HTMLVideoElement | null>;
   className: string;
   handoffRequested: boolean;
-  returnRequested: boolean;
+  returnTimeSeconds: number | null;
   onForwardBoundary: () => void;
   onReturnBoundary: () => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const handoffHandledRef = useRef(false);
   const returnHandledRef = useRef(false);
   const source = avatarIdleVideo(avatar);
@@ -94,12 +94,16 @@ function IdleAvatarMedia({
     };
 
     if (!handoffRequested) handoffHandledRef.current = false;
-    if (!returnRequested) returnHandledRef.current = false;
+    if (returnTimeSeconds === null) returnHandledRef.current = false;
 
-    if (returnRequested && !returnHandledRef.current) {
+    if (returnTimeSeconds !== null && !returnHandledRef.current) {
       returnHandledRef.current = true;
       video.pause();
-      return seekToTime(0, () => {
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+      const targetTime = duration > 0
+        ? ((returnTimeSeconds % duration) + duration) % duration
+        : 0;
+      return seekToTime(targetTime, () => {
         // Start the decoded idle source behind the canvas before fading the
         // generated frame out, so the return transition never reveals a pause.
         resume();
@@ -110,12 +114,13 @@ function IdleAvatarMedia({
     if (handoffRequested && !handoffHandledRef.current) {
       handoffHandledRef.current = true;
       video.pause();
-      // A new backend request starts from the source video's first frame.
-      return seekToTime(IDLE_HANDOFF_SECONDS, onForwardBoundary);
+      // Keep the visible idle pose stable while the generated first frame fades in.
+      onForwardBoundary();
+      return;
     }
 
     resume();
-  }, [handoffRequested, onForwardBoundary, onReturnBoundary, returnRequested]);
+  }, [handoffRequested, onForwardBoundary, onReturnBoundary, returnTimeSeconds]);
 
   if (!source) return <AvatarMedia avatar={avatar} className={className} />;
   return <video ref={videoRef} className={className} src={source} muted autoPlay loop playsInline preload="auto" aria-label={`${avatar.name} 数字人静息画面`} />;
@@ -127,6 +132,7 @@ function avatarDesignHref(avatar: Avatar) {
 
 function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const idleVideoRef = useRef<HTMLVideoElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
   const recognitionRef = useRef<{ start: () => void; stop: () => void } | null>(null);
@@ -139,12 +145,13 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
   const [stage, setStage] = useState('idle');
   const [mediaActive, setMediaActive] = useState(false);
   const [streamStartPending, setStreamStartPending] = useState(false);
-  const [streamEndPending, setStreamEndPending] = useState(false);
+  const [idleReturnTime, setIdleReturnTime] = useState<number | null>(null);
   const [connectionState, setConnectionState] = useState<'connecting' | 'online' | 'failed'>('connecting');
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
   const busy = stage !== 'idle' && stage !== 'conversation_end' && stage !== 'error';
   const hasIdleVideo = Boolean(avatarIdleVideo(avatar));
+  const synchronizeIdlePhase = avatarUsesSharedMuseTalkCycle(avatar);
   const showGeneratedMedia = mediaActive && (!avatar.custom || Boolean(avatar.video));
   const lipSyncStatus = connectionState === 'failed'
       ? '连接失败'
@@ -172,15 +179,26 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
       profile: avatar.profile,
       language: avatar.language,
       voice: avatar.voice,
+      getSourceTimeSeconds: synchronizeIdlePhase
+        ? () => {
+            const video = idleVideoRef.current;
+            if (!video) return 0;
+            // Capture and freeze the exact displayed phase before backend work begins.
+            video.pause();
+            setStreamStartPending(true);
+            return video.currentTime;
+          }
+        : undefined,
       onStage: setStage,
       onPlaybackReady: () => {
         if (!hasIdleVideo) return;
+        if (synchronizeIdlePhase) return;
         return new Promise<void>((resolve) => {
           playbackGateResolveRef.current = resolve;
           setStreamStartPending(true);
         });
       },
-      onPlaybackFinished: () => {
+      onPlaybackFinished: (sourceTimeSeconds) => {
         if (!hasIdleVideo) return;
         return new Promise<void>((resolve) => {
           // Keep the generated frame visible until the idle clip is ready.
@@ -190,7 +208,13 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
             resolve();
           };
           returnGateResolveRef.current = complete;
-          setStreamEndPending(true);
+          setIdleReturnTime(
+            synchronizeIdlePhase
+              && typeof sourceTimeSeconds === 'number'
+              && Number.isFinite(sourceTimeSeconds)
+              ? sourceTimeSeconds
+              : 0,
+          );
           window.setTimeout(complete, 350);
         });
       },
@@ -203,7 +227,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
         }
         setMediaActive(false);
         setStreamStartPending(false);
-        setStreamEndPending(false);
+        setIdleReturnTime(null);
       },
       onTextUnit: (_unit, text) => {
         setMessages((items) => {
@@ -244,7 +268,7 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
     setStreamStartPending(false);
     returnGateResolveRef.current?.();
     returnGateResolveRef.current = null;
-    setStreamEndPending(false);
+    setIdleReturnTime(null);
   }, [stage]);
 
   useEffect(() => {
@@ -319,9 +343,10 @@ function Conversation({ avatar, onBack }: { avatar: Avatar; onBack: () => void }
           <section className="avatarCallStage" aria-label={`${avatar.name} 数字人画面`}>
             <IdleAvatarMedia
               avatar={avatar}
+              videoRef={idleVideoRef}
               className={showGeneratedMedia ? 'stageMedia hidden' : 'stageMedia'}
               handoffRequested={streamStartPending}
-              returnRequested={streamEndPending}
+              returnTimeSeconds={idleReturnTime}
               onForwardBoundary={handleIdleForwardBoundary}
               onReturnBoundary={handleIdleReturnBoundary}
             />
