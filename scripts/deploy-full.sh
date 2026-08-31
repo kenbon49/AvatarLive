@@ -2,7 +2,7 @@
 # ============================================================================
 # 在一台机器（GPU 机/服务器）上一键部署【整套 SynLive】：
 #   后端栈（postgres/redis/qdrant/minio/api）+ SRS 媒体网关 + 前端(web) + Caddy 反代(:ACCESS_PORT)
-# 浏览器只需访问 http://<ACCESS_HOST>:<ACCESS_PORT>/app/live
+# 浏览器只需访问 http://<ACCESS_HOST>:<ACCESS_PORT>/live
 # 所有配置统一读【根目录 .env】（与 .env.example 同级）。
 # LiveTalking 用 deploy-livetalking.sh 单独部署（host 网络）。
 # ============================================================================
@@ -51,7 +51,7 @@ echo; echo "$(c_dim '== 服务状态 ==')"
 docker compose -f infra/docker-compose.yml --env-file .env --profile media ps --format 'table {{.Service}}\t{{.Status}}' || true
 
 echo; echo "$(c_grn '==================== 部署完成 ====================')"
-echo "  浏览器打开 : http://${ACCESS_HOST}:${ACCESS_PORT}/app/live"
+echo "  浏览器打开 : http://${ACCESS_HOST}:${ACCESS_PORT}/live"
 echo "  API 文档    : http://${ACCESS_HOST}:${ACCESS_PORT}/docs"
 echo "  就绪检查    : http://${ACCESS_HOST}:${ACCESS_PORT}/health/ready"
 [ "$miss" = 1 ] && echo "$(c_yel '  密钥未填全：编辑根目录 .env 后重跑本脚本。')"

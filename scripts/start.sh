@@ -37,7 +37,7 @@ echo; echo "$(c_dim '== 服务状态 ==')"
 docker compose -f infra/docker-compose.yml --profile media ps --format 'table {{.Service}}\t{{.Status}}' || true
 
 echo; echo "$(c_grn '入口')"
-echo "  前端 : http://localhost:${ACCESS_PORT}/app/live"
+echo "  前端 : http://localhost:${ACCESS_PORT}/live"
 echo "  文档 : http://localhost:${ACCESS_PORT}/docs"
 
 if ! grep -q "^AZURE_SERVICE_KEY=.\+" "$ENV" 2>/dev/null; then

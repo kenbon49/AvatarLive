@@ -51,17 +51,12 @@ pnpm dev
 
 ## 页面入口
 
-- 官网首页：http://localhost:3000/
-- 工作台：http://localhost:3000/app
-- 直播中控：http://localhost:3000/app/live
-- 数字人资产：http://localhost:3000/app/avatars
-- 脚本编排：http://localhost:3000/app/scripts
-- 知识库问答：http://localhost:3000/app/knowledge
-- 多平台推流：http://localhost:3000/app/platforms
-- 场控与风控：http://localhost:3000/app/moderation
-- 数据报表：http://localhost:3000/app/reports
-- 年度服务：http://localhost:3000/app/services
+- 实时互动首页：http://localhost:3000/
+- 直播中控：http://localhost:3000/live
+- 数字人定制：http://localhost:3000/design
 - 文档入口：http://localhost:3000/docs
+
+`/app/*` 是旧版工作台路径，当前父布局会将其兼容重定向到首页；新的直播推流链路请使用 `/live`。
 
 ## 校验命令
 
