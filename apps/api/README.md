@@ -62,7 +62,7 @@ uvicorn app.main:app --reload --port 8000
 | POST | `/api/v1/live-runs/preflight` | 服务端权威开播预检（不通过时不会创建运行记录） |
 | POST | `/api/v1/live-runs` | 幂等创建持久化开播运行记录 |
 | GET | `/api/v1/live-runs/{id}` | 查询运行记录和目标状态 |
-| POST | `/api/v1/live-runs/{id}/start` | 启动服务端媒体 supervisor（当前支持显式启用的测试画面源） |
+| POST | `/api/v1/live-runs/{id}/start` | 启动媒体 supervisor，等待浏览器 WHIP 源并转推，或启动显式启用的测试源 |
 | POST | `/api/v1/live-runs/{id}/stop` | 请求停止运行记录并回收 FFmpeg/SRS 推流进程 |
 
 ## /say 编排流程
@@ -83,12 +83,15 @@ uvicorn app.main:app --reload --port 8000
 - `LIVE_RUN_ALLOW_TEST_PATTERN`：是否允许服务端接受测试画面源，默认 `false`；只用于本地媒体链路联调，不能替代真实浏览器媒体网关。
 - `MEDIA_SUPERVISOR_ENABLED`：是否启用进程隔离的 FFmpeg 媒体 supervisor，默认 `true`。
 - `SRS_INTERNAL_RTMP_URL`：API 容器发布内部源流的 SRS 地址，Compose 默认 `rtmp://srs:1935/live`。
+- `SRS_INTERNAL_API_URL`：supervisor 检测浏览器源流状态的 SRS API，Compose 默认 `http://srs:1985`。
+- `SRS_PUBLIC_WHIP_PATH`：返回浏览器的同源 WHIP 路径，默认 `/rtc/v1/whip/`；Caddy 将其转发到 SRS。
+- `SRS_CANDIDATE`：SRS WebRTC 对浏览器公布的 IP，部署时必须设置为浏览器可达地址。
 
 API 容器启动时自动执行 `alembic upgrade head`。浏览器保存直播间时使用版本号做冲突检查，避免旧页面静默覆盖较新的配置。
 
 通用 RTMP 连接将服务器地址与推流密钥分开保存，接口响应只包含密钥末四位。连接测试会拒绝内网、回环和保留地址，防止平台测试接口被用于 SSRF；测试通过仅代表服务器可达，不代表 OAuth、互动或电商权限已经授权。
 
-开播运行记录会保存发布时的直播间配置快照和每个 RTMP 目标的加密凭据快照。服务端预检要求直播间已发布、配置版本一致、目标启用且最近测试通过、凭据可解密、输出为 RTMP / H.264，并且操作者确认地址来源合法。当前 `browser_ingest` 仍会因媒体网关未接入而拒绝创建运行记录；`test_pattern` 必须显式开启。启动后内部 FFmpeg 源流进入 SRS，每个目标由独立 FFmpeg 进程转推，进程退出会按指数退避重试，停播或 API 重启会回收/标记未完成任务。
+开播运行记录会保存发布时的直播间配置快照和每个 RTMP 目标的加密凭据快照。服务端预检要求直播间已发布、配置版本一致、目标启用且最近测试通过、凭据可解密、输出为 RTMP / H.264，并且操作者确认地址来源合法。`browser_ingest` 使用服务端生成的不可预测流名和同源 WHIP 地址：supervisor 在 `starting` 状态等待 SRS 检测到浏览器最终画面，再为每个目标启动独立 FFmpeg；短时断流有恢复宽限期，目标进程退出按指数退避重试。`test_pattern` 仍须显式开启且只用于联调。停播或 API 重启会回收/标记未完成任务。
 
 ## 后续阶段
 

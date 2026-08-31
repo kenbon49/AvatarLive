@@ -56,6 +56,9 @@ export class LocalMuseTalkStream {
   private connecting: Promise<void> | null = null;
   private video: HTMLVideoElement | null = null;
   private audio: HTMLAudioElement | null = null;
+  private audioContext: AudioContext | null = null;
+  private audioCaptureDestination: MediaStreamAudioDestinationNode | null = null;
+  private audioSource: MediaElementAudioSourceNode | null = null;
   private drawFrameId: number | null = null;
   private firstFrameResolve: (() => void) | null = null;
   private firstFrameReject: ((error: Error) => void) | null = null;
@@ -142,9 +145,13 @@ export class LocalMuseTalkStream {
     if (track.kind === 'audio') {
       const audio = document.createElement('audio');
       audio.autoplay = true;
+      audio.muted = true;
       audio.srcObject = new MediaStream([track]);
       this.audio?.pause();
+      this.audioSource?.disconnect();
+      this.audioSource = null;
       this.audio = audio;
+      this.connectAudioCapture();
       void audio.play().catch(() => undefined);
     }
   }
@@ -170,11 +177,34 @@ export class LocalMuseTalkStream {
   }
 
   async prepareAudio(): Promise<void> {
+    if (!this.audioContext || this.audioContext.state === 'closed') {
+      this.audioContext = new AudioContext({ latencyHint: 'interactive' });
+      this.audioCaptureDestination = this.audioContext.createMediaStreamDestination();
+    }
+    this.connectAudioCapture();
     if (!this.audio) return;
     try {
       await this.audio.play();
     } catch {
       // The next explicit speak/ask click gets another chance to unlock audio.
+    }
+  }
+
+  getOutputAudioTrack(): MediaStreamTrack | null {
+    return this.audioCaptureDestination?.stream.getAudioTracks()[0]
+      ?? (this.audio?.srcObject instanceof MediaStream ? this.audio.srcObject.getAudioTracks()[0] : null);
+  }
+
+  private connectAudioCapture() {
+    if (!this.audio || !this.audioContext || !this.audioCaptureDestination || this.audioSource) return;
+    try {
+      this.audioSource = this.audioContext.createMediaElementSource(this.audio);
+      this.audioSource.connect(this.audioContext.destination);
+      this.audioSource.connect(this.audioCaptureDestination);
+    } catch {
+      // A browser may reject reusing a media element; the direct track remains
+      // available as a fallback for the publisher.
+      this.audioSource = null;
     }
   }
 
@@ -348,10 +378,15 @@ export class LocalMuseTalkStream {
     this.drawFrameId = null;
     this.video?.pause();
     this.audio?.pause();
+    this.audioSource?.disconnect();
+    this.audioSource = null;
     if (this.video) this.video.srcObject = null;
     if (this.audio) this.audio.srcObject = null;
     this.video = null;
     this.audio = null;
+    if (this.audioContext && this.audioContext.state !== 'closed') await this.audioContext.close();
+    this.audioContext = null;
+    this.audioCaptureDestination = null;
     const peer = this.peer;
     this.peer = null;
     if (peer) {

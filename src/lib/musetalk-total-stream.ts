@@ -290,6 +290,7 @@ export class ServerTotalStream {
   private connectReject: ((error: Error) => void) | null = null;
   private closedByUser = false;
   private audioContext: AudioContext | null = null;
+  private audioCaptureDestination: MediaStreamAudioDestinationNode | null = null;
   private audioWorkletNode: AudioWorkletNode | null = null;
   private audioSources = new Set<AudioBufferSourceNode>();
   private audioScheduledUntil = 0;
@@ -429,6 +430,7 @@ export class ServerTotalStream {
       const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioContext.destination);
+      if (this.audioCaptureDestination) source.connect(this.audioCaptureDestination);
       source.onended = () => this.audioSources.delete(source);
       this.audioSources.add(source);
       // PTS is the source of truth. Serialising against the previous packet's
@@ -628,6 +630,7 @@ export class ServerTotalStream {
     this.clearVideoPlayback();
     if (this.audioContext && this.audioContext.state !== 'closed') await this.audioContext.close();
     this.audioContext = null;
+    this.audioCaptureDestination = null;
     this.mediaTimelineStarted = false;
     this.playbackGateOpen = true;
     this.playbackGateRequested = false;
@@ -912,6 +915,7 @@ export class ServerTotalStream {
   async prepareAudio(): Promise<void> {
     if (!this.audioContext || this.audioContext.state === 'closed') {
       this.audioContext = new AudioContext({ latencyHint: 'interactive', sampleRate: 16_000 });
+      this.audioCaptureDestination = this.audioContext.createMediaStreamDestination();
       if (this.audioContext.sampleRate === 16_000 && this.audioContext.audioWorklet) {
         try {
           await this.audioContext.audioWorklet.addModule('/vendor/musetalk-playback-worklet.js');
@@ -930,6 +934,7 @@ export class ServerTotalStream {
             }
           };
           node.connect(this.audioContext.destination);
+          node.connect(this.audioCaptureDestination);
           this.audioWorkletNode = node;
         } catch (error) {
           console.warn('MuseTalk AudioWorklet unavailable; using scheduled audio fallback.', error);
@@ -983,6 +988,10 @@ export class ServerTotalStream {
       websocket.onmessage = (event) => void this.handleMessage(event, generation);
     });
     await this.connecting;
+  }
+
+  getOutputAudioTrack(): MediaStreamTrack | null {
+    return this.audioCaptureDestination?.stream.getAudioTracks()[0] ?? null;
   }
 
   async ask(question: string): Promise<MuseTalkTotalResult> {
@@ -1128,7 +1137,7 @@ export class ServerTotalStream {
 
 type MuseTalkStreamImplementation = Pick<
   ServerTotalStream,
-  'startLive' | 'prepareAudio' | 'ask' | 'speak' | 'cancel' | 'stopLive'
+  'startLive' | 'prepareAudio' | 'getOutputAudioTrack' | 'ask' | 'speak' | 'cancel' | 'stopLive'
 >;
 
 const LOCAL_AVATAR_IDS = new Set(['suqing', 'guyan']);
@@ -1148,6 +1157,10 @@ export class MuseTalkTotalStream implements MuseTalkStreamImplementation {
 
   prepareAudio() {
     return this.implementation.prepareAudio();
+  }
+
+  getOutputAudioTrack() {
+    return this.implementation.getOutputAudioTrack();
   }
 
   ask(question: string) {

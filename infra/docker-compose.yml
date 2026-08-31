@@ -76,6 +76,8 @@ services:
     profiles: ["media"]
     image: ${REGISTRY}ossrs/srs:6
     restart: unless-stopped
+    environment:
+      CANDIDATE: ${SRS_CANDIDATE:-127.0.0.1}
     ports:
       - "${SRS_RTMP_PORT:-1935}:1935"   # RTMP 推流
       - "${SRS_HTTP_PORT:-18080}:8080"   # HTTP-FLV / HLS; 8080 is commonly occupied by another service
@@ -103,6 +105,8 @@ services:
       # 默认指向 compose 内的 livetalking 服务；单机部署时由 infra/.env 覆盖为 host.docker.internal:8010
       LIVETALKING_URL: ${LIVETALKING_URL:-http://livetalking:8010}
       SRS_INTERNAL_RTMP_URL: ${SRS_INTERNAL_RTMP_URL:-rtmp://srs:1935/live}
+      SRS_INTERNAL_API_URL: ${SRS_INTERNAL_API_URL:-http://srs:1985}
+      SRS_PUBLIC_WHIP_PATH: ${SRS_PUBLIC_WHIP_PATH:-/rtc/v1/whip/}
       MEDIA_SUPERVISOR_ENABLED: ${MEDIA_SUPERVISOR_ENABLED:-true}
       LIVE_RUN_ALLOW_TEST_PATTERN: ${LIVE_RUN_ALLOW_TEST_PATTERN:-false}
     # 让 api 容器能访问宿主机上 --network=host 运行的 LiveTalking（Linux）

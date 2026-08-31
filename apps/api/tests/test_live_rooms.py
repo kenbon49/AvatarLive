@@ -363,7 +363,54 @@ class LiveRoomApiTest(unittest.TestCase):
             persisted_target = db.query(LiveRunTarget).filter_by(live_run_id=created["id"]).one()
             self.assertEqual(persisted_target.status, "stopped")
 
-    def test_live_run_preflight_requires_published_room_and_real_media_source(self) -> None:
+        browser_payload = {
+            "requestId": "browser-run-request-1234",
+            "liveRoomId": room["id"],
+            "expectedRoomVersion": room["version"],
+            "legalSourceConfirmed": True,
+            "mediaSource": {"kind": "browser_ingest", "sourceId": "untrusted-client-name"},
+        }
+        browser_create_response = self.client.post("/api/v1/live-runs", json=browser_payload)
+        self.assertEqual(browser_create_response.status_code, 201, browser_create_response.text)
+        browser_run = browser_create_response.json()
+        self.assertEqual(browser_run["status"], "ready")
+        self.assertEqual(browser_run["ingest"]["protocol"], "whip")
+        self.assertEqual(browser_run["ingest"]["streamName"], browser_run["mediaSourceId"])
+        self.assertNotEqual(browser_run["mediaSourceId"], "untrusted-client-name")
+        self.assertIn("/rtc/v1/whip/", browser_run["ingest"]["url"])
+
+        browser_processes: list[StubMediaProcess] = []
+
+        def spawn_browser_target(command, **kwargs):
+            process = StubMediaProcess(tuple(command))
+            browser_processes.append(process)
+            return process
+
+        with patch.object(media_supervisor, "_stream_probe", return_value=True), patch.object(
+            media_supervisor, "_spawn", side_effect=spawn_browser_target
+        ), patch(
+            "app.services.live_runs.supervisor.settings.media_heartbeat_interval", 0.05
+        ):
+            start_response = self.client.post(f"/api/v1/live-runs/{browser_run['id']}/start")
+            self.assertEqual(start_response.status_code, 200, start_response.text)
+            for _ in range(30):
+                current = self.client.get(f"/api/v1/live-runs/{browser_run['id']}").json()
+                if current["status"] == "live":
+                    break
+                time.sleep(0.05)
+            self.assertEqual(current["status"], "live")
+            self.assertEqual(len(browser_processes), 1)
+            self.assertFalse(any("testsrc2" in part for part in browser_processes[0].command))
+            self.assertTrue(any(browser_run["mediaSourceId"] in part for part in browser_processes[0].command))
+            self.client.post(f"/api/v1/live-runs/{browser_run['id']}/stop")
+            for _ in range(30):
+                current = self.client.get(f"/api/v1/live-runs/{browser_run['id']}").json()
+                if current["status"] == "stopped":
+                    break
+                time.sleep(0.05)
+            self.assertEqual(current["status"], "stopped")
+
+    def test_live_run_preflight_requires_published_room_and_configured_media_source(self) -> None:
         room_response = self.client.post(
             "/api/v1/live-rooms",
             json={"name": "草稿测试间", "config": room_config()},
@@ -399,12 +446,11 @@ class LiveRoomApiTest(unittest.TestCase):
         )
         self.assertEqual(browser_response.status_code, 200, browser_response.text)
         self.assertFalse(browser_response.json()["ready"])
-        self.assertIn(
-            "媒体网关",
-            next(
-                check for check in browser_response.json()["checks"] if check["code"] == "media_source_ready"
-            )["message"],
+        media_check = next(
+            check for check in browser_response.json()["checks"] if check["code"] == "media_source_ready"
         )
+        self.assertTrue(media_check["passed"])
+        self.assertIn("WHIP", media_check["message"])
 
 
 if __name__ == "__main__":

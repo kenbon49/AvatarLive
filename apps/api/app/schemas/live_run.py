@@ -78,6 +78,12 @@ class LiveRunTargetResponse(CamelModel):
     stopped_at: datetime | None = None
 
 
+class LiveRunIngestResponse(CamelModel):
+    protocol: Literal["whip"] = "whip"
+    url: str
+    stream_name: str
+
+
 class LiveRunResponse(CamelModel):
     id: str
     request_id: str
@@ -95,3 +101,4 @@ class LiveRunResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
     targets: list[LiveRunTargetResponse]
+    ingest: LiveRunIngestResponse | None = None

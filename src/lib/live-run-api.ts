@@ -58,6 +58,11 @@ export type LiveRun = {
   createdAt: string;
   updatedAt: string;
   targets: LiveRunTarget[];
+  ingest?: {
+    protocol: 'whip';
+    url: string;
+    streamName: string;
+  };
 };
 
 export class LiveRunApiError extends Error {

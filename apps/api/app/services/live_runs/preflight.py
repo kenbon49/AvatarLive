@@ -40,11 +40,19 @@ def _media_source_check(media_source: LiveRunMediaSource) -> LiveRunPreflightChe
             allowed,
             "测试画面源已由服务端显式启用" if allowed else "生产环境未启用测试画面源",
         )
+    configured = bool(
+        settings.media_supervisor_enabled
+        and settings.srs_internal_rtmp_url.strip()
+        and settings.srs_internal_api_url.strip()
+        and settings.srs_public_whip_path.strip()
+    )
     return _check(
         "media_source_ready",
-        "最终画面媒体源已连接",
-        False,
-        "浏览器最终画面尚未接入媒体网关，当前不会启动外部推流",
+        "浏览器媒体入口已配置",
+        configured,
+        "WHIP 媒体入口已配置，开播后将等待浏览器画面上线"
+        if configured
+        else "浏览器 WHIP 媒体入口未配置完整",
     )
 
 

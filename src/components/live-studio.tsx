@@ -47,6 +47,11 @@ import {
   X,
 } from 'lucide-react';
 import { MuseTalkAvatarProfile, MuseTalkTotalStream } from '@/lib/musetalk-total-stream';
+import {
+  BrowserLivePublisher,
+  type BroadcastSceneSnapshot,
+  type BrowserPublisherState,
+} from '@/lib/browser-live-publisher';
 import { ProductShell } from '@/components/product-shell';
 import {
   copyLiveRoom,
@@ -380,6 +385,8 @@ const EMPTY_RTMP_DRAFT: RtmpConnectionDraft = {
   status: 'enabled',
 };
 
+const ACTIVE_LIVE_RUN_STORAGE_KEY = 'synlive.activeLiveRunId';
+
 export function LiveStudio({
   autoDetectEnvironment = false,
   dialog: initialDialog = null,
@@ -394,12 +401,17 @@ export function LiveStudio({
   const previewCanvasRef = useRef<HTMLDivElement>(null);
   const canvasGestureRef = useRef<CanvasGesture | null>(null);
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
+  const browserPublisherRef = useRef<BrowserLivePublisher | null>(null);
+  const broadcastSceneRef = useRef<BroadcastSceneSnapshot | null>(null);
+  const runRecoveryAttemptedRef = useRef(false);
   const [mediaActive, setMediaActive] = useState(false);
   const [stage, setStage] = useState('idle');
   const [onAir, setOnAir] = useState(false);
   const [liveRun, setLiveRun] = useState<LiveRun | null>(null);
   const [liveRunPreflight, setLiveRunPreflight] = useState<LiveRunPreflightResponse | null>(null);
   const [liveRunBusy, setLiveRunBusy] = useState(false);
+  const [browserPublisherState, setBrowserPublisherState] = useState<BrowserPublisherState>('stopped');
+  const [browserPublisherMessage, setBrowserPublisherMessage] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [room, setRoom] = useState<LiveRoom | null>(null);
@@ -539,6 +551,15 @@ export function LiveStudio({
   const hostLayer = layers.find((item) => item.sceneKey === 'host') ?? null;
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
   const previewBackground = backgroundLayer?.preview ?? selectedTemplate.image;
+  broadcastSceneRef.current = {
+    layers: layers.map((layer) => ({
+      ...layer,
+      fontFamily: FONT_FAMILIES[layer.fontFamily ?? '默认字体'],
+    })),
+    backgroundUrl: previewBackground,
+    hostUrl: avatar.image,
+    mediaActive,
+  };
   const estimatedTime = '02:59';
   const currentAssets = materialTab === 'image' || materialTab === 'video'
     ? (assetScope === 'mine' ? assets[materialTab] : SQUARE_ASSETS[materialTab]).filter((item) => item.name.includes(assetQuery.trim()))
@@ -602,6 +623,46 @@ export function LiveStudio({
   ];
   const platformPreflightReady = platformPreflightChecks.every((check) => check.passed);
   const rtmpFormBusy = platformActionId !== null;
+
+  const stopBrowserPublisher = useCallback(async () => {
+    const publisher = browserPublisherRef.current;
+    browserPublisherRef.current = null;
+    if (publisher) await publisher.stop();
+    setBrowserPublisherState('stopped');
+    setBrowserPublisherMessage('');
+  }, []);
+
+  const startBrowserPublisher = useCallback(async (run: LiveRun) => {
+    if (browserPublisherRef.current) return;
+    if (!run.ingest?.url) throw new Error('服务端未返回浏览器 WHIP 推流地址');
+    const sourceCanvas = canvasRef.current;
+    const avatarStream = streamRef.current;
+    const scene = broadcastSceneRef.current;
+    if (!sourceCanvas || !avatarStream || !scene) throw new Error('直播最终画面尚未初始化完成');
+    await avatarStream.startLive();
+    const rate = Number.parseInt(outputConfig.frameRate, 10) || 25;
+    const publisher = new BrowserLivePublisher({
+      endpoint: run.ingest.url,
+      sourceCanvas,
+      resolution: outputConfig.resolution,
+      frameRate: rate,
+      audioTrack: avatarStream.getOutputAudioTrack(),
+      getScene: () => broadcastSceneRef.current ?? scene,
+      onState: (state, message) => {
+        setBrowserPublisherState(state);
+        setBrowserPublisherMessage(message || '');
+        if (state === 'failed') setError(message || '浏览器媒体推流失败');
+      },
+    });
+    browserPublisherRef.current = publisher;
+    try {
+      await publisher.start();
+    } catch (caught) {
+      if (browserPublisherRef.current === publisher) browserPublisherRef.current = null;
+      await publisher.stop();
+      throw caught;
+    }
+  }, [outputConfig.frameRate, outputConfig.resolution]);
 
   const applyRoom = useCallback((loadedRoom: LiveRoom) => {
     const config = loadedRoom.config;
@@ -671,11 +732,20 @@ export function LiveStudio({
         setLiveRun(next);
         if (next.status === 'live') {
           setOnAir(true);
+          setError('');
           setStartedAt(next.startedAt ? Date.parse(next.startedAt) : Date.now());
         } else if (['stopped', 'failed'].includes(next.status)) {
           setOnAir(false);
           setStartedAt(null);
+          window.localStorage.removeItem(ACTIVE_LIVE_RUN_STORAGE_KEY);
+          if (next.mediaSourceKind === 'browser_ingest') {
+            void stopBrowserPublisher();
+            void streamRef.current?.stopLive();
+          }
           if (next.status === 'failed' && next.errorMessage) setError(next.errorMessage);
+        } else {
+          setOnAir(false);
+          if (next.errorCode === 'ingest_reconnecting' && next.errorMessage) setError(next.errorMessage);
         }
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : '直播状态同步失败');
@@ -687,7 +757,7 @@ export function LiveStudio({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [liveRun?.id, liveRun?.status]);
+  }, [liveRun?.id, liveRun?.status, stopBrowserPublisher]);
 
   useEffect(() => {
     if (!entered || workspaceMode !== 'script' || !canvasRef.current) return;
@@ -703,6 +773,44 @@ export function LiveStudio({
       if (streamRef.current === stream) streamRef.current = null;
     };
   }, [avatarId, entered, workspaceMode]);
+
+  useEffect(() => {
+    if (!entered || !room || liveRun || runRecoveryAttemptedRef.current) return;
+    runRecoveryAttemptedRef.current = true;
+    const runId = window.localStorage.getItem(ACTIVE_LIVE_RUN_STORAGE_KEY);
+    if (!runId) return;
+    let cancelled = false;
+    const recover = async () => {
+      try {
+        const recovered = await getLiveRun(runId);
+        if (cancelled) return;
+        if (!['preparing', 'ready', 'starting', 'live', 'stopping'].includes(recovered.status)) {
+          window.localStorage.removeItem(ACTIVE_LIVE_RUN_STORAGE_KEY);
+          return;
+        }
+        setLiveRun(recovered);
+        if (recovered.mediaSourceKind === 'browser_ingest' && recovered.status !== 'stopping') {
+          await startBrowserPublisher(recovered);
+          if (!cancelled) setNotice('已恢复浏览器最终画面推流');
+        }
+        if (['preparing', 'ready'].includes(recovered.status)) {
+          const started = await startLiveRun(recovered.id);
+          if (!cancelled) setLiveRun(started);
+        }
+      } catch (caught) {
+        window.localStorage.removeItem(ACTIVE_LIVE_RUN_STORAGE_KEY);
+        if (!cancelled) setError(caught instanceof Error ? caught.message : '恢复直播运行失败');
+      }
+    };
+    void recover();
+    return () => {
+      cancelled = true;
+    };
+  }, [entered, liveRun, room, startBrowserPublisher]);
+
+  useEffect(() => () => {
+    void stopBrowserPublisher();
+  }, [stopBrowserPublisher]);
 
   useEffect(() => {
     setLayers((items) => items.map((item) => item.sceneKey === 'host' ? { ...item, value: avatar.name } : item));
@@ -1114,14 +1222,14 @@ export function LiveStudio({
 
   const stopLive = async () => {
     setError('');
-    let pendingStop = false;
     try {
+      await stopBrowserPublisher();
       await streamRef.current?.stopLive();
       if (liveRun && ['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) {
         const stopped = await stopLiveRun(liveRun.id);
         setLiveRun(stopped);
-        pendingStop = stopped.status === 'stopping';
       }
+      window.localStorage.removeItem(ACTIVE_LIVE_RUN_STORAGE_KEY);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '停止直播失败';
       setError(message);
@@ -1129,8 +1237,8 @@ export function LiveStudio({
     } finally {
       setStage('idle');
       setMediaActive(false);
-      setOnAir(pendingStop);
-      if (!pendingStop) setStartedAt(null);
+      setOnAir(false);
+      setStartedAt(null);
       setScripts((items) => items.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
     }
   };
@@ -1146,6 +1254,7 @@ export function LiveStudio({
       legalSourceConfirmed: termsAccepted,
       mediaSource: { kind: mediaSourceKind },
     };
+    let createdRun: LiveRun | null = null;
     try {
       const result = await preflightLiveRun(input);
       setLiveRunPreflight(result);
@@ -1155,8 +1264,13 @@ export function LiveStudio({
         return;
       }
       const requestId = globalThis.crypto?.randomUUID?.() ?? `live-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const created = await createLiveRun({ ...input, requestId });
-      const started = await startLiveRun(created.id);
+      createdRun = await createLiveRun({ ...input, requestId });
+      setLiveRun(createdRun);
+      window.localStorage.setItem(ACTIVE_LIVE_RUN_STORAGE_KEY, createdRun.id);
+      if (createdRun.mediaSourceKind === 'browser_ingest') {
+        await startBrowserPublisher(createdRun);
+      }
+      const started = await startLiveRun(createdRun.id);
       setLiveRun(started);
       if (started.status === 'live') {
         setOnAir(true);
@@ -1167,6 +1281,15 @@ export function LiveStudio({
         ? `已开播（${started.targets.filter((target) => target.status === 'live').length} 个 RTMP 目标）`
         : '开播请求已提交，正在等待媒体 supervisor 确认');
     } catch (caught) {
+      await stopBrowserPublisher();
+      if (createdRun) {
+        try {
+          await stopLiveRun(createdRun.id);
+        } catch {
+          // The server-side ingest timeout still guarantees eventual cleanup.
+        }
+      }
+      window.localStorage.removeItem(ACTIVE_LIVE_RUN_STORAGE_KEY);
       setPlatformError(caught instanceof Error ? caught.message : '服务端开播预检失败');
     } finally {
       setLiveRunBusy(false);
@@ -1815,6 +1938,7 @@ export function LiveStudio({
                     {onAir && <span className="xlOnAir">LIVE</span>}
                     {stage !== 'idle' && <span className="xlRenderState">{stage === 'error' ? '连接异常' : '数字人生成中'}</span>}
                   </div>
+                  {liveRun?.mediaSourceKind === 'browser_ingest' && browserPublisherState !== 'stopped' && <div className={`xlPreviewIngestState ${browserPublisherState}`}><i />{browserPublisherState === 'live' ? '浏览器最终画面已接入媒体网关' : browserPublisherState === 'connecting' ? '正在连接 WHIP 媒体网关' : browserPublisherState === 'reconnecting' ? browserPublisherMessage || '媒体连接中断，正在重连' : browserPublisherMessage || '浏览器媒体推流失败'}</div>}
                   {error && <div className="xlPreviewError">{error}</div>}
                 </div>
               </section>

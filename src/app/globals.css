@@ -478,6 +478,12 @@ img, video, canvas { display: block; }
 .xlSceneHost { z-index: 3; object-fit: contain; object-position: center bottom; transform-origin: center; transition: opacity .2s; }
 .xlStreamCanvas { z-index: 4; opacity: 0; object-fit: contain; }
 .xlStreamCanvas.active { opacity: 1; }
+.xlPreviewIngestState { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; color: #31536a; background: #edf7fb; font-size: 12px; }
+.xlPreviewIngestState i { width: 7px; height: 7px; border-radius: 50%; background: #d19b2e; box-shadow: 0 0 0 3px rgba(209, 155, 46, .14); }
+.xlPreviewIngestState.live { color: #23613d; background: #eaf8ef; }
+.xlPreviewIngestState.live i { background: #2ca66a; box-shadow: 0 0 0 3px rgba(44, 166, 106, .14); }
+.xlPreviewIngestState.failed { color: #8b3540; background: #fff0f1; }
+.xlPreviewIngestState.failed i { background: #d94b5c; box-shadow: 0 0 0 3px rgba(217, 75, 92, .14); }
 .xlSceneForeground { z-index: 5; object-fit: cover; pointer-events: none; }
 .xlSceneHeadline { position: absolute; z-index: 2; left: 8%; right: 8%; top: 7%; display: flex; flex-direction: column; align-items: center; color: #27589e; text-align: center; }
 .xlSceneHeadline small { padding: 3px 12px; border-radius: 999px; color: #795c1a; background: #ffd765; font-size: clamp(7px, .75vw, 11px); }

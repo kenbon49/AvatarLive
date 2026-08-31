@@ -23,6 +23,9 @@
 	handle /openapi* {
 		reverse_proxy api:8000
 	}
+	handle /rtc/* {
+		reverse_proxy srs:1985
+	}
 
 	handle {
 		reverse_proxy web:3000

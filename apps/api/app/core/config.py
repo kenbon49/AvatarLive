@@ -71,8 +71,13 @@ class Settings(BaseSettings):
     # compose network; override for a host-local or remote media gateway.
     media_supervisor_enabled: bool = True
     srs_internal_rtmp_url: str = "rtmp://srs:1935/live"
+    srs_internal_api_url: str = "http://srs:1985"
+    # Browsers publish WHIP signaling through the same-origin Caddy route.
+    srs_public_whip_path: str = "/rtc/v1/whip/"
     ffmpeg_binary: str = "ffmpeg"
     media_heartbeat_interval: float = 2.0
+    media_ingest_wait_timeout: float = 30.0
+    media_ingest_disconnect_grace_seconds: float = 30.0
     media_max_retries: int = 3
     media_retry_backoff_seconds: float = 2.0
     redis_url: str = "redis://localhost:6379/0"

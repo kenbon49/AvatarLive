@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
     return [
       { source: '/health/:path*', destination: 'http://localhost:8000/health/:path*' },
       { source: '/api/:path*', destination: 'http://localhost:8000/api/:path*' },
+      { source: '/rtc/:path*', destination: 'http://localhost:1985/rtc/:path*' },
       // FlashHead Lite 使用独立 :8030，不占用 LiveTalking :8028。浏览器始终走同源路径，
       // 容器部署时由 FLASHHEAD_UPSTREAM 指向宿主机服务。
       {

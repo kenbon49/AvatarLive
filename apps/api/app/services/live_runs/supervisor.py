@@ -1,10 +1,4 @@
-"""Small, process-isolated media supervisor for live runs.
-
-The first media source is deliberately a server-side test pattern. It proves
-the SRS/FFmpeg lifecycle without pretending that a browser canvas is a
-production ingest source. Each external RTMP target gets its own FFmpeg
-process so one platform can fail without taking down the source or siblings.
-"""
+"""Process-isolated media supervisor for browser and test live sources."""
 
 from __future__ import annotations
 
@@ -17,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from loguru import logger
+import requests
 
 from ...core.config import settings
 from ...db.session import SessionLocal
@@ -41,8 +36,13 @@ class _ManagedTarget:
 @dataclass
 class _ManagedRun:
     run_id: str
-    source: subprocess.Popen[bytes]
-    source_command: tuple[str, ...]
+    source_kind: str
+    stream_name: str
+    source: subprocess.Popen[bytes] | None = None
+    source_command: tuple[str, ...] = ()
+    source_ready: bool = False
+    ingest_deadline: float = 0.0
+    source_missing_since: float | None = None
     targets: dict[str, _ManagedTarget] = field(default_factory=dict)
     stop_event: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
@@ -112,6 +112,24 @@ def _target_command(source_url: str, server_url: str, stream_key: str) -> tuple[
     )
 
 
+def _srs_stream_is_active(stream_name: str) -> bool:
+    try:
+        response = requests.get(
+            f"{settings.srs_internal_api_url.rstrip('/')}/api/v1/streams/",
+            timeout=2,
+        )
+        response.raise_for_status()
+        streams = response.json().get("streams", [])
+    except (requests.RequestException, ValueError, AttributeError):
+        return False
+    for stream in streams if isinstance(streams, list) else []:
+        if not isinstance(stream, dict) or stream.get("name") != stream_name:
+            continue
+        publish = stream.get("publish")
+        return not isinstance(publish, dict) or publish.get("active", True) is True
+    return False
+
+
 def _terminate(process: subprocess.Popen[bytes] | None) -> None:
     if process is None or process.poll() is not None:
         return
@@ -148,9 +166,11 @@ class MediaSupervisor:
         *,
         popen: Callable[..., subprocess.Popen[bytes]] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        stream_probe: Callable[[str], bool] = _srs_stream_is_active,
     ) -> None:
         self._popen = popen or subprocess.Popen
         self._sleep = sleep
+        self._stream_probe = stream_probe
         self._lock = threading.RLock()
         self._runs: dict[str, _ManagedRun] = {}
 
@@ -173,11 +193,11 @@ class MediaSupervisor:
                     return run
                 if run.status in TERMINAL_RUN_STATUSES or run.status == "stopping":
                     raise RuntimeError(f"live run cannot be started from {run.status}")
-                if run.media_source_kind != "test_pattern":
-                    self._fail_run(db, run, "media_source_unavailable", "当前媒体源尚未接入服务端媒体网关")
-                    return run
-                if not settings.live_run_allow_test_pattern:
+                if run.media_source_kind == "test_pattern" and not settings.live_run_allow_test_pattern:
                     self._fail_run(db, run, "test_pattern_disabled", "服务端未启用测试画面源")
+                    return run
+                if run.media_source_kind not in {"browser_ingest", "test_pattern"}:
+                    self._fail_run(db, run, "media_source_unavailable", "服务端不支持该媒体源")
                     return run
 
                 targets = list_live_run_targets(db, run.id)
@@ -197,49 +217,35 @@ class MediaSupervisor:
                 db.commit()
                 db.refresh(run)
 
-                source_url = f"{settings.srs_internal_rtmp_url.rstrip('/')}/{run.id}"
-                source_command = _source_command(source_url, run.config_snapshot)
-                try:
-                    source = self._spawn(source_command)
-                except (OSError, ValueError) as exc:
-                    self._fail_run(db, run, "source_start_failed", "内部媒体源启动失败")
-                    logger.error("live run {} source start failed: {}", run.id, type(exc).__name__)
-                    return run
-                run.source_process_pid = source.pid
-                run.status = "live"
-                run.started_at = now
-                run.heartbeat_at = now
-                managed = _ManagedRun(run.id, source, source_command)
-                for target in targets:
+                stream_name = run.media_source_id or run.id
+                source_url = f"{settings.srs_internal_rtmp_url.rstrip('/')}/{stream_name}"
+                managed = _ManagedRun(
+                    run_id=run.id,
+                    source_kind=run.media_source_kind,
+                    stream_name=stream_name,
+                    ingest_deadline=time.monotonic() + settings.media_ingest_wait_timeout,
+                )
+                if run.media_source_kind == "test_pattern":
+                    source_command = _source_command(source_url, run.config_snapshot)
                     try:
-                        stream_key = decrypt_secret(target.stream_key_ciphertext, target.platform_connection_id)
-                        command = _target_command(source_url, target.server_url, stream_key)
-                        process = self._spawn(command)
-                    except (SecretConfigurationError, SecretDecryptionError):
-                        target.status = "failed"
-                        target.error_code = "credential_unavailable"
-                        target.error_message = "推流凭据无法安全读取"
-                        target.stopped_at = now
-                        target.updated_at = now
-                        continue
+                        source = self._spawn(source_command)
                     except (OSError, ValueError) as exc:
-                        target.status = "failed"
-                        target.error_code = "target_start_failed"
-                        target.error_message = "推流进程启动失败"
-                        target.stopped_at = now
-                        target.updated_at = now
-                        logger.error("live run {} target {} start failed: {}", run.id, target.id, type(exc).__name__)
-                        continue
-                    target.status = "live"
-                    target.process_pid = process.pid
-                    target.started_at = now
-                    target.updated_at = now
-                    managed.targets[target.id] = _ManagedTarget(target.id, process, command)
-                if not managed.targets:
-                    _terminate(source)
-                    run.source_process_pid = None
-                    self._fail_run(db, run, "all_targets_failed", "所有推流目标均未能启动")
-                    return run
+                        self._fail_run(db, run, "source_start_failed", "内部媒体源启动失败")
+                        logger.error("live run {} source start failed: {}", run.id, type(exc).__name__)
+                        return run
+                    managed.source = source
+                    managed.source_command = source_command
+                    managed.source_ready = True
+                    run.source_process_pid = source.pid
+                    self._launch_targets(db, run, managed, targets, now)
+                    if not managed.targets:
+                        _terminate(source)
+                        run.source_process_pid = None
+                        self._fail_run(db, run, "all_targets_failed", "所有推流目标均未能启动")
+                        return run
+                    run.status = "live"
+                    run.started_at = now
+                run.heartbeat_at = now
                 db.commit()
                 db.refresh(run)
             managed.thread = threading.Thread(target=self._monitor, args=(managed,), name=f"live-run-{run_id}", daemon=True)
@@ -338,6 +344,38 @@ class MediaSupervisor:
             start_new_session=True,
         )
 
+    def _launch_targets(self, db, run: LiveRun, managed: _ManagedRun, targets, now) -> None:
+        source_url = f"{settings.srs_internal_rtmp_url.rstrip('/')}/{managed.stream_name}"
+        for target in targets:
+            if target.status == "failed":
+                continue
+            try:
+                stream_key = decrypt_secret(target.stream_key_ciphertext, target.platform_connection_id)
+                command = _target_command(source_url, target.server_url, stream_key)
+                process = self._spawn(command)
+            except (SecretConfigurationError, SecretDecryptionError):
+                target.status = "failed"
+                target.error_code = "credential_unavailable"
+                target.error_message = "推流凭据无法安全读取"
+                target.stopped_at = now
+                target.updated_at = now
+                continue
+            except (OSError, ValueError) as exc:
+                target.status = "failed"
+                target.error_code = "target_start_failed"
+                target.error_message = "推流进程启动失败"
+                target.stopped_at = now
+                target.updated_at = now
+                logger.error("live run {} target {} start failed: {}", run.id, target.id, type(exc).__name__)
+                continue
+            target.status = "live"
+            target.process_pid = process.pid
+            target.started_at = target.started_at or now
+            target.error_code = None
+            target.error_message = None
+            target.updated_at = now
+            managed.targets[target.id] = _ManagedTarget(target.id, process, command)
+
     def _load_run(self, run_id: str) -> LiveRun:
         with SessionLocal() as db:
             run = db.get(LiveRun, run_id)
@@ -351,6 +389,7 @@ class MediaSupervisor:
         run.status = "failed"
         run.error_code = code
         run.error_message = message
+        run.source_process_pid = None
         run.stopped_at = now
         run.updated_at = now
         for target in list_live_run_targets(db, run.id):
@@ -360,6 +399,7 @@ class MediaSupervisor:
                 target.error_message = message
                 target.stopped_at = now
                 target.updated_at = now
+            target.process_pid = None
         db.commit()
         db.refresh(run)
 
@@ -392,25 +432,56 @@ class MediaSupervisor:
                         db.commit()
                         break
 
-                    if managed.source.poll() is not None:
+                    if managed.source_kind == "test_pattern" and (
+                        managed.source is None or managed.source.poll() is not None
+                    ):
                         for item in list(managed.targets.values()):
                             _terminate(item.process)
-                        run.source_process_pid = None
-                        run.status = "failed"
-                        run.error_code = "source_exited"
-                        run.error_message = "内部媒体源意外退出"
-                        run.stopped_at = now
-                        for target in targets.values():
-                            if target.status not in TERMINAL_TARGET_STATUSES:
-                                target.status = "failed"
-                                target.error_code = "source_exited"
-                                target.error_message = "内部媒体源意外退出"
-                                target.stopped_at = now
-                            target.process_pid = None
-                            target.updated_at = now
-                        run.updated_at = now
-                        db.commit()
+                        self._fail_run(db, run, "source_exited", "内部媒体源意外退出")
                         break
+
+                    if managed.source_kind == "browser_ingest":
+                        source_active = self._stream_probe(managed.stream_name)
+                        monotonic_now = time.monotonic()
+                        if not managed.source_ready:
+                            if not source_active:
+                                if monotonic_now >= managed.ingest_deadline:
+                                    self._fail_run(db, run, "ingest_timeout", "等待浏览器最终画面上线超时")
+                                    break
+                                run.status = "starting"
+                                run.heartbeat_at = now
+                                run.updated_at = now
+                                db.commit()
+                                self._sleep(max(0.2, settings.media_heartbeat_interval))
+                                continue
+                            managed.source_ready = True
+                            self._launch_targets(db, run, managed, targets.values(), now)
+                            if not managed.targets:
+                                self._fail_run(db, run, "all_targets_failed", "所有推流目标均未能启动")
+                                break
+                            run.status = "live"
+                            run.started_at = run.started_at or now
+                            run.error_code = None
+                            run.error_message = None
+                        elif not source_active:
+                            managed.source_missing_since = managed.source_missing_since or monotonic_now
+                            if monotonic_now - managed.source_missing_since >= settings.media_ingest_disconnect_grace_seconds:
+                                for item in list(managed.targets.values()):
+                                    _terminate(item.process)
+                                self._fail_run(db, run, "ingest_disconnected", "浏览器最终画面断开且未在宽限期内恢复")
+                                break
+                            run.status = "starting"
+                            run.error_code = "ingest_reconnecting"
+                            run.error_message = "浏览器最终画面暂时中断，正在等待恢复"
+                            run.heartbeat_at = now
+                            run.updated_at = now
+                            db.commit()
+                            self._sleep(max(0.2, settings.media_heartbeat_interval))
+                            continue
+                        else:
+                            managed.source_missing_since = None
+                            run.error_code = None
+                            run.error_message = None
 
                     for target_id, item in list(managed.targets.items()):
                         target = targets.get(target_id)
@@ -447,7 +518,7 @@ class MediaSupervisor:
                             continue
                         try:
                             stream_key = decrypt_secret(target.stream_key_ciphertext, target.platform_connection_id)
-                            source_url = f"{settings.srs_internal_rtmp_url.rstrip('/')}/{run.id}"
+                            source_url = f"{settings.srs_internal_rtmp_url.rstrip('/')}/{managed.stream_name}"
                             command = _target_command(source_url, target.server_url, stream_key)
                             process = self._spawn(command)
                         except (SecretConfigurationError, SecretDecryptionError):
@@ -484,7 +555,7 @@ class MediaSupervisor:
                     run.heartbeat_at = now
                     run.updated_at = now
                     db.commit()
-                self._sleep(max(0.2, settings.media_heartbeat_interval))
+                managed.stop_event.wait(max(0.2, settings.media_heartbeat_interval))
         except Exception:
             logger.exception("media supervisor monitor crashed for live run {}", managed.run_id)
             with SessionLocal() as db:

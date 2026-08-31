@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -62,6 +64,12 @@ def create_live_run(
     )
     db.add(run)
     db.flush()
+    # The unpredictable stream name is the bearer capability used by the
+    # browser publisher. Never accept a browser-provided ingest identifier.
+    if media_source_kind == "browser_ingest":
+        run.media_source_id = f"{run.id}-{secrets.token_urlsafe(18)}"
+    elif not run.media_source_id:
+        run.media_source_id = run.id
     for connection in connections:
         db.add(
             LiveRunTarget(

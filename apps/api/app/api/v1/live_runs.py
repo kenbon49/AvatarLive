@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -15,6 +17,7 @@ from ...schemas.live_run import (
     LiveRunResponse,
 )
 from ...services.live_runs import evaluate_preflight, media_supervisor
+from ...core.config import settings
 
 router = APIRouter(prefix="/live-runs", tags=["live runs"])
 
@@ -31,12 +34,20 @@ def run_response(db: Session, run) -> LiveRunResponse:
     fields = {
         field: getattr(run, field)
         for field in LiveRunResponse.model_fields
-        if field != "targets"
+        if field not in {"targets", "ingest"}
     }
+    ingest = None
+    if run.media_source_kind == "browser_ingest" and run.media_source_id:
+        ingest = {
+            "protocol": "whip",
+            "url": f"{settings.srs_public_whip_path}?{urlencode({'app': 'live', 'stream': run.media_source_id})}",
+            "stream_name": run.media_source_id,
+        }
     return LiveRunResponse.model_validate(
         {
             **fields,
             "targets": repository.list_live_run_targets(db, run.id),
+            "ingest": ingest,
         }
     )
 
