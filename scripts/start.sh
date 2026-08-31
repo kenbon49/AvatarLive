@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SynLive 启动：拉起 docker 栈（后端 + 前端 + Caddy 反代）。
+# SynLive 启动：拉起 docker 栈（后端 + 前端 + Caddy 反代 + SRS 媒体网关）。
 # 所有配置统一读【根目录 .env】（与 .env.example 同级）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,7 +23,7 @@ docker compose version >/dev/null 2>&1 || { echo "$(c_red 'docker compose 不可
 ACCESS_PORT="${ACCESS_PORT:-8018}"
 
 echo "$(c_dim '== 启动 docker 栈 ==')"
-docker compose -f infra/docker-compose.yml --env-file .env up -d
+docker compose -f infra/docker-compose.yml --env-file .env --profile media up -d
 
 echo "$(c_dim '== 等待反代就绪 ==')"
 ok=0
@@ -34,7 +34,7 @@ done
 [ "$ok" = 1 ] && echo "$(c_grn '就绪 ✔')" || echo "$(c_red '未就绪：docker compose -f infra/docker-compose.yml logs proxy api')"
 
 echo; echo "$(c_dim '== 服务状态 ==')"
-docker compose -f infra/docker-compose.yml ps --format 'table {{.Service}}\t{{.Status}}' || true
+docker compose -f infra/docker-compose.yml --profile media ps --format 'table {{.Service}}\t{{.Status}}' || true
 
 echo; echo "$(c_grn '入口')"
 echo "  前端 : http://localhost:${ACCESS_PORT}/app/live"

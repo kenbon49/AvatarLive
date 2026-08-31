@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ( cd "$ROOT/infra" && \
   if [ "${1:-}" = "--purge" ]; then
-    docker compose down -v
+    docker compose --profile media down -v
   else
-    docker compose down
+    docker compose --profile media down
   fi )

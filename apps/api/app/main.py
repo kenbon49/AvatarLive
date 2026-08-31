@@ -7,15 +7,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api.v1 import health, live, live_rooms, llm, platform_connections, tts
+from .api.v1 import health, live, live_rooms, live_runs, llm, platform_connections, tts
 from .core.config import settings
 from .core.logging import setup_logging
+from .services.live_runs import media_supervisor
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     setup_logging()
+    # A process-local supervisor cannot safely resume child PIDs after an API
+    # restart; mark those rows failed rather than exposing a false LIVE state.
+    media_supervisor.recover_orphaned_runs()
     yield
+    media_supervisor.shutdown()
 
 
 app = FastAPI(
@@ -39,6 +44,7 @@ app.include_router(llm.router, prefix=settings.api_prefix)
 app.include_router(live.router, prefix=settings.api_prefix)
 app.include_router(live_rooms.router, prefix=settings.api_prefix)
 app.include_router(platform_connections.router, prefix=settings.api_prefix)
+app.include_router(live_runs.router, prefix=settings.api_prefix)
 
 
 @app.get("/")

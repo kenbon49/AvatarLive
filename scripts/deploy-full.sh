@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 # 在一台机器（GPU 机/服务器）上一键部署【整套 SynLive】：
-#   后端栈（postgres/redis/qdrant/minio/api）+ 前端(web) + Caddy 反代(:ACCESS_PORT)
+#   后端栈（postgres/redis/qdrant/minio/api）+ SRS 媒体网关 + 前端(web) + Caddy 反代(:ACCESS_PORT)
 # 浏览器只需访问 http://<ACCESS_HOST>:<ACCESS_PORT>/app/live
 # 所有配置统一读【根目录 .env】（与 .env.example 同级）。
 # LiveTalking 用 deploy-livetalking.sh 单独部署（host 网络）。
@@ -37,7 +37,7 @@ miss=0
 [ -n "${LITELLM_LLM_API_KEY:-}" ] || { echo "$(c_yel '  ⚠ LITELLM_LLM_API_KEY 未填 → LLM 不可用')"; miss=1; }
 
 echo "$(c_dim '== 构建并启动整套服务（首次构建 api/前端镜像，请耐心）==')"
-docker compose -f infra/docker-compose.yml --env-file .env up -d --build
+docker compose -f infra/docker-compose.yml --env-file .env --profile media up -d --build
 
 echo "$(c_dim '== 等待反代就绪 ==')"
 ok=0
@@ -48,7 +48,7 @@ done
 [ "$ok" = 1 ] && echo "$(c_grn '服务就绪 ✔')" || echo "$(c_red '未就绪：docker compose -f infra/docker-compose.yml logs proxy api')"
 
 echo; echo "$(c_dim '== 服务状态 ==')"
-docker compose -f infra/docker-compose.yml ps --format 'table {{.Service}}\t{{.Status}}' || true
+docker compose -f infra/docker-compose.yml --env-file .env --profile media ps --format 'table {{.Service}}\t{{.Status}}' || true
 
 echo; echo "$(c_grn '==================== 部署完成 ====================')"
 echo "  浏览器打开 : http://${ACCESS_HOST}:${ACCESS_PORT}/app/live"

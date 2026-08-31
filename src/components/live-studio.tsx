@@ -58,6 +58,15 @@ import {
   type LiveRoomConfig,
 } from '@/lib/live-room-api';
 import {
+  createLiveRun,
+  getLiveRun,
+  preflightLiveRun,
+  startLiveRun,
+  stopLiveRun,
+  type LiveRun,
+  type LiveRunPreflightResponse,
+} from '@/lib/live-run-api';
+import {
   createPlatformConnection,
   listPlatformConnections,
   testPlatformConnection,
@@ -388,6 +397,9 @@ export function LiveStudio({
   const [mediaActive, setMediaActive] = useState(false);
   const [stage, setStage] = useState('idle');
   const [onAir, setOnAir] = useState(false);
+  const [liveRun, setLiveRun] = useState<LiveRun | null>(null);
+  const [liveRunPreflight, setLiveRunPreflight] = useState<LiveRunPreflightResponse | null>(null);
+  const [liveRunBusy, setLiveRunBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [room, setRoom] = useState<LiveRoom | null>(null);
@@ -479,6 +491,7 @@ export function LiveStudio({
   const autoEnvironmentChecked = useRef(false);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedPlatformConnectionIds, setSelectedPlatformConnectionIds] = useState<string[]>([]);
+  const [mediaSourceKind, setMediaSourceKind] = useState<'browser_ingest' | 'test_pattern'>('browser_ingest');
   const [platformConnections, setPlatformConnections] = useState<PlatformConnection[]>([]);
   const [platformConnectionsLoading, setPlatformConnectionsLoading] = useState(false);
   const [platformActionId, setPlatformActionId] = useState<string | null>(null);
@@ -577,6 +590,7 @@ export function LiveStudio({
   ));
   const platformPreflightChecks = [
     { label: '直播间配置已保存', passed: Boolean(room && !roomDirty && !roomSaving) },
+    { label: '直播间已发布', passed: Boolean(room?.status === 'published' && !roomDirty && !roomSaving) },
     { label: '已选择至少一个推流目标', passed: selectedPlatformConnectionIds.length > 0 },
     {
       label: '所选目标已启用且连接测试通过',
@@ -613,6 +627,8 @@ export function LiveStudio({
     setSelectedPlatformConnectionIds(config.selectedPlatformConnectionIds ?? []);
     setAssets(config.assets);
     setRoom(loadedRoom);
+    setLiveRun(null);
+    setLiveRunPreflight(null);
     setRenameRoomName(loadedRoom.name);
     setSavedAt(formatSavedAt(loadedRoom.updatedAt));
     setSavedConfigSignature(JSON.stringify(config));
@@ -644,6 +660,34 @@ export function LiveStudio({
     };
     void initializeRoom();
   }, [applyRoom, buildRoomConfig, entered, room]);
+
+  useEffect(() => {
+    if (!liveRun || !['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const next = await getLiveRun(liveRun.id);
+        if (cancelled) return;
+        setLiveRun(next);
+        if (next.status === 'live') {
+          setOnAir(true);
+          setStartedAt(next.startedAt ? Date.parse(next.startedAt) : Date.now());
+        } else if (['stopped', 'failed'].includes(next.status)) {
+          setOnAir(false);
+          setStartedAt(null);
+          if (next.status === 'failed' && next.errorMessage) setError(next.errorMessage);
+        }
+      } catch (caught) {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : '直播状态同步失败');
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [liveRun?.id, liveRun?.status]);
 
   useEffect(() => {
     if (!entered || workspaceMode !== 'script' || !canvasRef.current) return;
@@ -1069,18 +1113,64 @@ export function LiveStudio({
   };
 
   const stopLive = async () => {
-    await streamRef.current?.stopLive();
-    setStage('idle');
-    setMediaActive(false);
-    setOnAir(false);
-    setStartedAt(null);
-    setScripts((items) => items.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
+    setError('');
+    let pendingStop = false;
+    try {
+      await streamRef.current?.stopLive();
+      if (liveRun && ['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) {
+        const stopped = await stopLiveRun(liveRun.id);
+        setLiveRun(stopped);
+        pendingStop = stopped.status === 'stopping';
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '停止直播失败';
+      setError(message);
+      setNotice(`停止直播失败：${message}`);
+    } finally {
+      setStage('idle');
+      setMediaActive(false);
+      setOnAir(pendingStop);
+      if (!pendingStop) setStartedAt(null);
+      setScripts((items) => items.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
+    }
   };
 
-  const completeLivePreflight = () => {
-    if (!platformPreflightReady || !termsAccepted) return;
-    setDialog(null);
-    setNotice(`已完成 ${selectedPlatformConnections.length} 个 RTMP 目标的开播前检查；媒体转推将在下一阶段接入`);
+  const completeLivePreflight = async () => {
+    if (!platformPreflightReady || !termsAccepted || !room || liveRunBusy) return;
+    setLiveRunBusy(true);
+    setPlatformError('');
+    setLiveRunPreflight(null);
+    const input = {
+      liveRoomId: room.id,
+      expectedRoomVersion: room.version,
+      legalSourceConfirmed: termsAccepted,
+      mediaSource: { kind: mediaSourceKind },
+    };
+    try {
+      const result = await preflightLiveRun(input);
+      setLiveRunPreflight(result);
+      if (!result.ready) {
+        const failed = result.checks.filter((check) => !check.passed).map((check) => check.message);
+        setPlatformError(`服务端开播预检未通过：${failed.join('；')}`);
+        return;
+      }
+      const requestId = globalThis.crypto?.randomUUID?.() ?? `live-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const created = await createLiveRun({ ...input, requestId });
+      const started = await startLiveRun(created.id);
+      setLiveRun(started);
+      if (started.status === 'live') {
+        setOnAir(true);
+        setStartedAt(started.startedAt ? Date.parse(started.startedAt) : Date.now());
+      }
+      setDialog(null);
+      setNotice(started.status === 'live'
+        ? `已开播（${started.targets.filter((target) => target.status === 'live').length} 个 RTMP 目标）`
+        : '开播请求已提交，正在等待媒体 supervisor 确认');
+    } catch (caught) {
+      setPlatformError(caught instanceof Error ? caught.message : '服务端开播预检失败');
+    } finally {
+      setLiveRunBusy(false);
+    }
   };
 
   const saveLiveRoom = async () => {
@@ -1635,8 +1725,8 @@ export function LiveStudio({
         <div className="xlTopActions">
           <button type="button" className="xlDarkButton" disabled={roomLoading || roomSaving} onClick={() => void saveLiveRoom()}>{roomSaving || roomLoading ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : <Save size={15} />}{roomSaving ? '正在保存' : roomLoading ? '正在加载' : '保存直播间'}</button>
           <button type="button" className="xlDarkButton" onClick={() => setDialog('settings')}><Settings2 size={15} />直播设置</button>
-          {onAir ? (
-            <button className="xlLiveButton danger" type="button" onClick={() => void stopLive()}><CircleStop size={16} />结束演示 <span>{elapsed}</span></button>
+          {onAir || (liveRun && ['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) ? (
+            <button className="xlLiveButton danger" type="button" disabled={liveRun?.status === 'stopping'} onClick={() => void stopLive()}><CircleStop size={16} />{liveRun?.status === 'stopping' ? '正在结束' : onAir ? '结束直播' : '取消开播'} {onAir && <span>{elapsed}</span>}</button>
           ) : (
             <button className="xlLiveButton" type="button" onClick={() => setDialog('livePlatform')}><Radio size={16} />开播编排</button>
           )}
@@ -1892,7 +1982,7 @@ export function LiveStudio({
           <header><span><Link2 size={17} /><strong>平台授权中心</strong></span><button type="button" aria-label="关闭平台授权中心" onClick={() => setDialog(null)}><X size={17} /></button></header>
           <div className="xlPlatformCenterBody">
             <div className="xlPlatformNotice"><ShieldCheck size={16} /><span><strong>通用 RTMP 已接入真实安全存储</strong><small>推流密钥使用服务端 AES-GCM 加密且不会返回浏览器；连接测试只代表服务器可达，不等于平台账号或互动权限已授权。</small></span></div>
-            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出预设</strong>{outputConfig.protocol} · {outputConfig.resolution} · {outputConfig.frameRate} · {outputConfig.codec}</span><span><i />已选 {selectedPlatformConnectionIds.length} 个目标</span></div>
+            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出预设</strong>{outputConfig.protocol} · {outputConfig.resolution} · {outputConfig.frameRate} · {outputConfig.codec}</span><span><i />已选 {selectedPlatformConnectionIds.length} 个目标</span><label className="xlPlatformSource"><strong>最终画面来源</strong><select value={mediaSourceKind} onChange={(event) => setMediaSourceKind(event.target.value as 'browser_ingest' | 'test_pattern')}><option value="browser_ingest">浏览器媒体网关（生产）</option><option value="test_pattern">服务端测试画面（仅联调）</option></select></label></div>
 
             <div className="xlPlatformCenterGrid">
               <section className="xlRtmpConnections">
@@ -1929,6 +2019,7 @@ export function LiveStudio({
                   </div>
                   <footer><span>保存后浏览器只能看到密钥末四位。</span><div><button type="button" onClick={() => setRtmpFormOpen(false)}>取消</button><button type="submit" disabled={rtmpFormBusy}>{rtmpFormBusy ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <Save size={13} />}{rtmpFormBusy ? '保存中' : '安全保存'}</button></div></footer>
                 </form>}
+                {liveRunPreflight && <div className={`xlPlatformMessage ${liveRunPreflight.ready ? 'passed' : 'failed'}`}>服务端预检：{liveRunPreflight.checks.filter((check) => check.passed).length}/{liveRunPreflight.checks.length} 项通过</div>}
                 {platformError && <div className="xlPlatformError">{platformError}</div>}
               </section>
 
@@ -1946,7 +2037,7 @@ export function LiveStudio({
               </aside>
             </div>
           </div>
-          <footer className="xlPlatformCenterFooter"><label className="xlPlatformTerms"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>我已确认推流地址来源合法，并了解“服务器可达”不代表平台已授权</span></label><div><button type="button" onClick={() => setDialog(null)}>关闭</button><button type="button" disabled={!platformPreflightReady || !termsAccepted} onClick={completeLivePreflight}><ShieldCheck size={14} />完成开播预检</button></div></footer>
+          <footer className="xlPlatformCenterFooter"><label className="xlPlatformTerms"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>我已确认推流地址来源合法，并了解“服务器可达”不代表平台已授权</span></label><div><button type="button" onClick={() => setDialog(null)}>关闭</button><button type="button" disabled={!platformPreflightReady || !termsAccepted || liveRunBusy} onClick={() => void completeLivePreflight()}>{liveRunBusy ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <ShieldCheck size={14} />}{liveRunBusy ? '服务端检查中' : '完成开播预检'}</button></div></footer>
         </section>
       </div>}
 

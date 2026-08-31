@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -16,8 +17,34 @@ from fastapi.testclient import TestClient
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models.live_room import LiveRoom
+from app.models.live_run import LiveRun, LiveRunTarget
 from app.models.platform_connection import PlatformConnection
+from app.services.live_runs import preflight as live_run_preflight
+from app.services.live_runs import media_supervisor
 from app.services.platforms import RtmpProbeError, probe_rtmp_endpoint
+
+
+class StubMediaProcess:
+    _next_pid = 41000
+
+    def __init__(self, command: tuple[str, ...]) -> None:
+        self.command = command
+        self.pid = StubMediaProcess._next_pid
+        StubMediaProcess._next_pid += 1
+        self.terminated = False
+
+    def poll(self):
+        return -15 if self.terminated else None
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        self.terminated = True
+        return -15
+
+    def kill(self):
+        self.terminated = True
 
 
 def room_config() -> dict:
@@ -228,6 +255,156 @@ class LiveRoomApiTest(unittest.TestCase):
     def test_rtmp_probe_blocks_private_network_targets(self) -> None:
         with self.assertRaisesRegex(RtmpProbeError, "只允许测试公网"):
             probe_rtmp_endpoint("rtmp://127.0.0.1/live")
+
+    def test_live_run_preflight_create_idempotency_and_stop(self) -> None:
+        connection_response = self.client.post(
+            "/api/v1/platform-connections",
+            json={
+                "name": "开播测试目标",
+                "platformLabel": "测试平台",
+                "serverUrl": "rtmps://push.example.com/live",
+                "streamKey": "run-secret-1234",
+            },
+        )
+        self.assertEqual(connection_response.status_code, 201, connection_response.text)
+        connection = connection_response.json()
+        with patch(
+            "app.api.v1.platform_connections.probe_rtmp_endpoint",
+            return_value="服务器可达（push.example.com:443）；推流密钥将在正式推流时校验",
+        ):
+            tested_connection_response = self.client.post(
+                f"/api/v1/platform-connections/{connection['id']}/test"
+            )
+        self.assertEqual(tested_connection_response.status_code, 200, tested_connection_response.text)
+        connection = tested_connection_response.json()
+
+        config = room_config()
+        config["selectedPlatformConnectionIds"] = [connection["id"]]
+        room_response = self.client.post(
+            "/api/v1/live-rooms",
+            json={"name": "可开播测试间", "config": config},
+        )
+        self.assertEqual(room_response.status_code, 201, room_response.text)
+        room = room_response.json()
+        publish_response = self.client.post(f"/api/v1/live-rooms/{room['id']}/publish")
+        self.assertEqual(publish_response.status_code, 200, publish_response.text)
+        room = publish_response.json()
+
+        with patch.object(live_run_preflight.settings, "live_run_allow_test_pattern", True):
+            preflight_response = self.client.post(
+                "/api/v1/live-runs/preflight",
+                json={
+                    "liveRoomId": room["id"],
+                    "expectedRoomVersion": room["version"],
+                    "legalSourceConfirmed": True,
+                    "mediaSource": {"kind": "test_pattern", "sourceId": "unit-test"},
+                },
+            )
+            self.assertEqual(preflight_response.status_code, 200, preflight_response.text)
+            preflight = preflight_response.json()
+            self.assertTrue(preflight["ready"])
+            self.assertEqual(preflight["targetCount"], 1)
+            self.assertTrue(all(check["passed"] for check in preflight["checks"]))
+
+            payload = {
+                "requestId": "run-request-1234",
+                "liveRoomId": room["id"],
+                "expectedRoomVersion": room["version"],
+                "legalSourceConfirmed": True,
+                "mediaSource": {"kind": "test_pattern", "sourceId": "unit-test"},
+            }
+            create_response = self.client.post("/api/v1/live-runs", json=payload)
+            self.assertEqual(create_response.status_code, 201, create_response.text)
+            created = create_response.json()
+            self.assertEqual(created["status"], "ready")
+            self.assertEqual(len(created["targets"]), 1)
+            self.assertEqual(created["targets"][0]["streamKeyLast4"], "1234")
+            self.assertNotIn("serverUrl", created["targets"][0])
+            self.assertNotIn("streamKeyCiphertext", created["targets"][0])
+
+            retry_response = self.client.post("/api/v1/live-runs", json=payload)
+            self.assertEqual(retry_response.status_code, 201, retry_response.text)
+            self.assertEqual(retry_response.json()["id"], created["id"])
+
+            with patch.object(live_run_preflight.settings, "live_run_allow_test_pattern", True), patch(
+                "app.services.live_runs.supervisor.settings.media_heartbeat_interval", 0.05
+            ):
+                processes: list[StubMediaProcess] = []
+
+                def spawn(command, **kwargs):
+                    process = StubMediaProcess(tuple(command))
+                    processes.append(process)
+                    return process
+
+                with patch.object(media_supervisor, "_spawn", side_effect=spawn):
+                    start_response = self.client.post(f"/api/v1/live-runs/{created['id']}/start")
+                    self.assertEqual(start_response.status_code, 200, start_response.text)
+                    self.assertEqual(start_response.json()["status"], "live")
+                    self.assertEqual(len(processes), 2)
+                    self.assertTrue(any("testsrc2" in part for part in processes[0].command))
+                    self.assertTrue(any("run-secret-1234" in part for part in processes[1].command))
+
+        get_response = self.client.get(f"/api/v1/live-runs/{created['id']}")
+        self.assertEqual(get_response.status_code, 200, get_response.text)
+        stop_response = self.client.post(f"/api/v1/live-runs/{created['id']}/stop")
+        self.assertEqual(stop_response.status_code, 200, stop_response.text)
+        for _ in range(30):
+            stop_response = self.client.get(f"/api/v1/live-runs/{created['id']}")
+            if stop_response.json()["status"] == "stopped":
+                break
+            time.sleep(0.05)
+        self.assertEqual(stop_response.json()["status"], "stopped")
+        self.assertEqual(stop_response.json()["targets"][0]["status"], "stopped")
+
+        with SessionLocal() as db:
+            persisted_run = db.get(LiveRun, created["id"])
+            self.assertIsNotNone(persisted_run)
+            self.assertEqual(persisted_run.status, "stopped")
+            persisted_target = db.query(LiveRunTarget).filter_by(live_run_id=created["id"]).one()
+            self.assertEqual(persisted_target.status, "stopped")
+
+    def test_live_run_preflight_requires_published_room_and_real_media_source(self) -> None:
+        room_response = self.client.post(
+            "/api/v1/live-rooms",
+            json={"name": "草稿测试间", "config": room_config()},
+        )
+        self.assertEqual(room_response.status_code, 201, room_response.text)
+        room = room_response.json()
+        with patch.object(live_run_preflight.settings, "live_run_allow_test_pattern", True):
+            response = self.client.post(
+                "/api/v1/live-runs/preflight",
+                json={
+                    "liveRoomId": room["id"],
+                    "expectedRoomVersion": room["version"],
+                    "legalSourceConfirmed": True,
+                    "mediaSource": {"kind": "test_pattern"},
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertFalse(result["ready"])
+        self.assertFalse(next(check for check in result["checks"] if check["code"] == "room_published")["passed"])
+
+        publish_response = self.client.post(f"/api/v1/live-rooms/{room['id']}/publish")
+        self.assertEqual(publish_response.status_code, 200, publish_response.text)
+        published = publish_response.json()
+        browser_response = self.client.post(
+            "/api/v1/live-runs/preflight",
+            json={
+                "liveRoomId": published["id"],
+                "expectedRoomVersion": published["version"],
+                "legalSourceConfirmed": True,
+                "mediaSource": {"kind": "browser_ingest"},
+            },
+        )
+        self.assertEqual(browser_response.status_code, 200, browser_response.text)
+        self.assertFalse(browser_response.json()["ready"])
+        self.assertIn(
+            "媒体网关",
+            next(
+                check for check in browser_response.json()["checks"] if check["code"] == "media_source_ready"
+            )["message"],
+        )
 
 
 if __name__ == "__main__":

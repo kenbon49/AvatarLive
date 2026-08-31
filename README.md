@@ -125,4 +125,6 @@ python3 scripts/generate_marketing_assets.py
 AZURE_SPEECH_KEY=xxxx SRS_HOST=<SynLive主机IP> ./scripts/deploy-livetalking.sh
 ```
 
+`start.sh`/`deploy-full.sh` 会同时启用 Compose 的 `media` profile。SRS 的 RTMP/API 端口分别为 `1935/1985`，HTTP-FLV 默认映射到 `18080`（可用 `SRS_HTTP_PORT` 覆盖）；`LIVE_RUN_ALLOW_TEST_PATTERN` 默认关闭，真实浏览器媒体网关接入前不要在生产环境开启测试源。
+
 更多见 `apps/api/README.md` 与 `infra/livetalking/README.md`。

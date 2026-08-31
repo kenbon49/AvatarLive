@@ -443,6 +443,8 @@ class PlatformAdapter:
 - 已完成 `live_rooms`、配置版本冲突检查、创建/切换/复制/发布和 PostgreSQL 持久化。
 - 已完成 `platform_connections` 的通用 RTMP 第一版：地址与密钥分离、AES-GCM 加密、只返回末四位、启停、版本冲突和公网节点可达性测试。
 - 已在 `/live` 的开播编排中加入平台授权中心和开播前检查；连接测试明确不代表 OAuth 或平台业务权限授权。
+- 已补充 `live_runs` 的服务端权威预检、发布版本校验、幂等创建、运行记录快照和停止请求；真实媒体源未接入时，`browser_ingest` 会明确阻止创建外部推流运行。
+- 已补充进程隔离的媒体 supervisor：显式启用 `test_pattern` 时由 FFmpeg 生成内部 RTMP 源流进入 SRS，并为每个目标独立转推、心跳、指数退避重试和停播回收；API 重启会把遗留运行标记为失败。浏览器最终画面接入仍待后续媒体网关实现。
 - 尚未完成租户/RBAC、审计日志、Vault/KMS 托管密钥、OAuth callback、互动权限和真实媒体转推；这些仍按后续阶段推进。
 
 ## 第 3 阶段：真实人物、声音和素材管理

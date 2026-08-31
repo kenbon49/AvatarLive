@@ -10,6 +10,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# The API owns the process-isolated media supervisor in the MVP. Keep FFmpeg
+# in the image so a live run can publish a test source and restream targets.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # 先装依赖（利用层缓存）
 COPY requirements.txt .
 RUN pip install -r requirements.txt

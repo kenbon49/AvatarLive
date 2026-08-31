@@ -846,6 +846,8 @@ img, video, canvas { display: block; }
 .xlPlatformSummary > span { display: flex; align-items: center; gap: 6px; }
 .xlPlatformSummary svg { color: var(--xl-accent); }
 .xlPlatformSummary i { width: 7px; height: 7px; border-radius: 50%; background: var(--xl-accent); box-shadow: 0 0 0 4px rgba(20, 204, 201, .1); }
+.xlPlatformSource { display: flex; align-items: center; gap: 7px; }
+.xlPlatformSource select { border: 1px solid rgba(255,255,255,.12); border-radius: 5px; padding: 5px 7px; color: #cfe9e8; background: rgba(255,255,255,.06); font: inherit; }
 .xlPlatformCenterGrid { display: grid; grid-template-columns: minmax(520px, 1fr) 300px; align-items: start; gap: 14px; }
 .xlRtmpConnections, .xlPlatformPreflight > section { border: 1px solid #303233; border-radius: 9px; background: #202122; }
 .xlRtmpConnections > header { min-height: 55px; padding: 10px 13px; border-bottom: 1px solid #303233; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -903,6 +905,9 @@ img, video, canvas { display: block; }
 .xlRtmpForm > footer button { height: 27px; padding: 0 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; color: #aeb3b3; background: #363939; font-size: 8px; }
 .xlRtmpForm > footer button:last-child { color: #102020; background: var(--xl-accent); }
 .xlPlatformError { margin: 0 9px 9px; padding: 8px 9px; border-radius: 5px; color: #e8a29a; background: #402b2a; font-size: 8px; line-height: 14px; }
+.xlPlatformMessage { margin: 0 9px 9px; padding: 8px 9px; border-radius: 5px; color: #c9d2df; background: #26303c; font-size: 8px; line-height: 14px; }
+.xlPlatformMessage.passed { color: #9fe0b6; background: #203a2b; }
+.xlPlatformMessage.failed { color: #e8a29a; background: #402b2a; }
 .xlPlatformPreflight { display: grid; gap: 10px; }
 .xlPlatformPreflight > section { padding: 12px; }
 .xlPlatformPreflight section > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

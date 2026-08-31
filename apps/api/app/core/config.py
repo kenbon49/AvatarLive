@@ -65,6 +65,16 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://synlive:synlive@localhost:5432/synlive"
     # URL-safe base64 encoded 32-byte master key for AES-GCM credential envelopes.
     platform_encryption_key: str = ""
+    # Test-pattern publishing is opt-in and must stay disabled in production.
+    live_run_allow_test_pattern: bool = False
+    # Media supervisor settings. The API container publishes to SRS over the
+    # compose network; override for a host-local or remote media gateway.
+    media_supervisor_enabled: bool = True
+    srs_internal_rtmp_url: str = "rtmp://srs:1935/live"
+    ffmpeg_binary: str = "ffmpeg"
+    media_heartbeat_interval: float = 2.0
+    media_max_retries: int = 3
+    media_retry_backoff_seconds: float = 2.0
     redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
     minio_endpoint: str = "localhost:9000"
