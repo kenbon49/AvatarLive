@@ -63,6 +63,8 @@ class Settings(BaseSettings):
 
     # --- 持久化与基础设施 ---
     database_url: str = "postgresql+psycopg://synlive:synlive@localhost:5432/synlive"
+    # URL-safe base64 encoded 32-byte master key for AES-GCM credential envelopes.
+    platform_encryption_key: str = ""
     redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
     minio_endpoint: str = "localhost:9000"

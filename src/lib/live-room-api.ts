@@ -88,6 +88,7 @@ export type LiveRoomConfig = {
   liveOptions: LiveRoomOptions;
   outputConfig: LiveRoomOutputConfig;
   selectedPlatforms: string[];
+  selectedPlatformConnectionIds: string[];
   assets: Record<'image' | 'video', LiveRoomAssetItem[]>;
 };
 

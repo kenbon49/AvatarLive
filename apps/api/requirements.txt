@@ -11,6 +11,7 @@ litellm>=1.80,<2.0
 sqlalchemy>=2.0,<3.0
 alembic>=1.13,<2.0
 psycopg[binary]>=3.2,<4.0
+cryptography>=44,<46
 
 # 后续阶段再补：
 # redis>=5.0（直播状态/队列）

@@ -833,27 +833,101 @@ img, video, canvas { display: block; }
 .xlVoiceCloneFooter > span { color: #6f7071; font-size: 8px; }
 .xlVoiceCloneFooter > div:last-child button:last-child { min-width: 108px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 
-.xlLivePlatformModal { width: min(900px, 92vw); }
-.xlPlatformNotice { margin: 24px; padding: 12px 14px; border: 1px solid #d8ca7b; border-radius: 5px; color: #77692e; background: #fff8d8; font-size: 10px; line-height: 17px; }
-.xlLivePlatformModal h2 { margin: 8px 0 24px; text-align: center; font-size: 16px; font-weight: 400; }
-.xlPlatformSummary { margin: -6px 24px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #a8a8a8; font-size: 10px; }
+.xlLivePlatformModal { width: min(1120px, 96vw); max-height: min(820px, 94vh); display: grid; grid-template-rows: 54px minmax(0, 1fr) auto; }
+.xlLivePlatformModal > header > span { display: flex; align-items: center; gap: 8px; }
+.xlLivePlatformModal > header > span svg { color: var(--xl-accent); }
+.xlPlatformCenterBody { min-height: 0; padding: 18px 20px 22px; overflow-y: auto; }
+.xlPlatformNotice { padding: 11px 13px; border: 1px solid rgba(20, 204, 201, .28); border-radius: 7px; display: flex; align-items: flex-start; gap: 9px; color: #8edbd8; background: rgba(20, 204, 201, .07); }
+.xlPlatformNotice > svg { margin-top: 1px; flex: 0 0 auto; }
+.xlPlatformNotice > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.xlPlatformNotice strong { color: #cfe9e8; font-size: 10px; font-weight: 500; }
+.xlPlatformNotice small { color: #829190; font-size: 9px; line-height: 15px; }
+.xlPlatformSummary { margin: 13px 3px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #a8a8a8; font-size: 10px; }
 .xlPlatformSummary > span { display: flex; align-items: center; gap: 6px; }
 .xlPlatformSummary svg { color: var(--xl-accent); }
 .xlPlatformSummary i { width: 7px; height: 7px; border-radius: 50%; background: var(--xl-accent); box-shadow: 0 0 0 4px rgba(20, 204, 201, .1); }
-.xlPlatformGrid { max-width: 720px; margin: 0 auto 18px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.xlPlatformGrid button { min-height: 108px; border: 1px solid transparent !important; border-radius: 8px !important; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; position: relative; background: #202122 !important; }
-.xlPlatformGrid button:hover, .xlPlatformGrid button.selected { border-color: var(--xl-accent) !important; background: #213334 !important; }
-.xlPlatformGrid .xlPlatformLogo { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 5px 14px rgba(0, 0, 0, .2); }
-.xlPlatformLogo img { width: 27px; height: 27px; object-fit: contain; }
-.xlPlatformGrid button strong { font-size: 11px; font-weight: 400; }
-.xlPlatformGrid button em { padding: 2px 5px; position: absolute; right: 5px; top: 5px; border-radius: 3px; color: #d8d8d8; background: #5b5c5d; font-size: 8px; font-style: normal; }
-.xlPlatformGrid button em.ready { color: #79d9d6; background: #224445; }
-.xlPlatformGrid button > i { width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; position: absolute; left: 7px; top: 7px; color: #0e0f0f; background: var(--xl-accent); }
-.xlPlatformTerms { max-width: 720px; margin: 0 auto 18px; display: flex; align-items: center; gap: 8px; color: #a8a8a8; font-size: 10px; }
-.xlPlatformTerms input { accent-color: var(--xl-accent); }
-.xlLivePlatformModal > footer { padding: 15px 24px; border-top: 1px solid var(--xl-line); display: flex; justify-content: flex-end; gap: 8px; }
-.xlLivePlatformModal > footer button { height: 32px; padding: 0 14px; border-radius: 5px; color: #c4c4c4; background: #303132; }
-.xlLivePlatformModal > footer button:last-child { color: #0e0f0f; background: var(--xl-accent); }
+.xlPlatformCenterGrid { display: grid; grid-template-columns: minmax(520px, 1fr) 300px; align-items: start; gap: 14px; }
+.xlRtmpConnections, .xlPlatformPreflight > section { border: 1px solid #303233; border-radius: 9px; background: #202122; }
+.xlRtmpConnections > header { min-height: 55px; padding: 10px 13px; border-bottom: 1px solid #303233; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.xlRtmpConnections > header > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.xlRtmpConnections > header strong { color: #ebebeb; font-size: 11px; font-weight: 500; }
+.xlRtmpConnections > header small { color: #777d7d; font-size: 8px; }
+.xlRtmpConnections > header button, .xlPlatformEmpty button { height: 29px; padding: 0 9px; border-radius: 5px; display: inline-flex; align-items: center; gap: 4px; color: #0d1c1c; background: var(--xl-accent); font-size: 9px; white-space: nowrap; }
+.xlPlatformLoading, .xlPlatformEmpty { min-height: 150px; display: flex; align-items: center; justify-content: center; color: #777d7d; }
+.xlPlatformLoading { gap: 8px; font-size: 9px; }
+.xlPlatformEmpty { flex-direction: column; gap: 7px; }
+.xlPlatformEmpty > svg { color: #4f5f5f; }
+.xlPlatformEmpty strong { color: #bcbebe; font-size: 10px; font-weight: 500; }
+.xlPlatformEmpty span { color: #6f7474; font-size: 8px; }
+.xlPlatformEmpty button { margin-top: 4px; }
+.xlRtmpConnectionList { padding: 9px; display: grid; gap: 7px; }
+.xlRtmpConnectionList > article { padding: 10px; border: 1px solid #303233; border-radius: 7px; background: #272829; transition: border-color .18s, background .18s; }
+.xlRtmpConnectionList > article.selected { border-color: rgba(20, 204, 201, .55); background: #253131; }
+.xlRtmpConnectionList > article.disabled { opacity: .62; }
+.xlRtmpConnectionMain { display: grid; grid-template-columns: 31px minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.xlRtmpConnectionIcon { width: 31px; height: 31px; border-radius: 7px; display: grid; place-items: center; color: var(--xl-accent); background: rgba(20, 204, 201, .1); }
+.xlRtmpConnectionMain > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.xlRtmpConnectionMain strong { overflow: hidden; color: #e5e5e5; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.xlRtmpConnectionMain small { color: #7e8383; font-size: 8px; }
+.xlConnectionStatus { padding: 3px 6px; border-radius: 9px; color: #aaa; background: #383a3b; font-size: 8px; font-style: normal; white-space: nowrap; }
+.xlConnectionStatus.passed { color: #83d9d7; background: #244142; }
+.xlConnectionStatus.failed { color: #e9a199; background: #452f2e; }
+.xlRtmpConnectionList article > p { margin: 9px 0 0 40px; overflow: hidden; color: #737979; font-family: monospace; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.xlConnectionMessage { margin: 7px 0 0 40px; color: #8b9292; font-size: 8px; line-height: 14px; }
+.xlConnectionMessage.passed { color: #73b9b7; }
+.xlConnectionMessage.failed { color: #d78d84; }
+.xlRtmpConnectionActions { margin: 9px 0 0 40px; display: flex; flex-wrap: wrap; gap: 5px; }
+.xlRtmpConnectionActions button { height: 25px; padding: 0 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; color: #999; background: #343536; font-size: 8px; }
+.xlRtmpConnectionActions button:hover { color: #eee; background: #404243; }
+.xlRtmpConnectionActions button.selected { color: var(--xl-accent); background: #294041; }
+.xlRtmpConnectionActions button:disabled { opacity: .35; }
+.xlRtmpForm { margin: 0 9px 9px; border: 1px solid rgba(20, 204, 201, .35); border-radius: 7px; background: #252a2a; }
+.xlRtmpForm > header { min-height: 48px; padding: 9px 11px; border-bottom: 1px solid #343838; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.xlRtmpForm > header > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.xlRtmpForm > header strong { color: #e5eeee; font-size: 10px; font-weight: 500; }
+.xlRtmpForm > header small { color: #778181; font-size: 8px; line-height: 13px; }
+.xlRtmpForm > header > button { width: 25px; height: 25px; display: grid; place-items: center; color: #777; }
+.xlRtmpFormGrid { padding: 11px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.xlRtmpFormGrid label { min-width: 0; display: block; }
+.xlRtmpFormGrid label.wide { grid-column: 1 / -1; }
+.xlRtmpFormGrid label > span { min-height: 17px; display: flex; align-items: center; justify-content: space-between; color: #a7adad; font-size: 8px; }
+.xlRtmpFormGrid label > span small { color: #687070; font-size: 7px; }
+.xlRtmpFormGrid input { width: 100%; height: 32px; padding: 0 9px; border: 1px solid #3d4141; border-radius: 5px; outline: 0; color: #e2e7e7; background: #1e2020; font: inherit; font-size: 9px; }
+.xlRtmpFormGrid input:focus { border-color: rgba(20, 204, 201, .65); }
+.xlSecretInput { position: relative; }
+.xlSecretInput input { padding-right: 34px; }
+.xlSecretInput button { width: 31px; position: absolute; inset: 0 0 0 auto; display: grid; place-items: center; color: #737a7a; }
+.xlRtmpForm > footer { min-height: 45px; padding: 8px 11px; border-top: 1px solid #343838; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.xlRtmpForm > footer > span { color: #6f7777; font-size: 8px; }
+.xlRtmpForm > footer > div { display: flex; gap: 5px; }
+.xlRtmpForm > footer button { height: 27px; padding: 0 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; color: #aeb3b3; background: #363939; font-size: 8px; }
+.xlRtmpForm > footer button:last-child { color: #102020; background: var(--xl-accent); }
+.xlPlatformError { margin: 0 9px 9px; padding: 8px 9px; border-radius: 5px; color: #e8a29a; background: #402b2a; font-size: 8px; line-height: 14px; }
+.xlPlatformPreflight { display: grid; gap: 10px; }
+.xlPlatformPreflight > section { padding: 12px; }
+.xlPlatformPreflight section > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.xlPlatformPreflight section > header strong { color: #dedede; font-size: 10px; font-weight: 500; }
+.xlPlatformPreflight section > header span { color: var(--xl-accent); font-size: 8px; }
+.xlPlatformPreflight section:first-child > div { margin-top: 10px; display: grid; gap: 7px; }
+.xlPlatformPreflight section:first-child p { margin: 0; display: flex; align-items: center; gap: 7px; color: #8d9292; font-size: 8px; }
+.xlPlatformPreflight section:first-child p > i { width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center; color: #d99d63; background: #44362b; font-size: 9px; font-style: normal; }
+.xlPlatformPreflight section:first-child p.passed { color: #c0c8c8; }
+.xlPlatformPreflight section:first-child p.passed > i { color: #112020; background: var(--xl-accent); }
+.xlPlatformPreflight section:first-child > button { width: 100%; height: 29px; margin-top: 11px; border-radius: 5px; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--xl-accent); background: #293c3d; font-size: 8px; }
+.xlOfficialPlatforms > p { margin: 8px 0 10px; color: #747a7a; font-size: 8px; line-height: 14px; }
+.xlOfficialPlatforms > div { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.xlOfficialPlatforms > div > span { min-width: 0; height: 29px; padding: 0 5px; border-radius: 5px; display: grid; grid-template-columns: 21px minmax(0, 1fr) auto; align-items: center; gap: 5px; background: #292a2b; }
+.xlOfficialPlatforms > div i { width: 21px; height: 21px; border-radius: 5px; display: grid; place-items: center; }
+.xlOfficialPlatforms img { width: 14px; height: 14px; object-fit: contain; }
+.xlOfficialPlatforms strong { overflow: hidden; color: #aaa; font-size: 8px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.xlOfficialPlatforms em { color: #686c6c; font-size: 7px; font-style: normal; }
+.xlPlatformCenterFooter { min-height: 58px; padding: 10px 20px; border-top: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.xlPlatformTerms { min-width: 0; display: flex; align-items: flex-start; gap: 7px; color: #888e8e; font-size: 8px; line-height: 14px; }
+.xlPlatformTerms input { margin-top: 1px; accent-color: var(--xl-accent); }
+.xlPlatformCenterFooter > div { display: flex; gap: 7px; }
+.xlPlatformCenterFooter > div button { height: 32px; padding: 0 13px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #c4c4c4; background: #303132; white-space: nowrap; }
+.xlPlatformCenterFooter > div button:last-child { color: #0e0f0f; background: var(--xl-accent); }
+.xlPlatformCenterFooter > div button:disabled { opacity: .35; }
 .xlLibraryModal { width: min(780px, 92vw); }
 .xlLibraryToolbar { padding: 13px 18px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .xlLibraryToolbar > div { display: flex; gap: 5px; }
@@ -975,7 +1049,10 @@ img, video, canvas { display: block; }
   .xlSettingRow { align-items: flex-start; gap: 15px; }
   .xlSettingBlock { align-items: flex-start; flex-direction: column; gap: 10px; }
   .xlRadioGroup { flex-direction: column; }
-  .xlPlatformGrid { padding-inline: 14px; grid-template-columns: repeat(2, 1fr); }
+  .xlLivePlatformModal { width: 100%; max-height: 94vh; }
+  .xlPlatformCenterBody { padding-inline: 12px; }
+  .xlPlatformCenterGrid { grid-template-columns: 1fr; }
+  .xlPlatformPreflight { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 480px) {
@@ -1018,8 +1095,13 @@ img, video, canvas { display: block; }
   .xlVoiceCloneFooter { align-items: stretch; }
   .xlVoiceCloneFooter > div:last-child { width: 100%; }
   .xlVoiceCloneFooter > div:last-child button { flex: 1; }
-  .xlPlatformNotice { margin: 14px; }
-  .xlLivePlatformModal h2 { padding-inline: 16px; font-size: 14px; }
+  .xlPlatformSummary { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .xlPlatformPreflight { grid-template-columns: 1fr; }
+  .xlRtmpFormGrid { grid-template-columns: 1fr; }
+  .xlRtmpFormGrid label.wide { grid-column: auto; }
+  .xlRtmpConnectionActions { margin-left: 0; }
+  .xlPlatformCenterFooter { align-items: stretch; flex-direction: column; }
+  .xlPlatformCenterFooter > div { justify-content: flex-end; }
 }
 
 .creatorShell { min-height: 100vh; overflow: hidden; background: #f5f6f8; color: var(--ink); }

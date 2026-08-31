@@ -56,6 +56,9 @@ uvicorn app.main:app --reload --port 8000
 | GET/PUT | `/api/v1/live-rooms/{id}` | 读取或保存直播间配置 |
 | POST | `/api/v1/live-rooms/{id}/copy` | 复制直播间 |
 | POST | `/api/v1/live-rooms/{id}/publish` | 发布直播间配置 |
+| GET/POST | `/api/v1/platform-connections` | 查询或新增加密的通用 RTMP 连接 |
+| GET/PUT | `/api/v1/platform-connections/{id}` | 读取或更新平台连接（不返回密钥） |
+| POST | `/api/v1/platform-connections/{id}/test` | 测试公网 RTMP 服务器可达性 |
 
 ## /say 编排流程
 
@@ -71,8 +74,11 @@ uvicorn app.main:app --reload --port 8000
 - `LIVETALKING_URL`：docker 内网 `http://livetalking:8010`；本地原生跑改 `http://localhost:8010`。
 - `LIVETALKING_ENABLED=false`：完全跳过 LiveTalking 调用（不看降级日志）。
 - `DATABASE_URL`：直播间控制台配置数据库；Docker Compose 默认连接 PostgreSQL。
+- `PLATFORM_ENCRYPTION_KEY`：URL-safe Base64 编码的 32 字节主密钥，用于 AES-GCM 加密 RTMP 密钥。生产环境必须由 Secret Manager 注入。
 
 API 容器启动时自动执行 `alembic upgrade head`。浏览器保存直播间时使用版本号做冲突检查，避免旧页面静默覆盖较新的配置。
+
+通用 RTMP 连接将服务器地址与推流密钥分开保存，接口响应只包含密钥末四位。连接测试会拒绝内网、回环和保留地址，防止平台测试接口被用于 SSRF；测试通过仅代表服务器可达，不代表 OAuth、互动或电商权限已经授权。
 
 ## 后续阶段
 

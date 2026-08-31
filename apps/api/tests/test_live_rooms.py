@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import base64
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 TEST_DIRECTORY = tempfile.TemporaryDirectory(prefix="avatarlive-live-rooms-")
 os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{TEST_DIRECTORY.name}/live-rooms.sqlite3"
+os.environ["PLATFORM_ENCRYPTION_KEY"] = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii")
 
 from fastapi.testclient import TestClient
 
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models.live_room import LiveRoom
+from app.models.platform_connection import PlatformConnection
+from app.services.platforms import RtmpProbeError, probe_rtmp_endpoint
 
 
 def room_config() -> dict:
@@ -151,6 +156,78 @@ class LiveRoomApiTest(unittest.TestCase):
             json={"name": "无商品直播间", "config": invalid},
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_platform_connection_encrypts_secret_and_tracks_reachability(self) -> None:
+        stream_key = "super-private-stream-key-9876"
+        create_response = self.client.post(
+            "/api/v1/platform-connections",
+            json={
+                "name": "测试 RTMP",
+                "platformLabel": "测试平台",
+                "serverUrl": "rtmps://push.example.com/live/",
+                "streamKey": stream_key,
+            },
+        )
+        self.assertEqual(create_response.status_code, 201, create_response.text)
+        created = create_response.json()
+        self.assertEqual(created["serverUrl"], "rtmps://push.example.com/live")
+        self.assertEqual(created["streamKeyLast4"], "9876")
+        self.assertNotIn("streamKey", created)
+        self.assertNotIn("streamKeyCiphertext", created)
+
+        connection_id = created["id"]
+        with SessionLocal() as db:
+            persisted = db.get(PlatformConnection, connection_id)
+            self.assertIsNotNone(persisted)
+            self.assertNotIn(stream_key, persisted.stream_key_ciphertext)
+            self.assertTrue(persisted.stream_key_ciphertext.startswith("v1."))
+
+        with patch(
+            "app.api.v1.platform_connections.probe_rtmp_endpoint",
+            return_value="服务器可达（push.example.com:443）；推流密钥将在正式推流时校验",
+        ):
+            test_response = self.client.post(f"/api/v1/platform-connections/{connection_id}/test")
+        self.assertEqual(test_response.status_code, 200, test_response.text)
+        tested = test_response.json()
+        self.assertEqual(tested["testStatus"], "passed")
+        self.assertIsNotNone(tested["lastTestedAt"])
+
+        disable_response = self.client.put(
+            f"/api/v1/platform-connections/{connection_id}",
+            json={
+                "name": tested["name"],
+                "platformLabel": tested["platformLabel"],
+                "serverUrl": tested["serverUrl"],
+                "status": "disabled",
+                "expectedVersion": tested["version"],
+            },
+        )
+        self.assertEqual(disable_response.status_code, 200, disable_response.text)
+        self.assertEqual(disable_response.json()["status"], "disabled")
+
+        disabled_test = self.client.post(f"/api/v1/platform-connections/{connection_id}/test")
+        self.assertEqual(disabled_test.status_code, 409)
+
+    def test_platform_connection_rejects_embedded_credentials_and_query_secrets(self) -> None:
+        for server_url in (
+            "https://push.example.com/live",
+            "rtmp://user:password@push.example.com/live",
+            "rtmp://push.example.com/live?key=secret",
+        ):
+            response = self.client.post(
+                "/api/v1/platform-connections",
+                json={
+                    "name": "无效目标",
+                    "platformLabel": "测试",
+                    "serverUrl": server_url,
+                    "streamKey": "secret",
+                },
+            )
+            self.assertEqual(response.status_code, 422, response.text)
+
+    def test_rtmp_probe_blocks_private_network_targets(self) -> None:
+        with self.assertRaisesRegex(RtmpProbeError, "只允许测试公网"):
+            probe_rtmp_endpoint("rtmp://127.0.0.1/live")
 
 
 if __name__ == "__main__":

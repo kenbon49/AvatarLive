@@ -17,9 +17,13 @@ import {
   FileUp,
   HardDrive,
   HelpCircle,
+  Eye,
+  EyeOff,
   Image as ImageIcon,
+  KeyRound,
   Layers3,
   Library,
+  Link2,
   LoaderCircle,
   MessageCircleQuestion,
   Play,
@@ -38,6 +42,7 @@ import {
   Upload,
   UserRound,
   Video,
+  Wifi,
   WandSparkles,
   X,
 } from 'lucide-react';
@@ -52,6 +57,13 @@ import {
   type LiveRoom,
   type LiveRoomConfig,
 } from '@/lib/live-room-api';
+import {
+  createPlatformConnection,
+  listPlatformConnections,
+  testPlatformConnection,
+  updatePlatformConnection,
+  type PlatformConnection,
+} from '@/lib/platform-connection-api';
 
 const AVATARS = [
   { id: 'chinese', name: '中文女', role: '智能接待顾问', image: '/assets/musetalk-avatars/chinese.jpg', type: '真人', gender: '女', age: '青年' },
@@ -291,14 +303,14 @@ const SETTINGS_TABS = [
 ] as const;
 
 const PLATFORMS = [
-  { name: '抖音', logo: '/assets/brand-logos/douyin.svg', color: '#111111', status: '系统维护' },
-  { name: '美团', logo: '/assets/brand-logos/meituan.svg', color: '#ffc72c', status: '' },
-  { name: '快手', logo: '/assets/brand-logos/kuaishou.svg', color: '#ff4e22', status: '' },
-  { name: '京东', logo: '/assets/brand-logos/jd.svg', color: '#e1251b', status: '' },
-  { name: '淘宝', logo: '/assets/brand-logos/taobao.svg', color: '#ff5000', status: '' },
-  { name: '拼多多', logo: '/assets/brand-logos/pinduoduo.svg', color: '#e02e24', status: '' },
-  { name: '唯品会', logo: '/assets/brand-logos/vipshop.svg', color: '#d62f7f', status: '' },
-  { name: '小红书', logo: '/assets/brand-logos/xiaohongshu.svg', color: '#ff2442', status: '内测中' },
+  { name: '抖音', logo: '/assets/brand-logos/douyin.svg', color: '#111111' },
+  { name: '美团', logo: '/assets/brand-logos/meituan.svg', color: '#ffc72c' },
+  { name: '快手', logo: '/assets/brand-logos/kuaishou.svg', color: '#ff4e22' },
+  { name: '京东', logo: '/assets/brand-logos/jd.svg', color: '#e1251b' },
+  { name: '淘宝', logo: '/assets/brand-logos/taobao.svg', color: '#ff5000' },
+  { name: '拼多多', logo: '/assets/brand-logos/pinduoduo.svg', color: '#e02e24' },
+  { name: '唯品会', logo: '/assets/brand-logos/vipshop.svg', color: '#d62f7f' },
+  { name: '小红书', logo: '/assets/brand-logos/xiaohongshu.svg', color: '#ff2442' },
 ] as const;
 
 const TALK_LIBRARY = [
@@ -338,9 +350,26 @@ const createDefaultRoomConfig = (): LiveRoomConfig => ({
   layers: createTemplateLayers('food', '中文女'),
   liveOptions: { qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid' },
   outputConfig: { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' },
-  selectedPlatforms: ['美团'],
+  selectedPlatforms: [],
+  selectedPlatformConnectionIds: [],
   assets: { image: [], video: [] },
 });
+
+type RtmpConnectionDraft = {
+  name: string;
+  platformLabel: string;
+  serverUrl: string;
+  streamKey: string;
+  status: PlatformConnection['status'];
+};
+
+const EMPTY_RTMP_DRAFT: RtmpConnectionDraft = {
+  name: '',
+  platformLabel: '通用 RTMP',
+  serverUrl: 'rtmp://',
+  streamKey: '',
+  status: 'enabled',
+};
 
 export function LiveStudio({
   autoDetectEnvironment = false,
@@ -448,7 +477,16 @@ export function LiveStudio({
   const [environmentCheckedAt, setEnvironmentCheckedAt] = useState('尚未检测');
   const [environmentInfo, setEnvironmentInfo] = useState({ browser: '待检测', cpu: '待检测', gpu: '待检测' });
   const autoEnvironmentChecked = useRef(false);
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['美团']);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [selectedPlatformConnectionIds, setSelectedPlatformConnectionIds] = useState<string[]>([]);
+  const [platformConnections, setPlatformConnections] = useState<PlatformConnection[]>([]);
+  const [platformConnectionsLoading, setPlatformConnectionsLoading] = useState(false);
+  const [platformActionId, setPlatformActionId] = useState<string | null>(null);
+  const [platformError, setPlatformError] = useState('');
+  const [rtmpFormOpen, setRtmpFormOpen] = useState(false);
+  const [editingPlatformConnectionId, setEditingPlatformConnectionId] = useState<string | null>(null);
+  const [rtmpDraft, setRtmpDraft] = useState<RtmpConnectionDraft>(EMPTY_RTMP_DRAFT);
+  const [streamKeyVisible, setStreamKeyVisible] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [libraryQuery, setLibraryQuery] = useState('');
   const [libraryCategory, setLibraryCategory] = useState('全部');
@@ -511,6 +549,7 @@ export function LiveStudio({
     liveOptions,
     outputConfig,
     selectedPlatforms,
+    selectedPlatformConnectionIds,
     assets,
   }), [
     activeGoodsId,
@@ -523,6 +562,7 @@ export function LiveStudio({
     playbackMode,
     qaItems,
     scripts,
+    selectedPlatformConnectionIds,
     selectedPlatforms,
     selectedTemplateId,
     selectedVoiceId,
@@ -532,6 +572,22 @@ export function LiveStudio({
 
   const roomConfigSignature = useMemo(() => JSON.stringify(buildRoomConfig()), [buildRoomConfig]);
   const roomDirty = Boolean(room && savedConfigSignature && roomConfigSignature !== savedConfigSignature);
+  const selectedPlatformConnections = platformConnections.filter((connection) => (
+    selectedPlatformConnectionIds.includes(connection.id)
+  ));
+  const platformPreflightChecks = [
+    { label: '直播间配置已保存', passed: Boolean(room && !roomDirty && !roomSaving) },
+    { label: '已选择至少一个推流目标', passed: selectedPlatformConnectionIds.length > 0 },
+    {
+      label: '所选目标已启用且连接测试通过',
+      passed: selectedPlatformConnectionIds.length > 0
+        && selectedPlatformConnections.length === selectedPlatformConnectionIds.length
+        && selectedPlatformConnections.every((connection) => connection.status === 'enabled' && connection.testStatus === 'passed'),
+    },
+    { label: '输出协议为 RTMP / H.264', passed: outputConfig.protocol === 'RTMP' && outputConfig.codec === 'H.264' },
+  ];
+  const platformPreflightReady = platformPreflightChecks.every((check) => check.passed);
+  const rtmpFormBusy = platformActionId !== null;
 
   const applyRoom = useCallback((loadedRoom: LiveRoom) => {
     const config = loadedRoom.config;
@@ -554,6 +610,7 @@ export function LiveStudio({
     setLiveOptions(config.liveOptions);
     setOutputConfig(config.outputConfig);
     setSelectedPlatforms(config.selectedPlatforms);
+    setSelectedPlatformConnectionIds(config.selectedPlatformConnectionIds ?? []);
     setAssets(config.assets);
     setRoom(loadedRoom);
     setRenameRoomName(loadedRoom.name);
@@ -743,8 +800,131 @@ export function LiveStudio({
     detectEnvironment();
   }, [autoDetectEnvironment, dialog, entered, settingsTab]);
 
-  const togglePlatform = (platform: string) => {
-    setSelectedPlatforms((items) => items.includes(platform) ? items.filter((item) => item !== platform) : [...items, platform]);
+  const loadPlatformConnectionOptions = useCallback(async () => {
+    setPlatformConnectionsLoading(true);
+    setPlatformError('');
+    try {
+      const connections = await listPlatformConnections();
+      setPlatformConnections(connections);
+    } catch (caught) {
+      setPlatformError(caught instanceof Error ? caught.message : '平台连接加载失败');
+    } finally {
+      setPlatformConnectionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (dialog !== 'livePlatform') return;
+    void loadPlatformConnectionOptions();
+  }, [dialog, loadPlatformConnectionOptions]);
+
+  const openNewRtmpConnection = () => {
+    setEditingPlatformConnectionId(null);
+    setRtmpDraft(EMPTY_RTMP_DRAFT);
+    setStreamKeyVisible(false);
+    setPlatformError('');
+    setRtmpFormOpen(true);
+  };
+
+  const editRtmpConnection = (connection: PlatformConnection) => {
+    setEditingPlatformConnectionId(connection.id);
+    setRtmpDraft({
+      name: connection.name,
+      platformLabel: connection.platformLabel,
+      serverUrl: connection.serverUrl,
+      streamKey: '',
+      status: connection.status,
+    });
+    setStreamKeyVisible(false);
+    setPlatformError('');
+    setRtmpFormOpen(true);
+  };
+
+  const saveRtmpConnection = async (event: FormEvent) => {
+    event.preventDefault();
+    const editing = platformConnections.find((item) => item.id === editingPlatformConnectionId);
+    if (!rtmpDraft.name.trim() || !rtmpDraft.platformLabel.trim() || !rtmpDraft.serverUrl.trim()) return;
+    if (!editing && !rtmpDraft.streamKey.trim()) {
+      setPlatformError('新建连接时必须填写推流密钥');
+      return;
+    }
+    const actionId = editing?.id ?? 'new';
+    setPlatformActionId(actionId);
+    setPlatformError('');
+    try {
+      const saved = editing
+        ? await updatePlatformConnection(editing, {
+            name: rtmpDraft.name.trim(),
+            platformLabel: rtmpDraft.platformLabel.trim(),
+            serverUrl: rtmpDraft.serverUrl.trim(),
+            streamKey: rtmpDraft.streamKey.trim() || undefined,
+            status: rtmpDraft.status,
+          })
+        : await createPlatformConnection({
+            name: rtmpDraft.name.trim(),
+            platformLabel: rtmpDraft.platformLabel.trim(),
+            serverUrl: rtmpDraft.serverUrl.trim(),
+            streamKey: rtmpDraft.streamKey.trim(),
+          });
+      setPlatformConnections((items) => items.some((item) => item.id === saved.id)
+        ? items.map((item) => item.id === saved.id ? saved : item)
+        : [...items, saved]);
+      if (saved.status === 'disabled') {
+        setSelectedPlatformConnectionIds((items) => items.filter((id) => id !== saved.id));
+      }
+      setRtmpFormOpen(false);
+      setEditingPlatformConnectionId(null);
+      setRtmpDraft(EMPTY_RTMP_DRAFT);
+      setNotice(`推流目标“${saved.name}”已安全保存`);
+    } catch (caught) {
+      setPlatformError(caught instanceof Error ? caught.message : '推流目标保存失败');
+    } finally {
+      setPlatformActionId(null);
+    }
+  };
+
+  const runPlatformConnectionTest = async (connection: PlatformConnection) => {
+    setPlatformActionId(connection.id);
+    setPlatformError('');
+    try {
+      const tested = await testPlatformConnection(connection);
+      setPlatformConnections((items) => items.map((item) => item.id === tested.id ? tested : item));
+      setNotice(tested.testStatus === 'passed' ? `“${tested.name}”服务器可达` : `“${tested.name}”连接测试失败`);
+    } catch (caught) {
+      setPlatformError(caught instanceof Error ? caught.message : '连接测试失败');
+    } finally {
+      setPlatformActionId(null);
+    }
+  };
+
+  const togglePlatformConnectionStatus = async (connection: PlatformConnection) => {
+    setPlatformActionId(connection.id);
+    setPlatformError('');
+    const nextStatus = connection.status === 'enabled' ? 'disabled' : 'enabled';
+    try {
+      const updated = await updatePlatformConnection(connection, {
+        name: connection.name,
+        platformLabel: connection.platformLabel,
+        serverUrl: connection.serverUrl,
+        status: nextStatus,
+      });
+      setPlatformConnections((items) => items.map((item) => item.id === updated.id ? updated : item));
+      if (nextStatus === 'disabled') {
+        setSelectedPlatformConnectionIds((items) => items.filter((id) => id !== updated.id));
+      }
+      setNotice(`“${updated.name}”已${nextStatus === 'enabled' ? '启用' : '停用'}`);
+    } catch (caught) {
+      setPlatformError(caught instanceof Error ? caught.message : '状态更新失败');
+    } finally {
+      setPlatformActionId(null);
+    }
+  };
+
+  const togglePlatformConnectionSelection = (connection: PlatformConnection) => {
+    if (connection.status !== 'enabled') return;
+    setSelectedPlatformConnectionIds((items) => items.includes(connection.id)
+      ? items.filter((id) => id !== connection.id)
+      : [...items, connection.id]);
   };
 
   const addQa = (event: FormEvent) => {
@@ -897,12 +1077,10 @@ export function LiveStudio({
     setScripts((items) => items.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
   };
 
-  const startLive = (platforms: string[]) => {
-    if (!platforms.length || !termsAccepted) return;
-    setOnAir(true);
-    setStartedAt(Date.now());
+  const completeLivePreflight = () => {
+    if (!platformPreflightReady || !termsAccepted) return;
     setDialog(null);
-    setNotice(`已进入 ${platforms.join('、')} 多平台开播演示，正式连接器待授权接入`);
+    setNotice(`已完成 ${selectedPlatformConnections.length} 个 RTMP 目标的开播前检查；媒体转推将在下一阶段接入`);
   };
 
   const saveLiveRoom = async () => {
@@ -1710,13 +1888,65 @@ export function LiveStudio({
       </div>}
 
       {dialog === 'livePlatform' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
-        <section className="xlModal xlLivePlatformModal" role="dialog" aria-modal="true" aria-label="多平台直播" onMouseDown={(event) => event.stopPropagation()}>
-          <header><strong>多平台直播</strong><button type="button" aria-label="关闭直播平台选择" onClick={() => setDialog(null)}><X size={17} /></button></header>
-          <div className="xlPlatformNotice">本页用于完成多平台目标编排；各平台连接器仍需正式账号授权后接入。</div>
-          <div className="xlPlatformSummary"><span><Radio size={15} /><strong>源流</strong>{outputConfig.protocol} · {outputConfig.resolution}</span><span><i />已选 {selectedPlatforms.length} 个目标</span></div>
-          <div className="xlPlatformGrid">{PLATFORMS.map((platform) => <button className={selectedPlatforms.includes(platform.name) ? 'selected' : ''} type="button" key={platform.name} disabled={platform.status === '系统维护'} onClick={() => togglePlatform(platform.name)}><span className="xlPlatformLogo" style={{ backgroundColor: platform.color }}><img src={platform.logo} alt="" /></span><strong>{platform.name}</strong>{platform.status ? <em>{platform.status}</em> : <em className="ready">待授权</em>}{selectedPlatforms.includes(platform.name) && <i><Check size={12} /></i>}</button>)}</div>
-          <label className="xlPlatformTerms"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>已确认所选平台账号授权及直播规范</span></label>
-          <footer><button type="button" onClick={() => setDialog(null)}>取消</button><button type="button" disabled={!selectedPlatforms.length || !termsAccepted} onClick={() => startLive(selectedPlatforms)}>进入开播演示</button></footer>
+        <section className="xlModal xlLivePlatformModal" role="dialog" aria-modal="true" aria-label="平台授权中心" onMouseDown={(event) => event.stopPropagation()}>
+          <header><span><Link2 size={17} /><strong>平台授权中心</strong></span><button type="button" aria-label="关闭平台授权中心" onClick={() => setDialog(null)}><X size={17} /></button></header>
+          <div className="xlPlatformCenterBody">
+            <div className="xlPlatformNotice"><ShieldCheck size={16} /><span><strong>通用 RTMP 已接入真实安全存储</strong><small>推流密钥使用服务端 AES-GCM 加密且不会返回浏览器；连接测试只代表服务器可达，不等于平台账号或互动权限已授权。</small></span></div>
+            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出预设</strong>{outputConfig.protocol} · {outputConfig.resolution} · {outputConfig.frameRate} · {outputConfig.codec}</span><span><i />已选 {selectedPlatformConnectionIds.length} 个目标</span></div>
+
+            <div className="xlPlatformCenterGrid">
+              <section className="xlRtmpConnections">
+                <header><span><strong>推流目标</strong><small>从平台直播后台获取合法地址和密钥</small></span><button type="button" onClick={openNewRtmpConnection}><Plus size={14} />新增 RTMP</button></header>
+                {platformConnectionsLoading && <div className="xlPlatformLoading"><LoaderCircle className="xlVoiceSpinner" size={17} />正在读取平台连接…</div>}
+                {!platformConnectionsLoading && !platformConnections.length && <div className="xlPlatformEmpty"><KeyRound size={25} /><strong>还没有推流目标</strong><span>新增后密钥只会加密保存在服务端。</span><button type="button" onClick={openNewRtmpConnection}><Plus size={13} />添加第一个目标</button></div>}
+                <div className="xlRtmpConnectionList">{platformConnections.map((connection) => {
+                  const selected = selectedPlatformConnectionIds.includes(connection.id);
+                  const busy = platformActionId === connection.id;
+                  return <article className={`${selected ? 'selected' : ''} ${connection.status === 'disabled' ? 'disabled' : ''}`} key={connection.id}>
+                    <div className="xlRtmpConnectionMain">
+                      <span className="xlRtmpConnectionIcon"><Radio size={16} /></span>
+                      <span><strong>{connection.name}</strong><small>{connection.platformLabel} · 密钥 ••••{connection.streamKeyLast4}</small></span>
+                      <em className={`xlConnectionStatus ${connection.testStatus}`}>{connection.status === 'disabled' ? '已停用' : connection.testStatus === 'passed' ? '服务器可达' : connection.testStatus === 'failed' ? '测试失败' : '待测试'}</em>
+                    </div>
+                    <p title={connection.serverUrl}>{connection.serverUrl}</p>
+                    {connection.testMessage && <div className={`xlConnectionMessage ${connection.testStatus}`}>{connection.testMessage}</div>}
+                    <div className="xlRtmpConnectionActions">
+                      <button className={selected ? 'selected' : ''} type="button" disabled={connection.status === 'disabled' || busy} onClick={() => togglePlatformConnectionSelection(connection)}>{selected ? <Check size={12} /> : <Plus size={12} />}{selected ? '已选用于开播' : '选择用于开播'}</button>
+                      <button type="button" disabled={connection.status === 'disabled' || busy} onClick={() => void runPlatformConnectionTest(connection)}>{busy ? <LoaderCircle className="xlVoiceSpinner" size={12} /> : <Wifi size={12} />}测试</button>
+                      <button type="button" disabled={busy} onClick={() => editRtmpConnection(connection)}><Pencil size={12} />编辑</button>
+                      <button type="button" disabled={busy} onClick={() => void togglePlatformConnectionStatus(connection)}>{connection.status === 'enabled' ? '停用' : '启用'}</button>
+                    </div>
+                  </article>;
+                })}</div>
+
+                {rtmpFormOpen && <form className="xlRtmpForm" onSubmit={saveRtmpConnection}>
+                  <header><span><strong>{editingPlatformConnectionId ? '编辑 RTMP 目标' : '新增 RTMP 目标'}</strong><small>地址和密钥必须分开填写，避免密钥出现在普通 URL 字段或日志中。</small></span><button type="button" aria-label="关闭 RTMP 表单" onClick={() => { setRtmpFormOpen(false); setPlatformError(''); }}><X size={14} /></button></header>
+                  <div className="xlRtmpFormGrid">
+                    <label><span>连接名称</span><input value={rtmpDraft.name} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, name: event.target.value }))} placeholder="例如：抖音新品专场" maxLength={120} /></label>
+                    <label><span>平台备注</span><input value={rtmpDraft.platformLabel} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, platformLabel: event.target.value }))} placeholder="例如：抖音" maxLength={80} /></label>
+                    <label className="wide"><span>RTMP 服务器地址</span><input value={rtmpDraft.serverUrl} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, serverUrl: event.target.value }))} placeholder="rtmps://push.example.com/live" maxLength={500} /></label>
+                    <label className="wide"><span>推流密钥{editingPlatformConnectionId && <small>留空表示保留原密钥</small>}</span><div className="xlSecretInput"><input type={streamKeyVisible ? 'text' : 'password'} value={rtmpDraft.streamKey} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, streamKey: event.target.value }))} placeholder={editingPlatformConnectionId ? '不修改请留空' : '从平台直播后台复制'} maxLength={1000} autoComplete="new-password" /><button type="button" aria-label={streamKeyVisible ? '隐藏推流密钥' : '显示推流密钥'} onClick={() => setStreamKeyVisible((value) => !value)}>{streamKeyVisible ? <EyeOff size={14} /> : <Eye size={14} />}</button></div></label>
+                  </div>
+                  <footer><span>保存后浏览器只能看到密钥末四位。</span><div><button type="button" onClick={() => setRtmpFormOpen(false)}>取消</button><button type="submit" disabled={rtmpFormBusy}>{rtmpFormBusy ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <Save size={13} />}{rtmpFormBusy ? '保存中' : '安全保存'}</button></div></footer>
+                </form>}
+                {platformError && <div className="xlPlatformError">{platformError}</div>}
+              </section>
+
+              <aside className="xlPlatformPreflight">
+                <section>
+                  <header><strong>开播前检查</strong><span>{platformPreflightChecks.filter((item) => item.passed).length}/{platformPreflightChecks.length}</span></header>
+                  <div>{platformPreflightChecks.map((check) => <p className={check.passed ? 'passed' : ''} key={check.label}><i>{check.passed ? <Check size={11} /> : '!'}</i><span>{check.label}</span></p>)}</div>
+                  {roomDirty && <button type="button" onClick={() => void saveLiveRoom()}><Save size={12} />保存直播间配置</button>}
+                </section>
+                <section className="xlOfficialPlatforms">
+                  <header><strong>官方账号授权</strong><span>下一阶段</span></header>
+                  <p>OAuth、评论互动、商品和订单属于独立权限，需平台企业应用审核通过后逐项接入。</p>
+                  <div>{PLATFORMS.map((platform) => <span key={platform.name}><i style={{ backgroundColor: platform.color }}><img src={platform.logo} alt="" /></i><strong>{platform.name}</strong><em>待申请</em></span>)}</div>
+                </section>
+              </aside>
+            </div>
+          </div>
+          <footer className="xlPlatformCenterFooter"><label className="xlPlatformTerms"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>我已确认推流地址来源合法，并了解“服务器可达”不代表平台已授权</span></label><div><button type="button" onClick={() => setDialog(null)}>关闭</button><button type="button" disabled={!platformPreflightReady || !termsAccepted} onClick={completeLivePreflight}><ShieldCheck size={14} />完成开播预检</button></div></footer>
         </section>
       </div>}
 

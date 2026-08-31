@@ -127,6 +127,7 @@ class LiveRoomConfig(CamelModel):
     live_options: LiveRoomOptions
     output_config: LiveRoomOutputConfig
     selected_platforms: list[str] = Field(default_factory=list, max_length=50)
+    selected_platform_connection_ids: list[str] = Field(default_factory=list, max_length=50)
     assets: LiveRoomAssets = Field(default_factory=LiveRoomAssets)
 
 
