@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api.v1 import health, live, llm, tts
+from .api.v1 import health, live, live_rooms, llm, tts
 from .core.config import settings
 from .core.logging import setup_logging
 
@@ -37,6 +37,7 @@ app.include_router(health.router)
 app.include_router(tts.router, prefix=settings.api_prefix)
 app.include_router(llm.router, prefix=settings.api_prefix)
 app.include_router(live.router, prefix=settings.api_prefix)
+app.include_router(live_rooms.router, prefix=settings.api_prefix)
 
 
 @app.get("/")

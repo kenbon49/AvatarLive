@@ -9,6 +9,7 @@ import {
   CheckSquare,
   ChevronDown,
   CircleStop,
+  Copy,
   Cpu,
   Database,
   FileSpreadsheet,
@@ -23,6 +24,7 @@ import {
   MessageCircleQuestion,
   Play,
   Plus,
+  Pencil,
   Radio,
   Save,
   Search,
@@ -41,6 +43,15 @@ import {
 } from 'lucide-react';
 import { MuseTalkAvatarProfile, MuseTalkTotalStream } from '@/lib/musetalk-total-stream';
 import { ProductShell } from '@/components/product-shell';
+import {
+  copyLiveRoom,
+  createLiveRoom,
+  listLiveRooms,
+  publishLiveRoom,
+  updateLiveRoom,
+  type LiveRoom,
+  type LiveRoomConfig,
+} from '@/lib/live-room-api';
 
 const AVATARS = [
   { id: 'chinese', name: '中文女', role: '智能接待顾问', image: '/assets/musetalk-avatars/chinese.jpg', type: '真人', gender: '女', age: '青年' },
@@ -236,6 +247,12 @@ const FONT_FAMILIES: Record<string, string> = {
 const roundCanvasValue = (value: number) => Math.round(value * 10) / 10;
 const clampCanvasValue = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
 
+const formatSavedAt = (value: string) => new Date(value).toLocaleTimeString('zh-CN', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
 const createTemplateLayers = (templateId: string, avatarName: string): LayerItem[] => {
   const template = LIVE_TEMPLATES.find((item) => item.id === templateId) ?? LIVE_TEMPLATES[3];
   return [
@@ -247,7 +264,7 @@ const createTemplateLayers = (templateId: string, avatarName: string): LayerItem
   ];
 };
 
-const INITIAL_LAYERS = createTemplateLayers('food', '林汐');
+const INITIAL_LAYERS = createTemplateLayers('food', '中文女');
 
 const SQUARE_ASSETS: Record<'image' | 'video', AssetItem[]> = {
   image: [
@@ -308,6 +325,23 @@ const VOICES: VoiceOption[] = [
   { id: 'sweet-girl', name: '甜美灵动女声', gender: '女性', age: '18-24岁', tone: '元气活力', image: '/assets/digital-humans/avery-transparent.png', scope: 'mine', providerName: 'Fish Audio', referenceId: '510d7514d3f945e3a645706f50d84e8d', previewAudio: '/assets/voice-samples/fish-audio/sweet-female.mp3' },
 ];
 
+const createDefaultRoomConfig = (): LiveRoomConfig => ({
+  schemaVersion: 1,
+  avatarId: 'chinese',
+  voice: { voiceId: 'professional', speed: 1.1, pitch: 3 },
+  playbackMode: 'sequence',
+  goods: [{ id: 1, name: '未命名商品', source: '自建商品' }],
+  activeGoodsId: 1,
+  scripts: INITIAL_SCRIPTS.map((item) => ({ ...item, state: 'ready' })),
+  qaItems: [],
+  selectedTemplateId: 'food',
+  layers: createTemplateLayers('food', '中文女'),
+  liveOptions: { qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid' },
+  outputConfig: { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' },
+  selectedPlatforms: ['美团'],
+  assets: { image: [], video: [] },
+});
+
 export function LiveStudio({
   autoDetectEnvironment = false,
   dialog: initialDialog = null,
@@ -327,7 +361,23 @@ export function LiveStudio({
   const [onAir, setOnAir] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [savedAt, setSavedAt] = useState('10:40');
+  const [room, setRoom] = useState<LiveRoom | null>(null);
+  const [roomLoading, setRoomLoading] = useState(false);
+  const [roomSaving, setRoomSaving] = useState(false);
+  const [roomError, setRoomError] = useState('');
+  const [savedAt, setSavedAt] = useState('');
+  const [rooms, setRooms] = useState<LiveRoom[]>([]);
+  const [roomMenuOpen, setRoomMenuOpen] = useState(false);
+  const [roomActionBusy, setRoomActionBusy] = useState(false);
+  const [newRoomName, setNewRoomName] = useState('');
+  const [landingCreateOpen, setLandingCreateOpen] = useState(false);
+  const [landingRoomName, setLandingRoomName] = useState('');
+  const [landingRoomCreating, setLandingRoomCreating] = useState(false);
+  const [landingRoomError, setLandingRoomError] = useState('');
+  const [renameRoomName, setRenameRoomName] = useState('');
+  const [editingRoomName, setEditingRoomName] = useState(false);
+  const [savedConfigSignature, setSavedConfigSignature] = useState('');
+  const roomInitializationRef = useRef(false);
   const [dialog, setDialog] = useState<DialogName>(initialEntered ? initialDialog : null);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('script');
   const [materialTab, setMaterialTab] = useState<(typeof MATERIAL_TABS)[number]['id']>('template');
@@ -393,7 +443,7 @@ export function LiveStudio({
   const [qaAnswer, setQaAnswer] = useState('手冲、浓缩和冰咖啡都适合，可以按照日常口味调整研磨度。');
   const [showQaComposer, setShowQaComposer] = useState(false);
   const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>(initialSettingsTab);
-  const [liveOptions, setLiveOptions] = useState({ qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid' });
+  const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid' });
   const [outputConfig, setOutputConfig] = useState<OutputConfig>(initialOutputConfig ?? { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' });
   const [environmentCheckedAt, setEnvironmentCheckedAt] = useState('尚未检测');
   const [environmentInfo, setEnvironmentInfo] = useState({ browser: '待检测', cpu: '待检测', gpu: '待检测' });
@@ -442,6 +492,101 @@ export function LiveStudio({
   const currentAssets = materialTab === 'image' || materialTab === 'video'
     ? (assetScope === 'mine' ? assets[materialTab] : SQUARE_ASSETS[materialTab]).filter((item) => item.name.includes(assetQuery.trim()))
     : [];
+
+  const buildRoomConfig = useCallback((): LiveRoomConfig => ({
+    schemaVersion: 1,
+    avatarId,
+    voice: {
+      voiceId: selectedVoiceId,
+      speed: voiceSpeed,
+      pitch: voicePitch,
+    },
+    playbackMode,
+    goods,
+    activeGoodsId,
+    scripts: scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item),
+    qaItems,
+    selectedTemplateId,
+    layers,
+    liveOptions,
+    outputConfig,
+    selectedPlatforms,
+    assets,
+  }), [
+    activeGoodsId,
+    assets,
+    avatarId,
+    goods,
+    layers,
+    liveOptions,
+    outputConfig,
+    playbackMode,
+    qaItems,
+    scripts,
+    selectedPlatforms,
+    selectedTemplateId,
+    selectedVoiceId,
+    voicePitch,
+    voiceSpeed,
+  ]);
+
+  const roomConfigSignature = useMemo(() => JSON.stringify(buildRoomConfig()), [buildRoomConfig]);
+  const roomDirty = Boolean(room && savedConfigSignature && roomConfigSignature !== savedConfigSignature);
+
+  const applyRoom = useCallback((loadedRoom: LiveRoom) => {
+    const config = loadedRoom.config;
+    if (AVATARS.some((item) => item.id === config.avatarId)) {
+      setAvatarId(config.avatarId as MuseTalkAvatarProfile);
+    }
+    setSelectedVoiceId(config.voice.voiceId);
+    setPendingVoiceId(config.voice.voiceId);
+    setVoiceSpeed(config.voice.speed);
+    setVoicePitch(config.voice.pitch);
+    setPendingVoiceSpeed(config.voice.speed);
+    setPendingVoicePitch(config.voice.pitch);
+    setPlaybackMode(config.playbackMode);
+    setGoods(config.goods);
+    setActiveGoodsId(config.goods.some((item) => item.id === config.activeGoodsId) ? config.activeGoodsId : config.goods[0].id);
+    setScripts(config.scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
+    setQaItems(config.qaItems);
+    setSelectedTemplateId(config.selectedTemplateId);
+    setLayers(config.layers);
+    setLiveOptions(config.liveOptions);
+    setOutputConfig(config.outputConfig);
+    setSelectedPlatforms(config.selectedPlatforms);
+    setAssets(config.assets);
+    setRoom(loadedRoom);
+    setRenameRoomName(loadedRoom.name);
+    setSavedAt(formatSavedAt(loadedRoom.updatedAt));
+    setSavedConfigSignature(JSON.stringify(config));
+    setRoomError('');
+  }, []);
+
+  useEffect(() => {
+    if (!entered || room || roomInitializationRef.current) return;
+    roomInitializationRef.current = true;
+    setRoomLoading(true);
+    setRoomError('');
+    const initializeRoom = async () => {
+      try {
+        const existingRooms = await listLiveRooms();
+        const loadedRoom = existingRooms[0] ?? await createLiveRoom(
+          `直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+          buildRoomConfig(),
+        );
+        setRooms(existingRooms.length ? existingRooms : [loadedRoom]);
+        applyRoom(loadedRoom);
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : '未知错误';
+        setRoomError(message);
+        setNotice(`直播间配置加载失败：${message}`);
+        roomInitializationRef.current = false;
+      } finally {
+        setRoomLoading(false);
+      }
+    };
+    void initializeRoom();
+  }, [applyRoom, buildRoomConfig, entered, room]);
 
   useEffect(() => {
     if (!entered || workspaceMode !== 'script' || !canvasRef.current) return;
@@ -760,9 +905,192 @@ export function LiveStudio({
     setNotice(`已进入 ${platforms.join('、')} 多平台开播演示，正式连接器待授权接入`);
   };
 
+  const saveLiveRoom = async () => {
+    if (roomSaving || roomLoading) return;
+    setRoomSaving(true);
+    setRoomError('');
+    try {
+      const config = buildRoomConfig();
+      let activeRoom = room;
+      if (!activeRoom) {
+        const existingRooms = await listLiveRooms(1);
+        activeRoom = existingRooms[0] ?? null;
+      }
+      const savedRoom = activeRoom
+        ? await updateLiveRoom(activeRoom, config)
+        : await createLiveRoom(
+            `直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+            config,
+          );
+      setRoom(savedRoom);
+      setRooms((items) => items.some((item) => item.id === savedRoom.id)
+        ? items.map((item) => item.id === savedRoom.id ? savedRoom : item)
+        : [...items, savedRoom]);
+      setRenameRoomName(savedRoom.name);
+      setSavedConfigSignature(JSON.stringify(savedRoom.config));
+      setSavedAt(formatSavedAt(savedRoom.updatedAt));
+      roomInitializationRef.current = true;
+      setNotice(`直播间配置已保存（版本 ${savedRoom.version}）`);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '未知错误';
+      setRoomError(message);
+      setNotice(`直播间保存失败：${message}`);
+    } finally {
+      setRoomSaving(false);
+    }
+  };
+
+  const selectLiveRoom = (nextRoom: LiveRoom) => {
+    if (nextRoom.id === room?.id) {
+      setRoomMenuOpen(false);
+      return;
+    }
+    if (onAir) {
+      setNotice('直播进行中不能切换直播间，请先结束直播');
+      return;
+    }
+    if (roomSaving || roomDirty) {
+      setNotice('当前直播间有未保存修改，请保存后再切换');
+      return;
+    }
+    stopVoicePreview();
+    applyRoom(nextRoom);
+    setRoomMenuOpen(false);
+    setEditingRoomName(false);
+    setNotice(`已切换到“${nextRoom.name}”`);
+  };
+
+  const createNewLiveRoom = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = newRoomName.trim();
+    if (!name || roomActionBusy || roomSaving || roomLoading) return;
+    if (onAir) {
+      setNotice('直播进行中不能新建并切换直播间');
+      return;
+    }
+    if (roomDirty) {
+      setNotice('当前直播间有未保存修改，请保存后再新建');
+      return;
+    }
+    setRoomActionBusy(true);
+    try {
+      const createdRoom = await createLiveRoom(name, createDefaultRoomConfig());
+      setRooms((items) => [...items, createdRoom]);
+      applyRoom(createdRoom);
+      setNewRoomName('');
+      setRoomMenuOpen(false);
+      setNotice(`已创建直播间“${createdRoom.name}”`);
+    } catch (caught) {
+      setNotice(`新建直播间失败：${caught instanceof Error ? caught.message : '未知错误'}`);
+    } finally {
+      setRoomActionBusy(false);
+    }
+  };
+
+  const createLandingLiveRoom = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = landingRoomName.trim();
+    if (!name || landingRoomCreating) return;
+    setLandingRoomCreating(true);
+    setLandingRoomError('');
+    try {
+      const createdRoom = await createLiveRoom(name, createDefaultRoomConfig());
+      let existingRooms: LiveRoom[] = [];
+      try {
+        existingRooms = await listLiveRooms();
+      } catch {
+        // The newly created room is still usable when refreshing the list fails.
+      }
+      setRooms([...existingRooms.filter((item) => item.id !== createdRoom.id), createdRoom]);
+      applyRoom(createdRoom);
+      roomInitializationRef.current = true;
+      setLandingCreateOpen(false);
+      setLandingRoomName('');
+      setEntered(true);
+      setNotice(`已创建直播间“${createdRoom.name}”`);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '未知错误';
+      setLandingRoomError(message);
+    } finally {
+      setLandingRoomCreating(false);
+    }
+  };
+
+  const copyCurrentLiveRoom = async () => {
+    if (!room || roomActionBusy || roomSaving || roomLoading) return;
+    if (onAir) {
+      setNotice('直播进行中不能复制并切换直播间');
+      return;
+    }
+    if (roomDirty) {
+      setNotice('当前直播间有未保存修改，请保存后再复制');
+      return;
+    }
+    setRoomActionBusy(true);
+    try {
+      const copiedRoom = await copyLiveRoom(room);
+      setRooms((items) => [...items, copiedRoom]);
+      applyRoom(copiedRoom);
+      setRoomMenuOpen(false);
+      setNotice(`已复制为“${copiedRoom.name}”`);
+    } catch (caught) {
+      setNotice(`复制直播间失败：${caught instanceof Error ? caught.message : '未知错误'}`);
+    } finally {
+      setRoomActionBusy(false);
+    }
+  };
+
+  const renameCurrentLiveRoom = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!room || roomActionBusy || roomSaving || roomLoading) return;
+    if (onAir) {
+      setNotice('直播进行中不能重命名直播间');
+      return;
+    }
+    const name = renameRoomName.trim();
+    if (!name) {
+      setNotice('直播间名称不能为空');
+      return;
+    }
+    setRoomActionBusy(true);
+    try {
+      const renamedRoom = await updateLiveRoom(room, buildRoomConfig(), name);
+      setRooms((items) => items.map((item) => item.id === renamedRoom.id ? renamedRoom : item));
+      applyRoom(renamedRoom);
+      setEditingRoomName(false);
+      setNotice(`直播间已重命名为“${renamedRoom.name}”`);
+    } catch (caught) {
+      setNotice(`重命名失败：${caught instanceof Error ? caught.message : '未知错误'}`);
+    } finally {
+      setRoomActionBusy(false);
+    }
+  };
+
+  const publishCurrentLiveRoom = async () => {
+    if (!room || roomActionBusy || roomSaving || roomLoading) return;
+    if (onAir) {
+      setNotice('直播进行中不能发布配置');
+      return;
+    }
+    if (roomDirty) {
+      setNotice('请先保存当前修改，再发布直播间');
+      return;
+    }
+    setRoomActionBusy(true);
+    try {
+      const publishedRoom = await publishLiveRoom(room);
+      setRooms((items) => items.map((item) => item.id === publishedRoom.id ? publishedRoom : item));
+      applyRoom(publishedRoom);
+      setRoomMenuOpen(false);
+      setNotice(`“${publishedRoom.name}”已发布（版本 ${publishedRoom.version}）`);
+    } catch (caught) {
+      setNotice(`发布失败：${caught instanceof Error ? caught.message : '未知错误'}`);
+    } finally {
+      setRoomActionBusy(false);
+    }
+  };
+
   const saveToLibrary = () => {
-    const now = new Date();
-    setSavedAt(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
     setNotice(`已将 ${scripts.length} 条话术保存到脚本库`);
   };
 
@@ -1052,9 +1380,17 @@ export function LiveStudio({
             <h1>欢迎体验数字人直播间</h1>
             <p>选择数字人主播、编排直播话术并配置推流目标，在原有工作台中完成直播准备与实时驱动预览。</p>
             <div className="liveLandingActions">
-              <button className="primaryAction" type="button" onClick={() => setEntered(true)}><Sparkles size={17} />进入直播控制台</button>
-              <button className="secondaryAction" type="button" onClick={() => setEntered(true)}><FileText size={17} />创建直播任务<ArrowRight size={16} /></button>
+              <button className="primaryAction" type="button" onClick={() => { setLandingCreateOpen(false); setEntered(true); }}><Sparkles size={17} />进入直播控制台</button>
+              <button className="secondaryAction" type="button" onClick={() => { setLandingCreateOpen(true); setLandingRoomError(''); }}><FileText size={17} />新建直播间<ArrowRight size={16} /></button>
             </div>
+            {landingCreateOpen && <form className="liveLandingCreate" onSubmit={createLandingLiveRoom}>
+              <div className="liveLandingCreateCopy"><strong>新建直播间</strong><span>输入名称后立即进入控制台配置</span></div>
+              <div className="liveLandingCreateFields">
+                <input value={landingRoomName} onChange={(event) => setLandingRoomName(event.target.value)} placeholder="例如：秋季新品专场" maxLength={120} aria-label="新直播间名称" autoFocus />
+                <button type="submit" disabled={!landingRoomName.trim() || landingRoomCreating}>{landingRoomCreating ? <LoaderCircle className="landingSpinner" size={15} /> : <Plus size={15} />}{landingRoomCreating ? '正在创建' : '创建并进入'}</button>
+              </div>
+              {landingRoomError && <p className="liveLandingCreateError">{landingRoomError}</p>}
+            </form>}
             <div className="liveLandingMeta"><span><strong>{AVATARS.length}</strong> 个内置形象</span><i /><span><strong>实时</strong> 话术播报</span><i /><span><strong>RTMP</strong> 输出预设</span></div>
           </section>
 
@@ -1080,9 +1416,46 @@ export function LiveStudio({
       <header className="xlTopbar">
         <div className="xlTitleGroup">
           <button type="button" className="xlBack" onClick={() => { void stopLive(); setEntered(false); }} aria-label="返回直播首页"><ArrowLeft size={17} /></button>
-          <div><strong>直播间 08/07 10:39:35</strong><span>保存于{savedAt}</span></div>
+          <div className="xlRoomHeader">
+            <div className="xlRoomPickerAnchor">
+              <button
+                type="button"
+                className="xlRoomPicker"
+                aria-expanded={roomMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setRoomMenuOpen((value) => !value)}
+                title="点击切换直播间并管理房间"
+              >
+                <strong>{room?.name ?? '直播间控制台'}</strong><span className="xlRoomPickerHint">切换直播间</span><ChevronDown size={14} />
+              </button>
+              {roomMenuOpen && <div className="xlRoomMenu" role="menu" aria-label="直播间管理">
+                <header className="xlRoomMenuHeader"><div><strong>我的直播间</strong><span>{rooms.length} 个直播间</span></div><span className={roomDirty ? 'dirty' : ''}>{roomDirty ? '有未保存修改' : room?.status === 'published' ? '已发布版本' : '草稿'}</span></header>
+                <div className="xlRoomList">
+                  {rooms.map((item) => <button type="button" role="menuitem" className={`xlRoomOption ${item.id === room?.id ? 'active' : ''}`} key={item.id} onClick={() => selectLiveRoom(item)} disabled={roomActionBusy || roomLoading}>
+                    <span><strong>{item.name}</strong><small>版本 {item.version} · {item.status === 'published' ? '已发布' : '草稿'}</small></span>{item.id === room?.id && <Check size={14} />}
+                  </button>)}
+                  {!rooms.length && <div className="xlRoomEmpty">还没有直播间</div>}
+                </div>
+                <form className="xlRoomCreateForm" onSubmit={createNewLiveRoom}>
+                  <input value={newRoomName} onChange={(event) => setNewRoomName(event.target.value)} placeholder="输入名称新建直播间" maxLength={120} aria-label="新直播间名称" />
+                  <button type="submit" disabled={!newRoomName.trim() || roomActionBusy || roomLoading}><Plus size={14} />新建</button>
+                </form>
+                {room && <div className="xlRoomMenuActions">
+                  <button type="button" onClick={() => { setRenameRoomName(room.name); setEditingRoomName((value) => !value); }} disabled={roomActionBusy || roomSaving || roomLoading || onAir}><Pencil size={13} />重命名</button>
+                  <button type="button" onClick={() => void copyCurrentLiveRoom()} disabled={roomActionBusy || roomSaving || roomLoading || onAir}><Copy size={13} />复制</button>
+                  <button type="button" onClick={() => void publishCurrentLiveRoom()} disabled={roomActionBusy || roomSaving || roomLoading || onAir || roomDirty || room.status === 'published'}><Check size={13} />发布</button>
+                </div>}
+                {editingRoomName && room && <form className="xlRoomRenameForm" onSubmit={renameCurrentLiveRoom}>
+                  <input value={renameRoomName} onChange={(event) => setRenameRoomName(event.target.value)} maxLength={120} aria-label="直播间名称" autoFocus />
+                  <button type="submit" disabled={!renameRoomName.trim() || roomActionBusy}><Check size={14} /></button>
+                </form>}
+              </div>}
+            </div>
+            <span className="xlRoomSubline">{roomLoading ? '正在加载配置…' : roomError ? '配置尚未同步' : roomDirty ? '有未保存修改' : savedAt ? `保存于 ${savedAt}` : '尚未保存'}{room?.status === 'published' && !roomDirty && <em className="xlPublishedBadge">已发布</em>}</span>
+          </div>
         </div>
         <div className="xlTopActions">
+          <button type="button" className="xlDarkButton" disabled={roomLoading || roomSaving} onClick={() => void saveLiveRoom()}>{roomSaving || roomLoading ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : <Save size={15} />}{roomSaving ? '正在保存' : roomLoading ? '正在加载' : '保存直播间'}</button>
           <button type="button" className="xlDarkButton" onClick={() => setDialog('settings')}><Settings2 size={15} />直播设置</button>
           {onAir ? (
             <button className="xlLiveButton danger" type="button" onClick={() => void stopLive()}><CircleStop size={16} />结束演示 <span>{elapsed}</span></button>

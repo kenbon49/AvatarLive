@@ -262,6 +262,18 @@ img, video, canvas { display: block; }
 .liveLandingActions { display: flex; align-items: center; gap: 11px; }
 .secondaryAction { height: 42px; padding: 0 14px; border: 1px solid #dfe2ed; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; color: #343a51; background: rgba(255, 255, 255, .8); font-size: 11px; font-weight: 700; cursor: pointer; }
 .secondaryAction svg:last-child { color: #9298aa; }
+.liveLandingCreate { width: min(510px, 100%); margin-top: 16px; padding: 14px; border: 1px solid #dfe2ed; border-radius: 10px; background: rgba(255, 255, 255, .82); box-shadow: 0 10px 26px rgba(54, 64, 108, .08); animation: landingCreateIn .18s ease-out both; }
+@keyframes landingCreateIn { from { opacity: 0; transform: translateY(-5px); } }
+.liveLandingCreateCopy { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.liveLandingCreateCopy strong { color: #252b43; font-size: 12px; }
+.liveLandingCreateCopy span { color: #8a91a6; font-size: 10px; }
+.liveLandingCreateFields { margin-top: 10px; display: flex; gap: 8px; }
+.liveLandingCreateFields input { min-width: 0; flex: 1; height: 36px; padding: 0 10px; border: 1px solid #d9ddea; border-radius: 6px; outline: 0; color: #252b43; background: #fff; font: inherit; }
+.liveLandingCreateFields input:focus { border-color: #788cff; box-shadow: 0 0 0 3px rgba(102, 124, 255, .12); }
+.liveLandingCreateFields button { height: 36px; padding: 0 12px; border: 0; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: #fff; background: #4d64e8; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.liveLandingCreateFields button:disabled { opacity: .5; cursor: not-allowed; }
+.liveLandingCreateError { margin: 8px 0 0; color: #c34848; font-size: 10px; }
+.landingSpinner { animation: xlSpin .8s linear infinite; }
 .liveLandingMeta { margin-top: 35px; display: flex; align-items: center; gap: 12px; color: #9197a9; font-size: 9px; }
 .liveLandingMeta span { display: flex; align-items: baseline; gap: 4px; }
 .liveLandingMeta strong { color: #4f566d; font-size: 11px; }
@@ -320,6 +332,45 @@ img, video, canvas { display: block; }
 .xlTitleGroup > div { margin-left: 12px; display: flex; flex-direction: column; }
 .xlTitleGroup strong { color: #f7f7f9; font-size: 14px; line-height: 20px; font-weight: 500; }
 .xlTitleGroup span { color: var(--xl-muted); font-size: 12px; line-height: 20px; }
+.xlRoomHeader { min-width: 0; position: relative; }
+.xlRoomPickerAnchor { position: relative; }
+.xlRoomPicker { max-width: min(360px, 38vw); height: 24px; padding: 0 3px !important; display: inline-flex; align-items: center; gap: 5px; border-radius: 4px; color: #f7f7f9 !important; }
+.xlRoomPicker:hover { background: var(--xl-panel-raised) !important; }
+.xlRoomPicker > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xlTitleGroup .xlRoomPickerHint { color: var(--xl-accent); font-size: 10px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+.xlRoomPicker > svg { flex: 0 0 auto; color: var(--xl-muted); }
+.xlRoomSubline { display: flex; align-items: center; gap: 7px; }
+.xlPublishedBadge { padding: 1px 5px; border: 1px solid rgba(20, 204, 201, .35); border-radius: 3px; color: var(--xl-accent); font-size: 10px; font-style: normal; line-height: 15px; }
+.xlRoomMenu { width: 302px; padding: 8px; position: absolute; z-index: 80; left: -3px; top: calc(100% + 8px); border: 1px solid #3a3b3c; border-radius: 9px; color: #d8d8d8; background: #292a2b; box-shadow: 0 16px 38px rgba(0, 0, 0, .46); }
+.xlRoomMenuHeader { min-height: 36px; padding: 2px 5px 8px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid #3a3b3c; }
+.xlRoomMenuHeader > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.xlRoomMenuHeader strong { color: #f7f7f9; font-size: 12px; line-height: 18px; }
+.xlRoomMenuHeader span { color: var(--xl-muted); font-size: 10px; line-height: 16px; }
+.xlRoomMenuHeader > span { padding-top: 2px; white-space: nowrap; }
+.xlRoomMenuHeader > span.dirty { color: #f6b85f; }
+.xlRoomList { max-height: 196px; padding: 6px 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #505152 transparent; }
+.xlRoomOption { width: 100%; min-height: 44px; padding: 6px 8px !important; border-radius: 6px; display: flex !important; align-items: center; justify-content: space-between !important; gap: 8px; text-align: left; }
+.xlRoomOption:hover, .xlRoomOption.active { background: #3a3b3c !important; }
+.xlRoomOption.active { color: var(--xl-accent) !important; }
+.xlRoomOption > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.xlRoomOption strong { overflow: hidden; color: inherit; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.xlRoomOption small { color: var(--xl-muted); font-size: 10px; }
+.xlRoomOption > svg { flex: 0 0 auto; color: var(--xl-accent); }
+.xlRoomEmpty { padding: 16px 8px; color: var(--xl-muted); text-align: center; font-size: 11px; }
+.xlRoomCreateForm, .xlRoomRenameForm { display: flex; align-items: center; gap: 5px; }
+.xlRoomCreateForm { padding: 7px 0; border-top: 1px solid #3a3b3c; }
+.xlRoomCreateForm input, .xlRoomRenameForm input { min-width: 0; height: 30px; padding: 0 8px; border: 1px solid #48494a; border-radius: 5px; outline: 0; color: #f0f0f0; background: #1e1f1f; font: inherit; }
+.xlRoomCreateForm input { flex: 1; }
+.xlRoomCreateForm input:focus, .xlRoomRenameForm input:focus { border-color: rgba(20, 204, 201, .7); }
+.xlRoomCreateForm button, .xlRoomRenameForm button { height: 30px; padding: 0 8px !important; border-radius: 5px; display: inline-flex !important; align-items: center; justify-content: center !important; gap: 4px; color: var(--xl-accent) !important; background: #1b3435 !important; font-size: 10px; white-space: nowrap; }
+.xlRoomCreateForm button:disabled, .xlRoomRenameForm button:disabled { opacity: .38; }
+.xlRoomMenuActions { padding: 7px 0 2px; border-top: 1px solid #3a3b3c; display: flex; gap: 4px; }
+.xlRoomMenuActions button { flex: 1; height: 29px; padding: 0 5px !important; border-radius: 5px; display: inline-flex !important; align-items: center; justify-content: center !important; gap: 4px; color: #c4c4c4 !important; font-size: 10px; }
+.xlRoomMenuActions button:hover { color: white !important; background: #3a3b3c !important; }
+.xlRoomMenuActions button:disabled { opacity: .38; }
+.xlRoomRenameForm { padding-top: 6px; }
+.xlRoomRenameForm input { flex: 1; }
+.xlRoomRenameForm button { width: 30px; padding: 0 !important; }
 .xlTopActions { min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .xlDarkButton, .xlLiveButton { height: 32px; padding: 0 12px !important; border-radius: 6px !important; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; font-weight: 500; }
 .xlDarkButton { background: #3d3d3d !important; }
@@ -860,11 +911,14 @@ img, video, canvas { display: block; }
   .xlPreviewPanel { grid-area: preview; height: calc(100vh - 104px); min-height: 620px; }
   .xlMaterialsPanel { grid-area: materials; height: 720px; border-top: 2px solid var(--xl-border); }
   .xlMaterialTabs button.active::after { left: 32%; right: 32%; }
+  .xlTitleGroup .xlRoomPickerHint { display: inline; font-size: 9px; }
 }
 
 @media (max-width: 760px) {
   .xlTopbar { padding-inline: 8px; }
   .xlTitleGroup > div { margin-left: 5px; }
+  .xlRoomPicker { max-width: min(300px, 48vw); }
+  .xlRoomMenu { width: min(302px, calc(100vw - 18px)); left: -34px; }
   .xlTitleGroup strong { max-width: 134px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
   .xlDarkButton { width: 34px; padding: 0 !important; font-size: 0; }
   .xlDarkButton svg { width: 16px; }
@@ -925,7 +979,13 @@ img, video, canvas { display: block; }
 }
 
 @media (max-width: 480px) {
+  .liveLandingCreateCopy { display: block; }
+  .liveLandingCreateCopy span { display: block; margin-top: 3px; }
   .xlTitleGroup strong { max-width: 105px; }
+  .xlTitleGroup .xlRoomPickerHint { font-size: 0; }
+  .xlTitleGroup .xlRoomPickerHint::after { content: '切换'; font-size: 9px; }
+  .xlRoomPicker { max-width: 42vw; }
+  .xlRoomMenu { left: -39px; }
   .xlTopActions { gap: 5px; }
   .xlLiveButton { min-width: 82px; }
   .xlProductName > span { display: none; }

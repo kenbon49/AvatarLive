@@ -16,8 +16,10 @@ RUN pip install -r requirements.txt
 
 # 再拷业务代码
 COPY app ./app
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 
 EXPOSE 8000
 
-# docker compose 里由 env 注入配置；这里只起服务
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 启动前迁移数据库，避免新部署实例缺少业务表。
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

@@ -1,7 +1,7 @@
 """全局配置：统一从 .env 读取（pydantic-settings）。
 
-本阶段只用到 Azure TTS 与 LiveTalking；DB / Redis / Qdrant / MinIO 的连接串先
-占位，留给后续阶段（ASR/LLM/RAG/资产落盘）启用，避免来回改 .env。
+直播间控制台配置使用 PostgreSQL；Redis / Qdrant / MinIO 的连接串继续保留给
+后续阶段（实时队列、RAG、资产落盘）启用，避免来回改 .env。
 """
 
 from __future__ import annotations
@@ -61,9 +61,9 @@ class Settings(BaseSettings):
     llm_max_output_tokens: int = 8192
     llm_request_timeout: int = 120
 
-    # --- 基础设施（后续阶段使用，先占位）---
-    redis_url: str = "redis://localhost:6379/0"
+    # --- 持久化与基础设施 ---
     database_url: str = "postgresql+psycopg://synlive:synlive@localhost:5432/synlive"
+    redis_url: str = "redis://localhost:6379/0"
     qdrant_url: str = "http://localhost:6333"
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"

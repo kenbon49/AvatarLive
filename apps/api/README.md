@@ -1,6 +1,6 @@
 # SynLive API
 
-AI 数字人直播中控平台后端（FastAPI）。本阶段已打通：**文本 → Azure TTS → mp3**，并提供直播 Session 编排接口 `/say`（TTS + LiveTalking，本机无 GPU 时 LiveTalking 自动降级）。
+AI 数字人直播中控平台后端（FastAPI）。当前已提供实时互动 Session 编排，以及独立的直播间控制台配置持久化能力。
 
 ## 目录结构
 
@@ -8,12 +8,16 @@ AI 数字人直播中控平台后端（FastAPI）。本阶段已打通：**文�
 app/
   main.py                 # FastAPI 入口（CORS / lifespan / 路由挂载）
   core/                   # config(pydantic-settings)、logging(loguru)
-  api/v1/                 # health / tts / live 路由
+  api/v1/                 # health / tts / live / live_rooms 路由
+  db/                     # SQLAlchemy engine、Base 和请求级 Session
+  models/                 # live_rooms 等持久化模型
+  repositories/           # 数据访问与版本冲突处理
   services/
     tts/                  # Azure TTS（移植自 seo_video_generate，已解耦 Django）
     livetalking/          # LiveTalking 异步客户端（优雅降级）
-    live/                 # 直播 Session 管理器（内存版）
+    live/                 # 实时互动 Session 管理器（保持内存版、与直播间配置隔离）
   schemas/                # 请求/响应模型
+migrations/               # Alembic 数据库迁移
 ```
 
 ## 本地运行（无需 Docker）
@@ -24,6 +28,7 @@ cd apps/api
 cp ../../.env.example .env     # 填入 AZURE_SERVICE_KEY / LITELLM_LLM_API_KEY
 # 用项目根目录已有的 .venv（Python 3.13）
 pip install -r requirements.txt
+alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -47,6 +52,10 @@ uvicorn app.main:app --reload --port 8000
 | PUT | `/api/v1/live/sessions/{id}/livetalking-session` | 绑定 LiveTalking sessionid |
 | POST | `/api/v1/live/sessions/{id}/say` | 编排播报：TTS + 驱动数字人 |
 | POST | `/api/v1/live/sessions/{id}/answer` | 弹幕问答编排：问题→LLM→TTS→数字人 |
+| GET/POST | `/api/v1/live-rooms` | 查询或创建直播间控制台配置 |
+| GET/PUT | `/api/v1/live-rooms/{id}` | 读取或保存直播间配置 |
+| POST | `/api/v1/live-rooms/{id}/copy` | 复制直播间 |
+| POST | `/api/v1/live-rooms/{id}/publish` | 发布直播间配置 |
 
 ## /say 编排流程
 
@@ -61,10 +70,13 @@ uvicorn app.main:app --reload --port 8000
 - `AZURE_SERVICE_KEY` / `AZURE_SERVICE_REGION`：Azure 语音凭据。
 - `LIVETALKING_URL`：docker 内网 `http://livetalking:8010`；本地原生跑改 `http://localhost:8010`。
 - `LIVETALKING_ENABLED=false`：完全跳过 LiveTalking 调用（不看降级日志）。
+- `DATABASE_URL`：直播间控制台配置数据库；Docker Compose 默认连接 PostgreSQL。
+
+API 容器启动时自动执行 `alembic upgrade head`。浏览器保存直播间时使用版本号做冲突检查，避免旧页面静默覆盖较新的配置。
 
 ## 后续阶段
 
-- 持久化：SQLAlchemy + Alembic（替换内存 Session 管理器）。
+- 实时互动 Session 持久化：当前仍保持内存版，后续按独立任务处理。
 - 实时状态：Redis（直播状态、播报队列）。
 - 知识库：Qdrant（向量检索）、MinIO（音频/模型资产）。
 - 媒体：SRS（RTMP/WebRTC 预览与推流）。
