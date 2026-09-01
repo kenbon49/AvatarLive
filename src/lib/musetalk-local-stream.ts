@@ -60,6 +60,8 @@ export class LocalMuseTalkStream {
   private audioCaptureDestination: MediaStreamAudioDestinationNode | null = null;
   private audioSource: MediaElementAudioSourceNode | null = null;
   private drawFrameId: number | null = null;
+  private drawFrameKind: 'raf' | 'timeout' | null = null;
+  private visibilityListenerAttached = false;
   private firstFrameResolve: (() => void) | null = null;
   private firstFrameReject: ((error: Error) => void) | null = null;
   private firstFrameTimer: number | null = null;
@@ -91,7 +93,16 @@ export class LocalMuseTalkStream {
   }
 
   private startDrawing(video: HTMLVideoElement) {
-    if (this.drawFrameId !== null) window.cancelAnimationFrame(this.drawFrameId);
+    if (this.drawFrameId !== null) {
+      if (this.drawFrameKind === 'timeout') window.clearTimeout(this.drawFrameId);
+      else window.cancelAnimationFrame(this.drawFrameId);
+    }
+    if (!this.visibilityListenerAttached) {
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+      window.addEventListener('blur', this.handleVisibilityChange);
+      window.addEventListener('focus', this.handleVisibilityChange);
+      this.visibilityListenerAttached = true;
+    }
     const draw = () => {
       if (this.video !== video || this.closedByUser) return;
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) {
@@ -105,10 +116,26 @@ export class LocalMuseTalkStream {
           this.clearFirstFrameWait();
         }
       }
-      this.drawFrameId = window.requestAnimationFrame(draw);
+      const backgrounded = document.hidden || !document.hasFocus();
+      this.drawFrameKind = backgrounded ? 'timeout' : 'raf';
+      this.drawFrameId = backgrounded
+        ? window.setTimeout(draw, 67)
+        : window.requestAnimationFrame(draw);
     };
-    this.drawFrameId = window.requestAnimationFrame(draw);
+    const backgrounded = document.hidden || !document.hasFocus();
+    this.drawFrameKind = backgrounded ? 'timeout' : 'raf';
+    this.drawFrameId = backgrounded
+      ? window.setTimeout(draw, 67)
+      : window.requestAnimationFrame(draw);
   }
+
+  private readonly handleVisibilityChange = () => {
+    if (!(document.hidden || !document.hasFocus()) || !this.video || this.drawFrameKind !== 'raf' || this.drawFrameId === null) return;
+    window.cancelAnimationFrame(this.drawFrameId);
+    this.drawFrameId = null;
+    this.drawFrameKind = null;
+    this.startDrawing(this.video);
+  };
 
   private clearFirstFrameWait() {
     if (this.firstFrameTimer !== null) window.clearTimeout(this.firstFrameTimer);
@@ -374,8 +401,18 @@ export class LocalMuseTalkStream {
 
   private async closePeer() {
     this.clearFirstFrameWait();
-    if (this.drawFrameId !== null) window.cancelAnimationFrame(this.drawFrameId);
+    if (this.drawFrameId !== null) {
+      if (this.drawFrameKind === 'timeout') window.clearTimeout(this.drawFrameId);
+      else window.cancelAnimationFrame(this.drawFrameId);
+    }
     this.drawFrameId = null;
+    this.drawFrameKind = null;
+    if (this.visibilityListenerAttached) {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+      window.removeEventListener('blur', this.handleVisibilityChange);
+      window.removeEventListener('focus', this.handleVisibilityChange);
+      this.visibilityListenerAttached = false;
+    }
     this.video?.pause();
     this.audio?.pause();
     this.audioSource?.disconnect();

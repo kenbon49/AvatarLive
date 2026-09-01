@@ -148,7 +148,7 @@
 .supportActions button:hover, .supportActions .activeAction { border-color: #b8c2ff; color: var(--blue, #3d5afe); background: #f5f7ff; }
 
 .ticketForm { margin-top: 10px; padding: 11px; border: 1px solid #e2e6f0; border-radius: 10px; display: grid; gap: 8px; background: #f8f9fc; animation: reveal .2s ease-out both; }
-.ticketForm input, .ticketForm textarea { width: 100%; border: 1px solid #e0e4ee; border-radius: 7px; color: var(--ink, #20243a); background: #fff; font-size: 10px; outline: 0; transition: border-color .18s, box-shadow .18s; }
+.ticketForm input, .ticketForm textarea { width: 100%; border: 1px solid #e0e4ee; border-radius: 7px; color: var(--ink, #20243a); background: #fff; font-size: 12px; outline: 0; transition: border-color .18s, box-shadow .18s; }
 .ticketForm input { height: 35px; padding: 0 10px; }
 .ticketForm textarea { min-height: 70px; padding: 9px 10px; line-height: 1.55; resize: vertical; }
 .ticketForm input::placeholder, .ticketForm textarea::placeholder { color: #a1a6b5; }

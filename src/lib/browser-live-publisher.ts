@@ -34,6 +34,7 @@ type BrowserLivePublisherOptions = {
   sourceCanvas: HTMLCanvasElement;
   resolution: string;
   frameRate: number;
+  orientation?: 'portrait' | 'landscape';
   audioTrack: MediaStreamTrack | null;
   getScene: () => BroadcastSceneSnapshot;
   onState?: (state: BrowserPublisherState, message?: string) => void;
@@ -148,10 +149,13 @@ class WhipSession {
   }
 }
 
-function outputDimensions(resolution: string): { width: number; height: number } {
-  return resolution.toLowerCase() === '4k'
+function outputDimensions(resolution: string, orientation: 'portrait' | 'landscape' = 'portrait'): { width: number; height: number } {
+  const portrait = resolution.toLowerCase() === '4k'
     ? { width: 2160, height: 3840 }
     : { width: 1080, height: 1920 };
+  return orientation === 'landscape'
+    ? { width: portrait.height, height: portrait.width }
+    : portrait;
 }
 
 function sourceDimensions(image: CanvasImageSource): { width: number; height: number } {
@@ -191,7 +195,7 @@ function drawContain(context: CanvasRenderingContext2D, image: CanvasImageSource
   context.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
 }
 
-class SceneCompositor {
+export class SceneCompositor {
   private readonly canvas = document.createElement('canvas');
   private readonly images = new Map<string, HTMLImageElement>();
   private frameTimer: number | null = null;
@@ -202,8 +206,9 @@ class SceneCompositor {
     private readonly resolution: string,
     private readonly frameRate: number,
     private readonly getScene: () => BroadcastSceneSnapshot,
+    private readonly orientation: 'portrait' | 'landscape' = 'portrait',
   ) {
-    const { width, height } = outputDimensions(resolution);
+    const { width, height } = outputDimensions(resolution, orientation);
     this.canvas.width = width;
     this.canvas.height = height;
     this.canvas.style.cssText = 'position:fixed;width:1px;height:1px;opacity:.001;pointer-events:none;left:-2px;top:-2px';
@@ -343,6 +348,7 @@ export class BrowserLivePublisher {
       options.resolution,
       options.frameRate,
       options.getScene,
+      options.orientation,
     );
   }
 

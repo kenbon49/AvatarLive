@@ -172,7 +172,7 @@ img, video, canvas { display: block; }
 .inlineError { margin: 0 15px 10px; padding: 9px 11px; border-radius: 8px; color: #ae4646; background: #fff0f0; font-size: 9px; line-height: 1.5; }
 .dialogSuggestion { padding: 0 16px 9px; display: flex; align-items: center; gap: 6px; color: #9a9fb0; font-size: 8px; }
 .composer { margin: 0 13px 13px; padding: 6px; border: 1px solid #dfe1e9; border-radius: 10px; display: flex; align-items: center; gap: 6px; background: white; box-shadow: 0 6px 18px rgba(30, 38, 71, .05); }
-.composer input { min-width: 0; height: 35px; padding: 0 4px; flex: 1; border: 0; outline: 0; font-size: 10px; }
+.composer input { min-width: 0; height: 35px; padding: 0 4px; flex: 1; border: 0; outline: 0; font-size: 12px; }
 .micButton, .sendButton { flex: 0 0 35px; width: 35px; height: 35px; border: 0; border-radius: 8px; display: grid; place-items: center; cursor: pointer; }
 .micButton { color: #65708d; background: #f0f2f8; }
 .sendButton { color: white; background: var(--blue); }
@@ -236,7 +236,7 @@ img, video, canvas { display: block; }
 .playButton:disabled { opacity: .25; }
 .deleteButton { color: #8f95a7; background: #f1f2f6; }
 .scriptComposer { margin-top: 10px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; }
-.scriptComposer textarea { width: 100%; min-height: 52px; resize: none; border: 0; outline: 0; color: var(--ink); font-size: 9px; line-height: 1.6; }
+.scriptComposer textarea { width: 100%; min-height: 52px; resize: none; border: 0; outline: 0; color: var(--ink); font-size: 11px; line-height: 1.6; }
 .scriptComposer > div { display: flex; align-items: center; justify-content: space-between; }
 .scriptComposer span { color: var(--muted); font-size: 8px; }
 .scriptComposer button { padding: 7px 9px; border: 0; border-radius: 7px; display: flex; align-items: center; gap: 5px; color: white; background: var(--navy); font-size: 8px; cursor: pointer; }
@@ -244,7 +244,7 @@ img, video, canvas { display: block; }
 .destinationCard label { display: grid; gap: 7px; }
 .destinationCard label > span { font-size: 9px; font-weight: 700; }
 .destinationCard label > div { display: flex; }
-.destinationCard input { min-width: 0; height: 40px; padding: 0 11px; flex: 1; border: 1px solid #dfe1e9; border-radius: 8px 0 0 8px; outline: 0; font-size: 9px; }
+.destinationCard input { min-width: 0; height: 40px; padding: 0 11px; flex: 1; border: 1px solid #dfe1e9; border-radius: 8px 0 0 8px; outline: 0; font-size: 11px; }
 .destinationCard label button { width: 42px; border: 1px solid #dfe1e9; border-left: 0; border-radius: 0 8px 8px 0; display: grid; place-items: center; color: #6b7185; background: #f3f4f8; }
 .connectionHint { margin-top: 10px; padding: 10px; border-radius: 8px; display: flex; align-items: center; gap: 10px; background: #f5f6fa; }
 .connectionHint > span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
@@ -359,7 +359,7 @@ img, video, canvas { display: block; }
 .xlRoomEmpty { padding: 16px 8px; color: var(--xl-muted); text-align: center; font-size: 11px; }
 .xlRoomCreateForm, .xlRoomRenameForm { display: flex; align-items: center; gap: 5px; }
 .xlRoomCreateForm { padding: 7px 0; border-top: 1px solid #3a3b3c; }
-.xlRoomCreateForm input, .xlRoomRenameForm input { min-width: 0; height: 30px; padding: 0 8px; border: 1px solid #48494a; border-radius: 5px; outline: 0; color: #f0f0f0; background: #1e1f1f; font: inherit; }
+.xlRoomCreateForm input, .xlRoomRenameForm input { min-width: 0; height: 30px; padding: 0 8px; border: 1px solid #48494a; border-radius: 5px; outline: 0; color: #f0f0f0; background: #1e1f1f; font: inherit; font-size: 14px; }
 .xlRoomCreateForm input { flex: 1; }
 .xlRoomCreateForm input:focus, .xlRoomRenameForm input:focus { border-color: rgba(20, 204, 201, .7); }
 .xlRoomCreateForm button, .xlRoomRenameForm button { height: 30px; padding: 0 8px !important; border-radius: 5px; display: inline-flex !important; align-items: center; justify-content: center !important; gap: 4px; color: var(--xl-accent) !important; background: #1b3435 !important; font-size: 10px; white-space: nowrap; }
@@ -431,7 +431,7 @@ img, video, canvas { display: block; }
 .xlScriptTools button.active { color: var(--xl-accent); background: #1b3435; }
 .xlScriptTools .xlPopMenu { right: 0; }
 .xlScriptComposer { height: 112px; padding: 10px 12px; border-bottom: 1px solid var(--xl-line); background: #18191a; }
-.xlScriptComposer textarea { width: 100%; height: 58px; padding: 8px 10px; border: 1px solid #3d3d3d; border-radius: 6px; resize: none; outline: 0; color: var(--xl-text); background: #252627; font-size: 11px; line-height: 18px; }
+.xlScriptComposer textarea { width: 100%; height: 58px; padding: 8px 10px; border: 1px solid #3d3d3d; border-radius: 6px; resize: none; outline: 0; color: var(--xl-text); background: #252627; font-size: 13px; line-height: 18px; }
 .xlScriptComposer textarea:focus { border-color: var(--xl-accent); }
 .xlScriptComposer > div { margin-top: 6px; display: flex; align-items: center; justify-content: space-between; }
 .xlScriptComposer > div span { color: var(--xl-dim); font-size: 10px; }
@@ -478,6 +478,7 @@ img, video, canvas { display: block; }
 .xlSceneHost { z-index: 3; object-fit: contain; object-position: center bottom; transform-origin: center; transition: opacity .2s; }
 .xlStreamCanvas { z-index: 4; opacity: 0; object-fit: contain; }
 .xlStreamCanvas.active { opacity: 1; }
+.xlWorkspaceHidden { display: none !important; }
 .xlPreviewIngestState { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; color: #31536a; background: #edf7fb; font-size: 12px; }
 .xlPreviewIngestState i { width: 7px; height: 7px; border-radius: 50%; background: #d19b2e; box-shadow: 0 0 0 3px rgba(209, 155, 46, .14); }
 .xlPreviewIngestState.live { color: #23613d; background: #eaf8ef; }
@@ -535,12 +536,12 @@ img, video, canvas { display: block; }
 .xlMaterialsScroll { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #3d3d3d transparent; }
 .xlHiddenInput { display: none; }
 .xlMaterialSearch { height: 32px; margin: 14px 16px 10px; padding: 0 10px; border-radius: 5px; display: flex; align-items: center; background: #101111; }
-.xlMaterialSearch input { min-width: 0; height: 100%; flex: 1; border: 0; outline: 0; color: var(--xl-text); background: transparent; font-size: 11px; }
+.xlMaterialSearch input { min-width: 0; height: 100%; flex: 1; border: 0; outline: 0; color: var(--xl-text); background: transparent; font-size: 13px; }
 .xlMaterialSearch input::placeholder { color: #68696b; }
 .xlMaterialSearch svg { color: var(--xl-muted); }
 .xlMaterialFilters { margin: 0 16px 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .xlMaterialFilters label { height: 28px; padding: 0 7px; border-radius: 4px; display: flex; align-items: center; color: #c4c4c4; background: var(--xl-panel-raised); }
-.xlMaterialFilters select { min-width: 0; height: 100%; flex: 1; border: 0; outline: 0; appearance: none; color: #c4c4c4; background: transparent; font-size: 10px; cursor: pointer; }
+.xlMaterialFilters select { min-width: 0; height: 100%; flex: 1; border: 0; outline: 0; appearance: none; color: #c4c4c4; background: transparent; font-size: 12px; cursor: pointer; }
 .xlMaterialFilters option { color: #dfdfdf; background: #2d2e2e; }
 .xlTemplateGrid { padding: 0 16px 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 8px; }
 .xlTemplateGrid button { min-width: 0; padding: 0; }
@@ -557,7 +558,7 @@ img, video, canvas { display: block; }
 .xlExpandFilters[aria-expanded='true'] svg { transform: rotate(180deg); }
 .xlHostFilters { margin-bottom: 10px; padding: 10px; border-radius: 6px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: #161718; }
 .xlHostFilters label { display: grid; gap: 5px; color: #888; font-size: 9px; }
-.xlHostFilters select { min-width: 0; height: 26px; border: 1px solid #363738; border-radius: 4px; color: #c4c4c4; background: #292a2b; font-size: 9px; }
+.xlHostFilters select { min-width: 0; height: 26px; border: 1px solid #363738; border-radius: 4px; color: #c4c4c4; background: #292a2b; font-size: 11px; }
 .xlHostPicker > button:not(.xlExpandFilters) { width: 100%; min-height: 64px; margin-bottom: 8px; padding: 7px; border: 1px solid #353637; border-radius: 6px; display: flex; align-items: center; gap: 10px; text-align: left; background: var(--xl-panel-soft); }
 .xlHostPicker > button:not(.xlExpandFilters).selected { border-color: var(--xl-accent); background: #1b3435; }
 .xlHostPicker > button:disabled { opacity: .55; cursor: not-allowed; }
@@ -595,7 +596,7 @@ img, video, canvas { display: block; }
 .xlTextMaterial { padding: 18px 16px 24px; }
 .xlTextMaterial h3 { margin: 0 0 16px; font-size: 13px; font-weight: 500; }
 .xlTextMaterial label { display: grid; gap: 7px; color: #c4c4c4; font-size: 10px; }
-.xlTextMaterial input { height: 34px; padding: 0 10px; border: 1px solid #3a3b3c; border-radius: 5px; outline: 0; color: white; background: #101111; font-size: 11px; }
+.xlTextMaterial input { height: 34px; padding: 0 10px; border: 1px solid #3a3b3c; border-radius: 5px; outline: 0; color: white; background: #101111; font-size: 13px; }
 .xlTextMaterial input:focus { border-color: var(--xl-accent); }
 .xlTextPreview { min-height: 70px; margin: 12px 0; border-radius: 6px; display: grid; place-items: center; color: white; background: linear-gradient(135deg, #30405a, #1b5f63); font-size: 14px; }
 .xlTextMaterial > button { height: 30px; padding: 0 10px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; color: #0e0f0f; background: var(--xl-accent); font-size: 10px; }
@@ -609,7 +610,7 @@ img, video, canvas { display: block; }
 .xlInspectorSection > strong, .xlInspectorField > strong, .xlOpacityField strong { display: block; margin-bottom: 9px; color: #cfcfcf; font-size: 10px; font-weight: 400; }
 .xlInspectorPosition { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .xlInspectorPosition label, .xlInspectorField > span { height: 30px; padding: 0 8px; border: 1px solid #343536; border-radius: 4px; display: flex; align-items: center; gap: 7px; color: #777; background: #252627; font-size: 10px; }
-.xlInspectorPosition input, .xlInspectorField input { min-width: 0; width: 100%; border: 0; outline: 0; color: #d8d8d8; background: transparent; font-size: 10px; }
+.xlInspectorPosition input, .xlInspectorField input { min-width: 0; width: 100%; border: 0; outline: 0; color: #d8d8d8; background: transparent; font-size: 12px; }
 .xlInspectorField > span { width: 50%; }
 .xlInspectorField em { color: #777; font-style: normal; }
 .xlInspectorOrder, .xlInspectorAlign { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
@@ -620,7 +621,7 @@ img, video, canvas { display: block; }
 .xlInspectorTextStyle > strong { grid-column: 1 / -1; margin-bottom: 1px; }
 .xlInspectorTextStyle label { min-width: 0; display: grid; gap: 5px; color: #888; font-size: 9px; }
 .xlInspectorTextStyle .xlInspectorWide { grid-column: 1 / -1; }
-.xlInspectorTextStyle select, .xlInspectorTextStyle input:not([type='color']), .xlInspectorTextStyle textarea { width: 100%; border: 1px solid #343536; border-radius: 4px; color: #c4c4c4; background: #292a2b; font-size: 10px; }
+.xlInspectorTextStyle select, .xlInspectorTextStyle input:not([type='color']), .xlInspectorTextStyle textarea { width: 100%; border: 1px solid #343536; border-radius: 4px; color: #c4c4c4; background: #292a2b; font-size: 12px; }
 .xlInspectorTextStyle select, .xlInspectorTextStyle input:not([type='color']) { height: 29px; }
 .xlInspectorTextStyle textarea { min-height: 50px; padding: 7px 8px; outline: 0; resize: vertical; line-height: 16px; }
 .xlInspectorTextStyle textarea:focus { border-color: var(--xl-accent); }
@@ -666,12 +667,12 @@ img, video, canvas { display: block; }
 .xlQaWorkspace > header span { color: var(--xl-muted); }
 .xlQaWorkspace > header button { height: 30px; padding: 0 12px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #d8d8d8; background: var(--xl-panel-raised); }
 .xlQaWorkspace > header label { width: 240px; height: 30px; padding: 0 9px; border-radius: 5px; display: flex; align-items: center; background: #292a2b; }
-.xlQaWorkspace > header input { min-width: 0; flex: 1; border: 0; outline: 0; color: white; background: transparent; font-size: 10px; }
+.xlQaWorkspace > header input { min-width: 0; flex: 1; border: 0; outline: 0; color: white; background: transparent; font-size: 12px; }
 .xlQaWorkspace > header svg { color: #8b8b8c; }
 .xlQaComposer { width: min(620px, calc(100% - 40px)); margin: 20px auto; padding: 18px; border: 1px solid #343536; border-radius: 8px; display: grid; gap: 13px; background: var(--xl-panel); box-shadow: 0 12px 32px rgba(0, 0, 0, .18); }
 .xlQaComposer label { display: grid; gap: 7px; }
 .xlQaComposer label span { color: #c4c4c4; font-size: 11px; }
-.xlQaComposer input, .xlQaComposer textarea { width: 100%; padding: 0 10px; border: 1px solid #3a3b3c; border-radius: 6px; outline: 0; resize: none; color: white; background: #292a2b; font-size: 11px; }
+.xlQaComposer input, .xlQaComposer textarea { width: 100%; padding: 0 10px; border: 1px solid #3a3b3c; border-radius: 6px; outline: 0; resize: none; color: white; background: #292a2b; font-size: 13px; }
 .xlQaComposer input { height: 36px; }
 .xlQaComposer textarea { padding-top: 9px; line-height: 18px; }
 .xlQaComposer input:focus, .xlQaComposer textarea:focus { border-color: var(--xl-accent); }
@@ -767,7 +768,7 @@ img, video, canvas { display: block; }
 .xlVoiceToolbar > div button.active { color: var(--xl-accent); }
 .xlVoiceToolbar > div button.active::after { content: ''; height: 2px; position: absolute; left: 0; right: 0; bottom: 0; background: var(--xl-accent); }
 .xlVoiceToolbar > label { width: 240px; height: 34px; padding: 0 11px; border-radius: 5px; display: flex; align-items: center; gap: 8px; color: #777; background: #252627; }
-.xlVoiceToolbar input { min-width: 0; flex: 1; border: 0; outline: 0; color: #d6d6d6; background: transparent; font-size: 10px; }
+.xlVoiceToolbar input { min-width: 0; flex: 1; border: 0; outline: 0; color: #d6d6d6; background: transparent; font-size: 12px; }
 .xlVoiceFilters { padding: 14px 24px 10px; display: grid; align-content: center; gap: 8px; }
 .xlVoiceFilters > div { display: flex; align-items: center; gap: 12px; }
 .xlVoiceFilters button { min-width: 70px; height: 31px; padding: 0 13px; border-radius: 16px; color: #888; font-size: 10px; }
@@ -825,7 +826,7 @@ img, video, canvas { display: block; }
 .xlVoiceCloneAudio { width: 100%; height: 30px; margin-top: 8px; opacity: .82; }
 .xlVoiceCloneName, .xlVoiceCloneText { position: relative; display: block; }
 .xlVoiceCloneName > span, .xlVoiceCloneText > span { display: block; margin-bottom: 7px; color: #b7b7b7; font-size: 10px; }
-.xlVoiceCloneName input, .xlVoiceCloneText textarea { width: 100%; border: 1px solid #3a3b3c; border-radius: 6px; outline: 0; color: #e0e0e0; background: #252627; font: inherit; font-size: 10px; transition: border-color .18s; }
+.xlVoiceCloneName input, .xlVoiceCloneText textarea { width: 100%; border: 1px solid #3a3b3c; border-radius: 6px; outline: 0; color: #e0e0e0; background: #252627; font: inherit; font-size: 12px; transition: border-color .18s; }
 .xlVoiceCloneName input:focus, .xlVoiceCloneText textarea:focus { border-color: var(--xl-accent); }
 .xlVoiceCloneName input { height: 36px; padding: 0 44px 0 11px; }
 .xlVoiceCloneText { margin-top: 12px; }
@@ -848,12 +849,31 @@ img, video, canvas { display: block; }
 .xlPlatformNotice > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .xlPlatformNotice strong { color: #cfe9e8; font-size: 10px; font-weight: 500; }
 .xlPlatformNotice small { color: #829190; font-size: 9px; line-height: 15px; }
+.xlCaptureModePanel { margin: 0 0 15px; padding: 13px 14px; border: 1px solid rgba(20, 204, 201, .28); border-radius: 8px; background: linear-gradient(135deg, rgba(20, 204, 201, .1), rgba(20, 204, 201, .025)); }
+.xlCaptureModePanel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.xlCaptureModePanel > header span { display: flex; flex-direction: column; gap: 4px; }
+.xlCaptureModePanel strong { color: #d9f6f4; font-size: 11px; font-weight: 600; }
+.xlCaptureModePanel small { color: #8faead; font-size: 9px; line-height: 15px; }
+.xlCaptureModeChoice { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.xlCaptureModeChoice button { min-height: 30px; padding: 0 11px; border: 1px solid #3b5858 !important; border-radius: 5px; color: #a6bfbe !important; background: rgba(0, 0, 0, .14) !important; font-size: 9px; }
+.xlCaptureModeChoice button.active { border-color: var(--xl-accent) !important; color: #082020 !important; background: var(--xl-accent) !important; }
+.xlCaptureModeHint { margin: 10px 0 0; color: #9bb8b7; font-size: 9px; line-height: 15px; }
+.xlCaptureWindowState { margin-top: 10px; padding: 8px 10px; border-radius: 6px; color: #b8d9d7; background: rgba(10, 35, 35, .55); font-size: 9px; line-height: 14px; }
+.xlCaptureWindowState.failed { color: #f0b7ad; background: rgba(91, 26, 26, .45); }
+.xlLocalRtmpTest { margin-top: 10px; padding: 11px 13px; border: 1px solid #34393a; border-radius: 7px; display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #242728; }
+.xlLocalRtmpTest > span { min-width: 0; display: flex; align-items: flex-start; gap: 9px; }
+.xlLocalRtmpTest > span > svg { margin-top: 2px; flex: 0 0 auto; color: #83b8e8; }
+.xlLocalRtmpTest > span > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.xlLocalRtmpTest strong { color: #d6e1eb; font-size: 10px; font-weight: 500; }
+.xlLocalRtmpTest small { color: #7f898f; font-size: 9px; line-height: 15px; }
+.xlLocalRtmpTest > button { min-width: 132px; height: 31px; padding: 0 10px; border: 1px solid rgba(131, 184, 232, .28) !important; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: #bcd9f1 !important; background: rgba(83, 137, 183, .13) !important; font-size: 10px; white-space: nowrap; }
+.xlLocalRtmpTest > button:hover { background: rgba(83, 137, 183, .22) !important; }
 .xlPlatformSummary { margin: 13px 3px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #a8a8a8; font-size: 10px; }
 .xlPlatformSummary > span { display: flex; align-items: center; gap: 6px; }
 .xlPlatformSummary svg { color: var(--xl-accent); }
 .xlPlatformSummary i { width: 7px; height: 7px; border-radius: 50%; background: var(--xl-accent); box-shadow: 0 0 0 4px rgba(20, 204, 201, .1); }
 .xlPlatformSource { display: flex; align-items: center; gap: 7px; }
-.xlPlatformSource select { border: 1px solid rgba(255,255,255,.12); border-radius: 5px; padding: 5px 7px; color: #cfe9e8; background: rgba(255,255,255,.06); font: inherit; }
+.xlPlatformSource select { border: 1px solid rgba(255,255,255,.12); border-radius: 5px; padding: 5px 7px; color: #cfe9e8; background: rgba(255,255,255,.06); font: inherit; font-size: 12px; }
 .xlPlatformCenterGrid { display: grid; grid-template-columns: minmax(520px, 1fr) 300px; align-items: start; gap: 14px; }
 .xlRtmpConnections, .xlPlatformPreflight > section { border: 1px solid #303233; border-radius: 9px; background: #202122; }
 .xlRtmpConnections > header { min-height: 55px; padding: 10px 13px; border-bottom: 1px solid #303233; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -900,8 +920,9 @@ img, video, canvas { display: block; }
 .xlRtmpFormGrid label.wide { grid-column: 1 / -1; }
 .xlRtmpFormGrid label > span { min-height: 17px; display: flex; align-items: center; justify-content: space-between; color: #a7adad; font-size: 8px; }
 .xlRtmpFormGrid label > span small { color: #687070; font-size: 7px; }
-.xlRtmpFormGrid input { width: 100%; height: 32px; padding: 0 9px; border: 1px solid #3d4141; border-radius: 5px; outline: 0; color: #e2e7e7; background: #1e2020; font: inherit; font-size: 9px; }
+.xlRtmpFormGrid input { width: 100%; height: 34px; padding: 0 9px; border: 1px solid #3d4141; border-radius: 5px; outline: 0; color: #e2e7e7; background: #1e2020; font: inherit; font-size: 11px; }
 .xlRtmpFormGrid input:focus { border-color: rgba(20, 204, 201, .65); }
+.xlRtmpFieldHint { display: block; margin-top: 5px; color: #6f7979; font-size: 9px; line-height: 14px; }
 .xlSecretInput { position: relative; }
 .xlSecretInput input { padding-right: 34px; }
 .xlSecretInput button { width: 31px; position: absolute; inset: 0 0 0 auto; display: grid; place-items: center; color: #737a7a; }
@@ -911,7 +932,9 @@ img, video, canvas { display: block; }
 .xlRtmpForm > footer button { height: 27px; padding: 0 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; color: #aeb3b3; background: #363939; font-size: 8px; }
 .xlRtmpForm > footer button:last-child { color: #102020; background: var(--xl-accent); }
 .xlPlatformError { margin: 0 9px 9px; padding: 8px 9px; border-radius: 5px; color: #e8a29a; background: #402b2a; font-size: 8px; line-height: 14px; }
+.xlLocalRtmpTestError { margin: 8px 0 0; }
 .xlPlatformMessage { margin: 0 9px 9px; padding: 8px 9px; border-radius: 5px; color: #c9d2df; background: #26303c; font-size: 8px; line-height: 14px; }
+.xlLocalRtmpTestResult { margin: 8px 0 0; }
 .xlPlatformMessage.passed { color: #9fe0b6; background: #203a2b; }
 .xlPlatformMessage.failed { color: #e8a29a; background: #402b2a; }
 .xlPlatformPreflight { display: grid; gap: 10px; }
@@ -939,13 +962,20 @@ img, video, canvas { display: block; }
 .xlPlatformCenterFooter > div button { height: 32px; padding: 0 13px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #c4c4c4; background: #303132; white-space: nowrap; }
 .xlPlatformCenterFooter > div button:last-child { color: #0e0f0f; background: var(--xl-accent); }
 .xlPlatformCenterFooter > div button:disabled { opacity: .35; }
+.liveProgramOutput { width: 100vw; height: 100vh; min-width: 240px; min-height: 240px; overflow: hidden; position: relative; display: grid; place-items: center; background: #070909; }
+.liveProgramOutput video { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; background: #070909; }
+.liveProgramOutput.portrait video { width: min(100%, calc(100vh * 9 / 16)); aspect-ratio: 9 / 16; }
+.liveProgramOutput.landscape video { width: min(100%, calc(100vh * 16 / 9)); aspect-ratio: 16 / 9; }
+.liveProgramStatus, .liveProgramError { position: absolute; left: 50%; top: 50%; max-width: 80%; padding: 10px 14px; transform: translate(-50%, -50%); border-radius: 7px; color: #b7c9c7; background: rgba(10, 25, 25, .9); font-size: 13px; text-align: center; }
+.liveProgramError { color: #f4bcb2; background: rgba(70, 23, 23, .94); }
+.liveProgramAudioButton { position: absolute; left: 50%; bottom: 28px; padding: 10px 16px; transform: translateX(-50%); border: 0; border-radius: 999px; color: #082020; background: #62dfd2; font-size: 13px; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
 .xlLibraryModal { width: min(780px, 92vw); }
 .xlLibraryToolbar { padding: 13px 18px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .xlLibraryToolbar > div { display: flex; gap: 5px; }
 .xlLibraryToolbar button { height: 29px; padding: 0 10px; border-radius: 15px; color: #969696; font-size: 9px; }
 .xlLibraryToolbar button.active, .xlLibraryToolbar button:hover { color: #e8e8e8; background: #303132; }
 .xlLibraryToolbar label { width: 205px; height: 31px; padding: 0 9px; border-radius: 5px; display: flex; align-items: center; gap: 6px; color: #777; background: #292a2b; }
-.xlLibraryToolbar input { min-width: 0; flex: 1; border: 0; outline: 0; color: #ddd; background: transparent; font-size: 9px; }
+.xlLibraryToolbar input { min-width: 0; flex: 1; border: 0; outline: 0; color: #ddd; background: transparent; font-size: 11px; }
 .xlLibraryList { max-height: 500px; padding: 18px; overflow: auto; display: grid; gap: 9px; }
 .xlLibraryList article { padding: 13px; border: 1px solid #303132; border-radius: 7px; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; background: #202122; }
 .xlLibraryList article > span { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; color: var(--xl-accent); background: #293738; }
@@ -1062,6 +1092,8 @@ img, video, canvas { display: block; }
   .xlRadioGroup { flex-direction: column; }
   .xlLivePlatformModal { width: 100%; max-height: 94vh; }
   .xlPlatformCenterBody { padding-inline: 12px; }
+  .xlLocalRtmpTest { align-items: stretch; flex-direction: column; }
+  .xlLocalRtmpTest > button { width: 100%; }
   .xlPlatformCenterGrid { grid-template-columns: 1fr; }
   .xlPlatformPreflight { grid-template-columns: 1fr 1fr; }
 }
@@ -1119,7 +1151,7 @@ img, video, canvas { display: block; }
 .creatorTopbar { height: 56px; padding: 0 18px; border-bottom: 1px solid #e7e8ed; display: flex; align-items: center; gap: 14px; background: white; }
 .creatorBack { width: 32px; height: 32px; padding: 0; border: 0; border-radius: 7px; display: grid; place-items: center; color: #5f667b; background: #f3f4f7; cursor: pointer; }
 .creatorResourceTitle { min-width: 0; display: flex; align-items: center; gap: 7px; color: #9196a6; font-size: 10px; }
-.creatorResourceTitle input { width: 180px; height: 32px; padding: 0 7px; border: 1px solid transparent; border-radius: 6px; outline: 0; color: var(--ink); background: transparent; font-size: 11px; font-weight: 700; }
+.creatorResourceTitle input { width: 180px; height: 32px; padding: 0 7px; border: 1px solid transparent; border-radius: 6px; outline: 0; color: var(--ink); background: transparent; font-size: 13px; font-weight: 700; }
 .creatorResourceTitle input:hover, .creatorResourceTitle input:focus { border-color: #dfe2eb; background: #fafafd; }
 .creatorSaveHint { margin-left: auto; color: #9ca1b1; font-size: 9px; }
 .creatorPublish { height: 34px; padding: 0 14px; border: 0; border-radius: 7px; color: white; background: var(--blue); font-size: 10px; font-weight: 700; cursor: pointer; }
@@ -1144,7 +1176,7 @@ img, video, canvas { display: block; }
 .imageChatMessages p { max-width: 88%; margin: 0; padding: 8px 9px; border-radius: 3px 9px 9px 9px; color: #5c6275; background: white; font-size: 8px; line-height: 1.55; box-shadow: 0 3px 10px rgba(37, 45, 77, .04); }
 .imageChatMessages p.user { align-self: flex-end; border-radius: 9px 3px 9px 9px; color: white; background: var(--blue); }
 .imagePrompt { margin: 9px; padding: 4px; border: 1px solid #dfe2ea; border-radius: 8px; display: flex; align-items: center; gap: 3px; }
-.imagePrompt input { min-width: 0; height: 31px; padding: 0 6px; flex: 1; border: 0; outline: 0; font-size: 9px; }
+.imagePrompt input { min-width: 0; height: 31px; padding: 0 6px; flex: 1; border: 0; outline: 0; font-size: 11px; }
 .imagePrompt > button { width: 31px; height: 31px; padding: 0; border: 0; border-radius: 7px; display: grid; flex: 0 0 31px; place-items: center; color: white; background: var(--blue); cursor: pointer; }
 .imagePrompt > button:disabled { opacity: .35; }
 .imagePrompt .imagePromptUpload { color: #68718a; background: #f1f3f8; }
@@ -1162,7 +1194,7 @@ img, video, canvas { display: block; }
 .creatorMotionPrompt > span, .creatorMotionSetting > span { display: flex; align-items: center; justify-content: space-between; color: #666d82; font-size: 8px; }
 .creatorMotionPrompt > span strong { color: #52596e; font-size: 8px; }
 .creatorMotionPrompt > span em { color: #a0a5b4; font-size: 7px; font-style: normal; }
-.creatorMotionPrompt textarea { width: 100%; min-height: 64px; padding: 9px; border: 1px solid #d9deec; border-radius: 8px; outline: 0; resize: vertical; color: #3f4659; background: rgba(255, 255, 255, .88); font: inherit; font-size: 8px; line-height: 1.55; }
+.creatorMotionPrompt textarea { width: 100%; min-height: 64px; padding: 9px; border: 1px solid #d9deec; border-radius: 8px; outline: 0; resize: vertical; color: #3f4659; background: rgba(255, 255, 255, .88); font: inherit; font-size: 10px; line-height: 1.55; }
 .creatorMotionPrompt textarea:focus { border-color: #8fa0ef; box-shadow: 0 0 0 2px rgba(78, 98, 205, .08); }
 .creatorMotionPrompt textarea:disabled, .creatorMotionSettings :disabled, .creatorMotionPresets button:disabled { opacity: .58; cursor: not-allowed; }
 .creatorMotionPresets { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -1170,7 +1202,7 @@ img, video, canvas { display: block; }
 .creatorMotionPresets button:hover:not(:disabled) { border-color: #9daae3; color: #4255b4; }
 .creatorMotionSettings { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr); gap: 8px; }
 .creatorMotionSetting { min-width: 0; display: grid; gap: 5px; }
-.creatorMotionSetting select { width: 100%; height: 30px; padding: 0 7px; border: 1px solid #d9deec; border-radius: 7px; outline: 0; color: #555d73; background: white; font-size: 7px; }
+.creatorMotionSetting select { width: 100%; height: 30px; padding: 0 7px; border: 1px solid #d9deec; border-radius: 7px; outline: 0; color: #555d73; background: white; font-size: 9px; }
 .creatorMotionSetting.duration { grid-column: 1 / -1; }
 .creatorMotionSetting output { color: #5061b2; font-size: 7px; }
 .creatorMotionSetting input[type='range'] { width: 100%; accent-color: var(--blue); }
@@ -1249,7 +1281,7 @@ img, video, canvas { display: block; }
 .creatorVoiceFields { display: grid; gap: 10px; }
 .creatorVoiceFields label { display: grid; gap: 6px; }
 .creatorVoiceFields label span { color: #5f6577; font-size: 8px; font-weight: 700; }
-.creatorVoiceFields input, .creatorVoiceFields textarea { width: 100%; border: 1px solid #dfe2ea; border-radius: 8px; outline: 0; color: var(--ink); background: white; font: inherit; font-size: 9px; }
+.creatorVoiceFields input, .creatorVoiceFields textarea { width: 100%; border: 1px solid #dfe2ea; border-radius: 8px; outline: 0; color: var(--ink); background: white; font: inherit; font-size: 11px; }
 .creatorVoiceFields input { height: 36px; padding: 0 10px; }
 .creatorVoiceFields textarea { height: 78px; padding: 9px 10px; resize: none; line-height: 15px; }
 .creatorVoiceFields input:focus, .creatorVoiceFields textarea:focus { border-color: #91a0ff; box-shadow: 0 0 0 3px rgba(61, 90, 254, .07); }
@@ -1264,7 +1296,7 @@ img, video, canvas { display: block; }
 .personaFields { display: grid; gap: 15px; }
 .personaFields label { display: grid; gap: 7px; }
 .personaFields label > span { font-size: 9px; font-weight: 700; }
-.personaFields input, .personaFields textarea { width: 100%; padding: 0 10px; border: 1px solid #dfe2ea; border-radius: 8px; outline: 0; font-size: 9px; }
+.personaFields input, .personaFields textarea { width: 100%; padding: 0 10px; border: 1px solid #dfe2ea; border-radius: 8px; outline: 0; font-size: 11px; }
 .personaFields input { height: 40px; }
 .personaFields textarea { padding-top: 10px; resize: vertical; line-height: 1.6; }
 .personaFields input:focus, .personaFields textarea:focus { border-color: #95a2f8; box-shadow: 0 0 0 3px rgba(61, 90, 254, .07); }
@@ -1316,7 +1348,7 @@ img, video, canvas { display: block; }
 .settingHeading small { color: var(--muted); font-size: 9px; }
 .designSettings label { display: grid; gap: 7px; }
 .designSettings label > span { font-size: 10px; font-weight: 700; }
-.designSettings input, .designSettings select { width: 100%; height: 43px; padding: 0 12px; border: 1px solid #dfe1e9; border-radius: 8px; outline: 0; background: white; font-size: 10px; }
+.designSettings input, .designSettings select { width: 100%; height: 43px; padding: 0 12px; border: 1px solid #dfe1e9; border-radius: 8px; outline: 0; background: white; font-size: 12px; }
 .designSettings input:focus, .designSettings select:focus { border-color: #91a0ff; box-shadow: 0 0 0 3px rgba(61, 90, 254, .08); }
 .designEngine { padding: 12px; border-radius: 9px; display: flex; align-items: center; gap: 10px; color: #5562ac; background: #f0f2ff; }
 .designEngine > span { display: flex; flex-direction: column; gap: 2px; }

@@ -329,6 +329,8 @@ export class ServerTotalStream {
   private workletUnderrunBlocks = 0;
   private pendingVideoDecodes = 0;
   private mediaFps = 15;
+  private videoFrameRequestKind: 'raf' | 'timeout' | null = null;
+  private visibilityListenerAttached = false;
   private pendingPlaybackCompletion: { active: ActiveRequest; result: MuseTalkTotalResult } | null = null;
   private activeRequest: ActiveRequest | null = null;
 
@@ -336,6 +338,19 @@ export class ServerTotalStream {
     private readonly canvas: HTMLCanvasElement,
     private readonly options: MuseTalkTotalOptions = {},
   ) {}
+
+  private readonly handleVisibilityChange = () => {
+    if (!this.mediaTimelineStarted) return;
+    const backgrounded = document.hidden || !document.hasFocus();
+    if (backgrounded && this.videoFrameRequestKind === 'raf' && this.videoFrameRequest !== null) {
+      window.cancelAnimationFrame(this.videoFrameRequest);
+      this.videoFrameRequest = null;
+      this.videoFrameRequestKind = null;
+      this.requestVideoRender(this.sessionGeneration);
+    } else if (!backgrounded && this.videoFrameRequest === null && (this.activeRequest || this.decodedVideoFrames.size)) {
+      this.requestVideoRender(this.sessionGeneration);
+    }
+  };
 
   private setStage(stage: string) {
     this.options.onStage?.(stage);
@@ -500,7 +515,24 @@ export class ServerTotalStream {
 
   private requestVideoRender(generation: number) {
     if (this.videoFrameRequest !== null) return;
-    this.videoFrameRequest = window.requestAnimationFrame(() => this.renderDueVideoFrame(generation));
+    // requestAnimationFrame is suspended for background tabs. A live capture
+    // must keep advancing when the operator switches to the platform client,
+    // so use a timer while hidden and resume rAF for the interactive preview.
+    if (document.hidden || !document.hasFocus()) {
+      this.videoFrameRequestKind = 'timeout';
+      this.videoFrameRequest = window.setTimeout(() => {
+        this.videoFrameRequest = null;
+        this.videoFrameRequestKind = null;
+        this.renderDueVideoFrame(generation);
+      }, Math.max(16, Math.round(1000 / this.mediaFps)));
+      return;
+    }
+    this.videoFrameRequestKind = 'raf';
+    this.videoFrameRequest = window.requestAnimationFrame(() => {
+      this.videoFrameRequest = null;
+      this.videoFrameRequestKind = null;
+      this.renderDueVideoFrame(generation);
+    });
   }
 
   private renderDueVideoFrame(generation: number) {
@@ -548,8 +580,10 @@ export class ServerTotalStream {
 
   private clearVideoPlayback() {
     if (this.videoFrameRequest !== null) {
-      window.cancelAnimationFrame(this.videoFrameRequest);
+      if (this.videoFrameRequestKind === 'timeout') window.clearTimeout(this.videoFrameRequest);
+      else window.cancelAnimationFrame(this.videoFrameRequest);
       this.videoFrameRequest = null;
+      this.videoFrameRequestKind = null;
     }
     for (const bitmap of this.decodedVideoFrames.values()) bitmap.close();
     this.decodedVideoFrames.clear();
@@ -952,6 +986,12 @@ export class ServerTotalStream {
   }
 
   async startLive(): Promise<void> {
+    if (!this.visibilityListenerAttached) {
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+      window.addEventListener('blur', this.handleVisibilityChange);
+      window.addEventListener('focus', this.handleVisibilityChange);
+      this.visibilityListenerAttached = true;
+    }
     const existing = this.websocket;
     if (existing && existing.readyState === WebSocket.OPEN) {
       await this.prepareAudio();
@@ -1129,6 +1169,12 @@ export class ServerTotalStream {
     this.websocket = null;
     websocket?.close();
     this.mediaTimelineStarted = false;
+    if (this.visibilityListenerAttached) {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+      window.removeEventListener('blur', this.handleVisibilityChange);
+      window.removeEventListener('focus', this.handleVisibilityChange);
+      this.visibilityListenerAttached = false;
+    }
     this.setMediaActive(false);
     this.setStage('idle');
     await this.closeAudio();

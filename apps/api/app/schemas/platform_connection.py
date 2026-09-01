@@ -101,3 +101,9 @@ class PlatformConnectionResponse(CamelModel):
     version: int
     created_at: datetime
     updated_at: datetime
+
+
+class LocalRtmpSelfTestResponse(CamelModel):
+    passed: Literal[True]
+    message: str
+    duration_ms: int = Field(ge=1)

@@ -10,12 +10,18 @@ from sqlalchemy.orm import Session
 from ...db.session import get_db
 from ...repositories import platform_connections as repository
 from ...schemas.platform_connection import (
+    LocalRtmpSelfTestResponse,
     PlatformConnectionCreate,
     PlatformConnectionResponse,
     PlatformConnectionUpdate,
 )
 from ...security import SecretConfigurationError, SecretDecryptionError, decrypt_secret, encrypt_secret
-from ...services.platforms import RtmpProbeError, probe_rtmp_endpoint
+from ...services.platforms import (
+    LocalRtmpSelfTestError,
+    RtmpProbeError,
+    probe_rtmp_endpoint,
+    run_local_rtmp_self_test,
+)
 
 router = APIRouter(prefix="/platform-connections", tags=["platform connections"])
 
@@ -37,6 +43,19 @@ def encryption_unavailable(exc: Exception) -> HTTPException:
 @router.get("", response_model=list[PlatformConnectionResponse], response_model_exclude_none=True)
 def list_connections(db: Session = Depends(get_db)) -> list:
     return repository.list_platform_connections(db)
+
+
+@router.post("/local-rtmp-self-test", response_model=LocalRtmpSelfTestResponse)
+def local_rtmp_self_test() -> LocalRtmpSelfTestResponse:
+    try:
+        result = run_local_rtmp_self_test()
+    except LocalRtmpSelfTestError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return LocalRtmpSelfTestResponse(
+        passed=True,
+        message=result.message,
+        duration_ms=result.duration_ms,
+    )
 
 
 @router.post(

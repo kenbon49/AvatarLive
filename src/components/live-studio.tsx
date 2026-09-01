@@ -49,9 +49,15 @@ import {
 import { MuseTalkAvatarProfile, MuseTalkTotalStream } from '@/lib/musetalk-total-stream';
 import {
   BrowserLivePublisher,
+  SceneCompositor,
   type BroadcastSceneSnapshot,
   type BrowserPublisherState,
 } from '@/lib/browser-live-publisher';
+import {
+  openWindowCaptureWindow,
+  WindowCaptureSession,
+  type WindowCaptureState,
+} from '@/lib/window-capture-session';
 import { ProductShell } from '@/components/product-shell';
 import {
   copyLiveRoom,
@@ -74,8 +80,10 @@ import {
 import {
   createPlatformConnection,
   listPlatformConnections,
+  runLocalRtmpSelfTest,
   testPlatformConnection,
   updatePlatformConnection,
+  type LocalRtmpSelfTestResult,
   type PlatformConnection,
 } from '@/lib/platform-connection-api';
 
@@ -385,6 +393,24 @@ const EMPTY_RTMP_DRAFT: RtmpConnectionDraft = {
   status: 'enabled',
 };
 
+function validateRtmpDraft(draft: RtmpConnectionDraft, editing: boolean): string | null {
+  if (!draft.name.trim()) return '请填写连接名称';
+  if (!draft.platformLabel.trim()) return '请填写平台备注';
+  if (!draft.serverUrl.trim() || draft.serverUrl.trim() === 'rtmp://') return '请填写完整的 RTMP 服务器地址';
+  try {
+    const parsed = new URL(draft.serverUrl.trim());
+    if (!['rtmp:', 'rtmps:'].includes(parsed.protocol)) return 'RTMP 服务器地址必须以 rtmp:// 或 rtmps:// 开头';
+    if (!parsed.hostname) return 'RTMP 服务器地址缺少主机名';
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+      return '服务器地址不能包含账号、密码、查询参数或推流密钥；请将密钥单独填写在下方';
+    }
+  } catch {
+    return 'RTMP 服务器地址格式不正确，例如 rtmp://push.example.com/live';
+  }
+  if (!editing && !draft.streamKey.trim()) return '新建连接时必须填写推流密钥';
+  return null;
+}
+
 const ACTIVE_LIVE_RUN_STORAGE_KEY = 'synlive.activeLiveRunId';
 
 export function LiveStudio({
@@ -402,9 +428,13 @@ export function LiveStudio({
   const canvasGestureRef = useRef<CanvasGesture | null>(null);
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
   const browserPublisherRef = useRef<BrowserLivePublisher | null>(null);
+  const captureCompositorRef = useRef<SceneCompositor | null>(null);
+  const windowCaptureSessionRef = useRef<WindowCaptureSession | null>(null);
+  const capturePopupRef = useRef<Window | null>(null);
   const broadcastSceneRef = useRef<BroadcastSceneSnapshot | null>(null);
   const runRecoveryAttemptedRef = useRef(false);
   const [mediaActive, setMediaActive] = useState(false);
+  const [streamReady, setStreamReady] = useState(false);
   const [stage, setStage] = useState('idle');
   const [onAir, setOnAir] = useState(false);
   const [liveRun, setLiveRun] = useState<LiveRun | null>(null);
@@ -412,6 +442,10 @@ export function LiveStudio({
   const [liveRunBusy, setLiveRunBusy] = useState(false);
   const [browserPublisherState, setBrowserPublisherState] = useState<BrowserPublisherState>('stopped');
   const [browserPublisherMessage, setBrowserPublisherMessage] = useState('');
+  const [publishMode, setPublishMode] = useState<'window_capture' | 'manual_rtmp'>('window_capture');
+  const [captureOrientation, setCaptureOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [windowCaptureState, setWindowCaptureState] = useState<WindowCaptureState>('stopped');
+  const [windowCaptureMessage, setWindowCaptureMessage] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [room, setRoom] = useState<LiveRoom | null>(null);
@@ -508,6 +542,8 @@ export function LiveStudio({
   const [platformConnectionsLoading, setPlatformConnectionsLoading] = useState(false);
   const [platformActionId, setPlatformActionId] = useState<string | null>(null);
   const [platformError, setPlatformError] = useState('');
+  const [localRtmpSelfTestResult, setLocalRtmpSelfTestResult] = useState<LocalRtmpSelfTestResult | null>(null);
+  const [localRtmpSelfTestError, setLocalRtmpSelfTestError] = useState('');
   const [rtmpFormOpen, setRtmpFormOpen] = useState(false);
   const [editingPlatformConnectionId, setEditingPlatformConnectionId] = useState<string | null>(null);
   const [rtmpDraft, setRtmpDraft] = useState<RtmpConnectionDraft>(EMPTY_RTMP_DRAFT);
@@ -609,18 +645,25 @@ export function LiveStudio({
   const selectedPlatformConnections = platformConnections.filter((connection) => (
     selectedPlatformConnectionIds.includes(connection.id)
   ));
-  const platformPreflightChecks = [
-    { label: '直播间配置已保存', passed: Boolean(room && !roomDirty && !roomSaving) },
-    { label: '直播间已发布', passed: Boolean(room?.status === 'published' && !roomDirty && !roomSaving) },
-    { label: '已选择至少一个推流目标', passed: selectedPlatformConnectionIds.length > 0 },
-    {
-      label: '所选目标已启用且连接测试通过',
-      passed: selectedPlatformConnectionIds.length > 0
-        && selectedPlatformConnections.length === selectedPlatformConnectionIds.length
-        && selectedPlatformConnections.every((connection) => connection.status === 'enabled' && connection.testStatus === 'passed'),
-    },
-    { label: '输出协议为 RTMP / H.264', passed: outputConfig.protocol === 'RTMP' && outputConfig.codec === 'H.264' },
-  ];
+  const windowCaptureMode = publishMode === 'window_capture';
+  const playbackBusy = ['llm_start', 'speak_start', 'tts_start', 'playing'].includes(stage);
+  const platformPreflightChecks = windowCaptureMode
+    ? [
+      { label: '节目输出窗口比例已选择', passed: true },
+      { label: '直播间画面已初始化', passed: Boolean(!roomLoading && streamReady) },
+    ]
+    : [
+      { label: '直播间配置已保存', passed: Boolean(room && !roomDirty && !roomSaving) },
+      { label: '直播间已发布', passed: Boolean(room?.status === 'published' && !roomDirty && !roomSaving) },
+      { label: '已选择至少一个推流目标', passed: selectedPlatformConnectionIds.length > 0 },
+      {
+        label: '所选目标已启用且连接测试通过',
+        passed: selectedPlatformConnectionIds.length > 0
+          && selectedPlatformConnections.length === selectedPlatformConnectionIds.length
+          && selectedPlatformConnections.every((connection) => connection.status === 'enabled' && connection.testStatus === 'passed'),
+      },
+      { label: '输出协议为 RTMP / H.264', passed: outputConfig.protocol === 'RTMP' && outputConfig.codec === 'H.264' },
+    ];
   const platformPreflightReady = platformPreflightChecks.every((check) => check.passed);
   const rtmpFormBusy = platformActionId !== null;
 
@@ -631,6 +674,79 @@ export function LiveStudio({
     setBrowserPublisherState('stopped');
     setBrowserPublisherMessage('');
   }, []);
+
+  const stopWindowCapture = useCallback(() => {
+    windowCaptureSessionRef.current?.stop();
+    windowCaptureSessionRef.current = null;
+    captureCompositorRef.current?.stop();
+    captureCompositorRef.current = null;
+    capturePopupRef.current = null;
+    setWindowCaptureState('stopped');
+    setWindowCaptureMessage('');
+  }, []);
+
+  const startWindowCapture = useCallback(async () => {
+    if (windowCaptureSessionRef.current) return;
+    const sourceCanvas = canvasRef.current;
+    const avatarStream = streamRef.current;
+    const scene = broadcastSceneRef.current;
+    if (!sourceCanvas || !avatarStream || !scene) throw new Error('直播最终画面尚未初始化完成');
+    const sessionId = globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Open synchronously from the button event so the browser does not block it.
+    const popup = openWindowCaptureWindow(sessionId, captureOrientation);
+    if (!popup) throw new Error('节目输出窗口被浏览器拦截，请允许本站打开弹窗后重试');
+    capturePopupRef.current = popup;
+    setWindowCaptureState('connecting');
+    setWindowCaptureMessage('正在连接节目输出窗口');
+    let compositor: SceneCompositor | null = null;
+    try {
+      await avatarStream.startLive();
+      const rate = Number.parseInt(outputConfig.frameRate, 10) || 25;
+      compositor = new SceneCompositor(
+        sourceCanvas,
+        outputConfig.resolution,
+        rate,
+        () => broadcastSceneRef.current ?? scene,
+        captureOrientation,
+      );
+      const mediaStream = compositor.start();
+      const audioTrack = avatarStream.getOutputAudioTrack();
+      if (audioTrack?.readyState === 'live') mediaStream.addTrack(audioTrack);
+      const session = new WindowCaptureSession({
+        popup,
+        sessionId,
+        onState: (state, message) => {
+          setWindowCaptureState(state);
+          setWindowCaptureMessage(message || '');
+          if (state === 'failed') {
+            setOnAir(false);
+            setError(message || '节目输出窗口连接失败');
+            stopWindowCapture();
+          }
+        },
+      });
+      captureCompositorRef.current = compositor;
+      windowCaptureSessionRef.current = session;
+      try {
+        await session.start(mediaStream);
+      } catch (caught) {
+        session.stop();
+        compositor.stop();
+        compositor = null;
+        windowCaptureSessionRef.current = null;
+        captureCompositorRef.current = null;
+        throw caught;
+      }
+    } catch (caught) {
+      if (!popup.closed) popup.close();
+      compositor?.stop();
+      compositor = null;
+      await avatarStream.stopLive().catch(() => undefined);
+      capturePopupRef.current = null;
+      setWindowCaptureState('failed');
+      throw caught;
+    }
+  }, [captureOrientation, outputConfig.frameRate, outputConfig.resolution, stopWindowCapture]);
 
   const startBrowserPublisher = useCallback(async (run: LiveRun) => {
     if (browserPublisherRef.current) return;
@@ -760,7 +876,12 @@ export function LiveStudio({
   }, [liveRun?.id, liveRun?.status, stopBrowserPublisher]);
 
   useEffect(() => {
-    if (!entered || workspaceMode !== 'script' || !canvasRef.current) return;
+    // Keep the media source alive while editing Q&A or other controls; both
+    // workspace views keep the source canvas mounted for window capture.
+    if (!entered || !canvasRef.current) {
+      setStreamReady(false);
+      return;
+    }
     const stream = new MuseTalkTotalStream(canvasRef.current, {
       profile: avatarId,
       language: 'ZH',
@@ -768,11 +889,13 @@ export function LiveStudio({
       onMediaActive: setMediaActive,
     });
     streamRef.current = stream;
+    setStreamReady(true);
     return () => {
+      setStreamReady(false);
       void stream.stopLive();
       if (streamRef.current === stream) streamRef.current = null;
     };
-  }, [avatarId, entered, workspaceMode]);
+  }, [avatarId, entered]);
 
   useEffect(() => {
     if (!entered || !room || liveRun || runRecoveryAttemptedRef.current) return;
@@ -809,8 +932,9 @@ export function LiveStudio({
   }, [entered, liveRun, room, startBrowserPublisher]);
 
   useEffect(() => () => {
+    stopWindowCapture();
     void stopBrowserPublisher();
-  }, [stopBrowserPublisher]);
+  }, [stopBrowserPublisher, stopWindowCapture]);
 
   useEffect(() => {
     setLayers((items) => items.map((item) => item.sceneKey === 'host' ? { ...item, value: avatar.name } : item));
@@ -864,7 +988,7 @@ export function LiveStudio({
   }, [startedAt]);
 
   const play = async (item: ScriptItem) => {
-    if (stage !== 'idle' || !streamRef.current) return;
+    if (playbackBusy || !streamRef.current || item.state === 'playing') return;
     setError('');
     setScripts((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, state: 'playing' } : candidate));
     try {
@@ -995,9 +1119,9 @@ export function LiveStudio({
   const saveRtmpConnection = async (event: FormEvent) => {
     event.preventDefault();
     const editing = platformConnections.find((item) => item.id === editingPlatformConnectionId);
-    if (!rtmpDraft.name.trim() || !rtmpDraft.platformLabel.trim() || !rtmpDraft.serverUrl.trim()) return;
-    if (!editing && !rtmpDraft.streamKey.trim()) {
-      setPlatformError('新建连接时必须填写推流密钥');
+    const validationError = validateRtmpDraft(rtmpDraft, Boolean(editing));
+    if (validationError) {
+      setPlatformError(validationError);
       return;
     }
     const actionId = editing?.id ?? 'new';
@@ -1030,6 +1154,21 @@ export function LiveStudio({
       setNotice(`推流目标“${saved.name}”已安全保存`);
     } catch (caught) {
       setPlatformError(caught instanceof Error ? caught.message : '推流目标保存失败');
+    } finally {
+      setPlatformActionId(null);
+    }
+  };
+
+  const runLocalMediaSelfTest = async () => {
+    setPlatformActionId('local-rtmp-self-test');
+    setLocalRtmpSelfTestResult(null);
+    setLocalRtmpSelfTestError('');
+    try {
+      const result = await runLocalRtmpSelfTest();
+      setLocalRtmpSelfTestResult(result);
+      setNotice('本机 RTMP 媒体链路自检通过');
+    } catch (caught) {
+      setLocalRtmpSelfTestError(caught instanceof Error ? caught.message : '本机 RTMP 推流自检失败');
     } finally {
       setPlatformActionId(null);
     }
@@ -1223,6 +1362,7 @@ export function LiveStudio({
   const stopLive = async () => {
     setError('');
     try {
+      stopWindowCapture();
       await stopBrowserPublisher();
       await streamRef.current?.stopLive();
       if (liveRun && ['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) {
@@ -1244,10 +1384,25 @@ export function LiveStudio({
   };
 
   const completeLivePreflight = async () => {
-    if (!platformPreflightReady || !termsAccepted || !room || liveRunBusy) return;
+    if (!platformPreflightReady || (!windowCaptureMode && (!termsAccepted || !room)) || liveRunBusy) return;
     setLiveRunBusy(true);
     setPlatformError('');
     setLiveRunPreflight(null);
+    if (windowCaptureMode) {
+      try {
+        await startWindowCapture();
+        setOnAir(true);
+        setStartedAt(Date.now());
+        setDialog(null);
+        setNotice('节目输出窗口已打开，请在平台官方直播伴侣中捕获该窗口并点击开播');
+      } catch (caught) {
+        setPlatformError(caught instanceof Error ? caught.message : '节目输出窗口启动失败');
+      } finally {
+        setLiveRunBusy(false);
+      }
+      return;
+    }
+    if (!room) return;
     const input = {
       liveRoomId: room.id,
       expectedRoomVersion: room.version,
@@ -1887,14 +2042,13 @@ export function LiveStudio({
             <button type="button" className="xlSaveScript" onClick={saveToLibrary}><Save size={13} />保存到脚本库</button>
           </header>
 
-          {workspaceMode === 'qa' ? (
-            <section className="xlQaWorkspace">
+          <>
+            <section className={`xlQaWorkspace ${workspaceMode === 'qa' ? '' : 'xlWorkspaceHidden'}`}>
               <header><div><strong>直播问答</strong><span>共{qaItems.length}条</span></div><div><button type="button" onClick={() => setShowQaComposer((value) => !value)}><Plus size={14} />问答组</button><label><input value={qaQuery} onChange={(event) => setQaQuery(event.target.value)} placeholder="搜索相关问题与回答" /><Search size={15} /></label></div></header>
               {showQaComposer && <form className="xlQaComposer" onSubmit={addQa}><label><span>观众问题</span><input value={qaQuestion} onChange={(event) => setQaQuestion(event.target.value)} placeholder="输入常见问题" /></label><label><span>主播回答</span><textarea value={qaAnswer} onChange={(event) => setQaAnswer(event.target.value)} placeholder="输入推荐回答" rows={3} /></label><div><button type="button" onClick={() => setShowQaComposer(false)}>取消</button><button type="submit" disabled={!qaQuestion.trim() || !qaAnswer.trim()}>添加问答组</button></div></form>}
               {filteredQaItems.length ? <div className="xlQaList">{filteredQaItems.map((item, index) => <article key={item.id}><span>Q{index + 1}</span><div><strong>{item.question}</strong><p>{item.answer}</p></div><button type="button" aria-label={`删除问题${index + 1}`} onClick={() => setQaItems((items) => items.filter((candidate) => candidate.id !== item.id))}><Trash2 size={14} /></button></article>)}</div> : <div className="xlQaEmpty"><MessageCircleQuestion size={58} /><strong>{qaQuery ? '没有匹配的问答' : '您还没有添加问答组'}</strong><p>添加常见问题后，AI 主播可以自动回复直播间弹幕。</p><button type="button" onClick={() => setShowQaComposer(true)}><Plus size={14} />添加第一个问答组</button></div>}
             </section>
-          ) : (
-            <div className="xlEditorGrid">
+            <div className={`xlEditorGrid ${workspaceMode === 'qa' ? 'xlWorkspaceHidden' : ''}`}>
               <section className="xlScriptPanel">
                 <header className="xlPanelToolbar">
                   <div><strong>话术列表</strong><span>共{scripts.length}条</span></div>
@@ -1914,7 +2068,7 @@ export function LiveStudio({
                     return <article className={`xlScriptItem ${item.state} ${selected ? 'selected' : ''}`} key={item.id} onClick={() => { if (batchMode) toggleScriptSelection(item.id); }}>
                       <button className="xlScriptNumber" type="button" aria-label={batchMode ? `${selected ? '取消选择' : '选择'}${item.title}` : `第${index + 1}条话术`} onClick={(event) => { if (batchMode) { event.stopPropagation(); toggleScriptSelection(item.id); } }}>{batchMode ? (selected ? <CheckSquare size={16} /> : <span className="xlEmptyCheck" />) : index + 1}</button>
                       <span className={`xlScriptCategory ${item.category === '促单' ? 'yellow' : item.category === '开场' ? 'pink' : ''}`}>{item.category}</span>
-                      <div className="xlScriptBody"><header><strong>{item.title}</strong><span>00:00 / {item.duration}</span></header><p>{item.text}</p><div className="xlScriptItemActions"><button type="button" onClick={(event) => { event.stopPropagation(); void play(item); }} disabled={stage !== 'idle' || item.state === 'playing'} aria-label={`试听${item.title}`}><Play size={13} fill="currentColor" /></button><button type="button" onClick={(event) => { event.stopPropagation(); setScripts((items) => items.filter((candidate) => candidate.id !== item.id)); setNotice('话术已删除'); }} aria-label={`删除${item.title}`}><Trash2 size={13} /></button></div></div>
+                      <div className="xlScriptBody"><header><strong>{item.title}</strong><span>00:00 / {item.duration}</span></header><p>{item.text}</p><div className="xlScriptItemActions"><button type="button" onClick={(event) => { event.stopPropagation(); void play(item); }} disabled={playbackBusy || item.state === 'playing'} aria-label={`试听${item.title}`}><Play size={13} fill="currentColor" /></button><button type="button" onClick={(event) => { event.stopPropagation(); setScripts((items) => items.filter((candidate) => candidate.id !== item.id)); setNotice('话术已删除'); }} aria-label={`删除${item.title}`}><Trash2 size={13} /></button></div></div>
                     </article>;
                   })}
                 </div>
@@ -1927,7 +2081,21 @@ export function LiveStudio({
                   <div className={`xlPortraitCanvas ${canvasGestureMode ? `interacting ${canvasGestureMode}` : ''}`} ref={previewCanvasRef} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasGesture} onPointerCancel={finishCanvasGesture} onLostPointerCapture={finishCanvasGesture}>
                     {backgroundLayer && <img className="xlSceneBackground" src={previewBackground} alt={`${selectedTemplate.name}直播模板`} style={{ left: `${backgroundLayer.x}%`, top: `${backgroundLayer.y}%`, right: 'auto', bottom: 'auto', width: `${backgroundLayer.width}%`, height: `${backgroundLayer.height}%`, transform: `translate(-50%, -50%) rotate(${backgroundLayer.rotation}deg)`, opacity: backgroundLayer.opacity / 100 }} />}
                     {hostLayer && !avatarSwitching && <img className={mediaActive ? 'xlSceneHost hidden' : 'xlSceneHost'} src={previewHost} alt={`${avatar.name}直播预览`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, opacity: hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />}
-                    <canvas ref={canvasRef} className={mediaActive ? 'xlStreamCanvas active' : 'xlStreamCanvas'} />
+                    <canvas
+                      ref={canvasRef}
+                      className={mediaActive ? 'xlStreamCanvas active' : 'xlStreamCanvas'}
+                      style={hostLayer ? {
+                        inset: 'auto',
+                        left: `${hostLayer.x}%`,
+                        top: `${hostLayer.y}%`,
+                        right: 'auto',
+                        bottom: 'auto',
+                        width: `${hostLayer.width}%`,
+                        height: `${hostLayer.height}%`,
+                        opacity: hostLayer.opacity / 100,
+                        transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)`,
+                      } : undefined}
+                    />
                     {avatarSwitching && <div className="xlAvatarLoading" role="status"><i /><span>主播形象加载中</span></div>}
                     {layers.map((item, index) => item.kind === 'text' ? <span className={`xlCanvasText ${item.sceneKey === 'custom' ? 'custom' : item.sceneKey ?? ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: 10 + layers.length - index, transform: `translate(-50%, -50%) rotate(${item.rotation}deg)`, opacity: item.opacity / 100, color: item.color, fontFamily: FONT_FAMILIES[item.fontFamily ?? '默认字体'], fontSize: `${item.fontSize ?? 16}px`, fontWeight: item.fontWeight, fontStyle: item.fontStyle, textDecoration: item.textDecoration, textAlign: item.textAlign, letterSpacing: `${item.letterSpacing ?? 0}px`, lineHeight: item.lineHeight, WebkitTextStroke: item.strokeEnabled ? `1px ${item.strokeColor ?? '#000000'}` : undefined, textShadow: item.shadowEnabled ? `${item.shadowX ?? 4}px ${item.shadowY ?? 4}px ${item.shadowBlur ?? 8}px ${item.shadowColor ?? '#000000'}` : undefined }} key={item.id}>{item.value}</span> : item.sceneKey === 'custom' && item.kind !== 'host' ? <span className={`xlCustomSceneAsset ${item.kind}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: 10 + layers.length - index, transform: `translate(-50%, -50%) rotate(${item.rotation}deg)`, opacity: item.opacity / 100 }} key={item.id}>{item.kind === 'image' && item.preview ? <img src={item.preview} alt={item.value} /> : item.kind === 'image' ? <ImageIcon size={23} /> : <Video size={23} />}<em>{item.value}</em></span> : null)}
                     {layers.map((item, index) => <button className={`xlLayerHitTarget ${item.sceneKey === 'templateBackground' ? 'background' : ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: 30 + layers.length - index, transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }} type="button" aria-label={`选择并移动图层：${item.value}`} aria-pressed={selectedLayerId === item.id} data-layer-hit={item.id} key={`hit-${item.id}`} onPointerDown={(event) => beginCanvasGesture(event, item, 'move')} onClick={(event) => { event.stopPropagation(); openLayerInspector(item.id); }} />)}
@@ -1996,7 +2164,7 @@ export function LiveStudio({
                 </div>
               </aside>
             </div>
-          )}
+          </>
         </section>
       </div>
 
@@ -2105,12 +2273,33 @@ export function LiveStudio({
         <section className="xlModal xlLivePlatformModal" role="dialog" aria-modal="true" aria-label="平台授权中心" onMouseDown={(event) => event.stopPropagation()}>
           <header><span><Link2 size={17} /><strong>平台授权中心</strong></span><button type="button" aria-label="关闭平台授权中心" onClick={() => setDialog(null)}><X size={17} /></button></header>
           <div className="xlPlatformCenterBody">
-            <div className="xlPlatformNotice"><ShieldCheck size={16} /><span><strong>通用 RTMP 已接入真实安全存储</strong><small>推流密钥使用服务端 AES-GCM 加密且不会返回浏览器；连接测试只代表服务器可达，不等于平台账号或互动权限已授权。</small></span></div>
-            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出预设</strong>{outputConfig.protocol} · {outputConfig.resolution} · {outputConfig.frameRate} · {outputConfig.codec}</span><span><i />已选 {selectedPlatformConnectionIds.length} 个目标</span><label className="xlPlatformSource"><strong>最终画面来源</strong><select value={mediaSourceKind} onChange={(event) => setMediaSourceKind(event.target.value as 'browser_ingest' | 'test_pattern')}><option value="browser_ingest">浏览器媒体网关（生产）</option><option value="test_pattern">服务端测试画面（仅联调）</option></select></label></div>
+            <div className="xlPlatformNotice"><ShieldCheck size={16} /><span><strong>{windowCaptureMode ? '窗口采集模式不需要平台 RTMP 密钥' : '通用 RTMP 已接入真实安全存储'}</strong><small>{windowCaptureMode ? 'AvatarLive 会打开纯净节目输出窗口；请使用平台官方直播伴侣捕获该窗口并完成开播。' : '推流密钥使用服务端 AES-GCM 加密且不会返回浏览器；连接测试只代表服务器可达，不等于平台账号或互动权限已授权。'}</small></span></div>
+            <div className="xlLocalRtmpTest">
+              <span><Server size={16} /><span><strong>没有平台密钥也能先测媒体链路</strong><small>向项目内置 SRS 推送 2 秒 H.264/AAC 测试画面，验证 FFmpeg 与 RTMP 服务；不会连接抖音等外部平台。</small></span></span>
+              <button type="button" disabled={platformActionId !== null} onClick={() => void runLocalMediaSelfTest()}>{platformActionId === 'local-rtmp-self-test' ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <Play size={13} />}{platformActionId === 'local-rtmp-self-test' ? '正在推流自检' : '运行本机推流自检'}</button>
+            </div>
+            {localRtmpSelfTestResult && <div className="xlPlatformMessage xlLocalRtmpTestResult passed" role="status">{localRtmpSelfTestResult.message}（耗时 {(localRtmpSelfTestResult.durationMs / 1000).toFixed(1)} 秒）</div>}
+            {localRtmpSelfTestError && <div className="xlPlatformError xlLocalRtmpTestError" role="alert">{localRtmpSelfTestError}</div>}
+            <section className="xlCaptureModePanel">
+              <header><span><strong>开播方式</strong><small>{windowCaptureMode ? '不需要平台 RTMP 密钥，由官方直播伴侣捕获节目窗口。' : '使用已保存的 RTMP 地址，由服务端 FFmpeg 转推到平台。'}</small></span><Radio size={16} /></header>
+              <div className="xlCaptureModeChoice" role="group" aria-label="选择开播方式">
+                <button className={windowCaptureMode ? 'active' : ''} type="button" onClick={() => { setPublishMode('window_capture'); setTermsAccepted(false); setPlatformError(''); }}>窗口采集（推荐）</button>
+                <button className={!windowCaptureMode ? 'active' : ''} type="button" onClick={() => { setPublishMode('manual_rtmp'); setTermsAccepted(false); setPlatformError(''); }}>手工 RTMP</button>
+              </div>
+              {windowCaptureMode && <>
+                <div className="xlCaptureModeChoice" role="group" aria-label="选择节目窗口比例">
+                  <button className={captureOrientation === 'portrait' ? 'active' : ''} type="button" onClick={() => setCaptureOrientation('portrait')}>9:16 竖屏手机窗口</button>
+                  <button className={captureOrientation === 'landscape' ? 'active' : ''} type="button" onClick={() => setCaptureOrientation('landscape')}>16:9 横屏 PC 窗口</button>
+                </div>
+                <p className="xlCaptureModeHint">点击下方按钮后会打开纯净节目窗口。请在抖音、快手、淘宝等官方直播伴侣中选择该窗口和系统声音，再点击平台自己的“开始直播”；若浏览器提示，请先在节目窗口点击启用声音。节目窗口与控制台需保持在同一台电脑并持续运行。</p>
+                {windowCaptureState !== 'stopped' && <div className={`xlCaptureWindowState ${windowCaptureState === 'failed' ? 'failed' : ''}`}>{windowCaptureState === 'connecting' ? '节目窗口正在连接…' : windowCaptureState === 'live' ? '节目窗口已连接，可以交给官方直播伴侣捕获' : windowCaptureMessage || '节目窗口连接失败'}</div>}
+              </>}
+            </section>
+            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出预设</strong>{windowCaptureMode ? `${captureOrientation === 'portrait' ? '9:16' : '16:9'} · ${outputConfig.frameRate} · H.264` : `${outputConfig.protocol} · ${outputConfig.resolution} · ${outputConfig.frameRate} · ${outputConfig.codec}`}</span>{windowCaptureMode ? <span><i />节目窗口模式</span> : <span><i />已选 {selectedPlatformConnectionIds.length} 个目标</span>}{!windowCaptureMode && <label className="xlPlatformSource"><strong>最终画面来源</strong><select value={mediaSourceKind} onChange={(event) => setMediaSourceKind(event.target.value as 'browser_ingest' | 'test_pattern')}><option value="browser_ingest">浏览器媒体网关（生产）</option><option value="test_pattern">服务端测试画面（仅联调）</option></select></label>}</div>
 
             <div className="xlPlatformCenterGrid">
               <section className="xlRtmpConnections">
-                <header><span><strong>推流目标</strong><small>从平台直播后台获取合法地址和密钥</small></span><button type="button" onClick={openNewRtmpConnection}><Plus size={14} />新增 RTMP</button></header>
+                <header><span><strong>推流目标</strong><small>{windowCaptureMode ? '窗口采集模式不会使用这里的 RTMP 目标' : '从平台直播后台获取合法地址和密钥'}</small></span><button type="button" onClick={openNewRtmpConnection}><Plus size={14} />新增 RTMP</button></header>
                 {platformConnectionsLoading && <div className="xlPlatformLoading"><LoaderCircle className="xlVoiceSpinner" size={17} />正在读取平台连接…</div>}
                 {!platformConnectionsLoading && !platformConnections.length && <div className="xlPlatformEmpty"><KeyRound size={25} /><strong>还没有推流目标</strong><span>新增后密钥只会加密保存在服务端。</span><button type="button" onClick={openNewRtmpConnection}><Plus size={13} />添加第一个目标</button></div>}
                 <div className="xlRtmpConnectionList">{platformConnections.map((connection) => {
@@ -2133,18 +2322,18 @@ export function LiveStudio({
                   </article>;
                 })}</div>
 
-                {rtmpFormOpen && <form className="xlRtmpForm" onSubmit={saveRtmpConnection}>
+                {rtmpFormOpen && <form className="xlRtmpForm" onSubmit={saveRtmpConnection} noValidate>
                   <header><span><strong>{editingPlatformConnectionId ? '编辑 RTMP 目标' : '新增 RTMP 目标'}</strong><small>地址和密钥必须分开填写，避免密钥出现在普通 URL 字段或日志中。</small></span><button type="button" aria-label="关闭 RTMP 表单" onClick={() => { setRtmpFormOpen(false); setPlatformError(''); }}><X size={14} /></button></header>
                   <div className="xlRtmpFormGrid">
-                    <label><span>连接名称</span><input value={rtmpDraft.name} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, name: event.target.value }))} placeholder="例如：抖音新品专场" maxLength={120} /></label>
-                    <label><span>平台备注</span><input value={rtmpDraft.platformLabel} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, platformLabel: event.target.value }))} placeholder="例如：抖音" maxLength={80} /></label>
-                    <label className="wide"><span>RTMP 服务器地址</span><input value={rtmpDraft.serverUrl} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, serverUrl: event.target.value }))} placeholder="rtmps://push.example.com/live" maxLength={500} /></label>
-                    <label className="wide"><span>推流密钥{editingPlatformConnectionId && <small>留空表示保留原密钥</small>}</span><div className="xlSecretInput"><input type={streamKeyVisible ? 'text' : 'password'} value={rtmpDraft.streamKey} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, streamKey: event.target.value }))} placeholder={editingPlatformConnectionId ? '不修改请留空' : '从平台直播后台复制'} maxLength={1000} autoComplete="new-password" /><button type="button" aria-label={streamKeyVisible ? '隐藏推流密钥' : '显示推流密钥'} onClick={() => setStreamKeyVisible((value) => !value)}>{streamKeyVisible ? <EyeOff size={14} /> : <Eye size={14} />}</button></div></label>
+                    <label><span>连接名称</span><input value={rtmpDraft.name} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, name: event.target.value }))} placeholder="例如：B 站测试场" maxLength={120} aria-required="true" /></label>
+                    <label><span>平台备注</span><input value={rtmpDraft.platformLabel} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, platformLabel: event.target.value }))} placeholder="例如：哔哩哔哩" maxLength={80} aria-required="true" /></label>
+                    <label className="wide"><span>RTMP 服务器地址</span><input value={rtmpDraft.serverUrl} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, serverUrl: event.target.value }))} placeholder="rtmps://push.example.com/live" maxLength={500} inputMode="url" aria-required="true" /><small className="xlRtmpFieldHint">这里只填服务器地址；完整推流地址末尾的密钥请拆分到下一项。</small></label>
+                    <label className="wide"><span>推流密钥{editingPlatformConnectionId && <small>留空表示保留原密钥</small>}</span><div className="xlSecretInput"><input type={streamKeyVisible ? 'text' : 'password'} value={rtmpDraft.streamKey} onChange={(event) => setRtmpDraft((draft) => ({ ...draft, streamKey: event.target.value }))} placeholder={editingPlatformConnectionId ? '不修改请留空' : '从平台直播后台复制'} maxLength={1000} autoComplete="new-password" aria-required={!editingPlatformConnectionId} /><button type="button" aria-label={streamKeyVisible ? '隐藏推流密钥' : '显示推流密钥'} onClick={() => setStreamKeyVisible((value) => !value)}>{streamKeyVisible ? <EyeOff size={14} /> : <Eye size={14} />}</button></div></label>
                   </div>
                   <footer><span>保存后浏览器只能看到密钥末四位。</span><div><button type="button" onClick={() => setRtmpFormOpen(false)}>取消</button><button type="submit" disabled={rtmpFormBusy}>{rtmpFormBusy ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <Save size={13} />}{rtmpFormBusy ? '保存中' : '安全保存'}</button></div></footer>
                 </form>}
                 {liveRunPreflight && <div className={`xlPlatformMessage ${liveRunPreflight.ready ? 'passed' : 'failed'}`}>服务端预检：{liveRunPreflight.checks.filter((check) => check.passed).length}/{liveRunPreflight.checks.length} 项通过</div>}
-                {platformError && <div className="xlPlatformError">{platformError}</div>}
+                {platformError && <div className="xlPlatformError" role="alert">{platformError}</div>}
               </section>
 
               <aside className="xlPlatformPreflight">
@@ -2161,7 +2350,7 @@ export function LiveStudio({
               </aside>
             </div>
           </div>
-          <footer className="xlPlatformCenterFooter"><label className="xlPlatformTerms"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>我已确认推流地址来源合法，并了解“服务器可达”不代表平台已授权</span></label><div><button type="button" onClick={() => setDialog(null)}>关闭</button><button type="button" disabled={!platformPreflightReady || !termsAccepted || liveRunBusy} onClick={() => void completeLivePreflight()}>{liveRunBusy ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <ShieldCheck size={14} />}{liveRunBusy ? '服务端检查中' : '完成开播预检'}</button></div></footer>
+          <footer className="xlPlatformCenterFooter"><label className="xlPlatformTerms">{windowCaptureMode ? <span>节目窗口由官方直播伴侣捕获；平台账号登录和实际开播由官方客户端完成。</span> : <><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>我已确认推流地址来源合法，并了解“服务器可达”不代表平台已授权</span></>}</label><div><button type="button" onClick={() => setDialog(null)}>关闭</button><button type="button" disabled={!platformPreflightReady || (!windowCaptureMode && !termsAccepted) || liveRunBusy} onClick={() => void completeLivePreflight()}>{liveRunBusy ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <ShieldCheck size={14} />}{liveRunBusy ? (windowCaptureMode ? '打开节目窗口中' : '服务端检查中') : (windowCaptureMode ? '打开节目输出窗口' : '完成开播预检')}</button></div></footer>
         </section>
       </div>}
 

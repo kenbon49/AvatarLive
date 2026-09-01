@@ -31,6 +31,12 @@ export type UpdatePlatformConnectionInput = {
   status: PlatformConnection['status'];
 };
 
+export type LocalRtmpSelfTestResult = {
+  passed: true;
+  message: string;
+  durationMs: number;
+};
+
 export class PlatformConnectionApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -83,6 +89,12 @@ export function updatePlatformConnection(
 
 export function testPlatformConnection(connection: PlatformConnection): Promise<PlatformConnection> {
   return connectionFetch(`/api/v1/platform-connections/${encodeURIComponent(connection.id)}/test`, {
+    method: 'POST',
+  });
+}
+
+export function runLocalRtmpSelfTest(): Promise<LocalRtmpSelfTestResult> {
+  return connectionFetch('/api/v1/platform-connections/local-rtmp-self-test', {
     method: 'POST',
   });
 }

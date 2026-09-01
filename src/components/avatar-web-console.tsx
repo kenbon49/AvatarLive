@@ -276,7 +276,7 @@ export function AvatarWebConsole() {
                 border: '1px solid rgba(255,255,255,0.14)',
                 borderRadius: 8,
                 padding: '4px 8px',
-                fontSize: 13,
+                fontSize: 15,
                 cursor: avatarLoading ? 'wait' : 'pointer',
               }}
             >

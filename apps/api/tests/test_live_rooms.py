@@ -21,7 +21,12 @@ from app.models.live_run import LiveRun, LiveRunTarget
 from app.models.platform_connection import PlatformConnection
 from app.services.live_runs import preflight as live_run_preflight
 from app.services.live_runs import media_supervisor
-from app.services.platforms import RtmpProbeError, probe_rtmp_endpoint
+from app.services.platforms import (
+    LocalRtmpSelfTestError,
+    LocalRtmpSelfTestResult,
+    RtmpProbeError,
+    probe_rtmp_endpoint,
+)
 
 
 class StubMediaProcess:
@@ -234,6 +239,29 @@ class LiveRoomApiTest(unittest.TestCase):
 
         disabled_test = self.client.post(f"/api/v1/platform-connections/{connection_id}/test")
         self.assertEqual(disabled_test.status_code, 409)
+
+    def test_local_rtmp_self_test_reports_success_without_platform_credentials(self) -> None:
+        with patch(
+            "app.api.v1.platform_connections.run_local_rtmp_self_test",
+            return_value=LocalRtmpSelfTestResult(message="本机 RTMP 链路正常", duration_ms=2040),
+        ):
+            response = self.client.post("/api/v1/platform-connections/local-rtmp-self-test")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json(),
+            {"passed": True, "message": "本机 RTMP 链路正常", "durationMs": 2040},
+        )
+
+    def test_local_rtmp_self_test_returns_readable_failure(self) -> None:
+        with patch(
+            "app.api.v1.platform_connections.run_local_rtmp_self_test",
+            side_effect=LocalRtmpSelfTestError("SRS 未运行"),
+        ):
+            response = self.client.post("/api/v1/platform-connections/local-rtmp-self-test")
+
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(response.json()["detail"], "SRS 未运行")
 
     def test_platform_connection_rejects_embedded_credentials_and_query_secrets(self) -> None:
         for server_url in (

@@ -53,6 +53,7 @@ pnpm dev
 
 - 实时互动首页：http://localhost:3000/
 - 直播中控：http://localhost:3000/live
+- 直播节目输出窗口：http://localhost:3000/live/program（由直播控制台带会话参数打开）
 - 数字人定制：http://localhost:3000/design
 - 文档入口：http://localhost:3000/docs
 
@@ -121,5 +122,11 @@ AZURE_SPEECH_KEY=xxxx SRS_HOST=<SynLive主机IP> ./scripts/deploy-livetalking.sh
 ```
 
 `start.sh`/`deploy-full.sh` 会同时启用 Compose 的 `media` profile。SRS 的 RTMP/API 端口分别为 `1935/1985`，WebRTC 使用 UDP `8000`，HTTP-FLV 默认映射到 `18080`（可用 `SRS_HTTP_PORT` 覆盖）。生产环境需把 `SRS_CANDIDATE` 设置为浏览器可达的服务器 IP；控制台会将最终竖屏 Canvas 和数字人音频经同源 WHIP 发布到 SRS，再由 API 为各 RTMP 目标启动独立 FFmpeg。`LIVE_RUN_ALLOW_TEST_PATTERN` 默认关闭。
+
+### 官方直播伴侣窗口采集
+
+直播控制台的“开播编排”现在默认提供“窗口采集（推荐）”模式。该模式不需要平台 RTMP 密钥：点击“打开节目输出窗口”后，控制台会打开 `/live/program` 纯净节目窗口，并通过本机 WebRTC 将合成画面和数字人音频送入窗口。用户在抖音、快手、淘宝等官方直播伴侣中选择该窗口（以及系统声音）后，再由平台客户端完成登录和开播。
+
+节目窗口支持 `9:16` 竖屏手机比例和 `16:9` 横屏 PC 比例。窗口采集只适用于节目窗口与平台客户端运行在同一台电脑的场景；平台客户端的实际开播状态不会回传给 AvatarLive。手工 RTMP 模式仍然保留，适用于账号后台明确提供合法 RTMP/RTMPS 地址和推流密钥的情况。
 
 更多见 `apps/api/README.md` 与 `infra/livetalking/README.md`。
