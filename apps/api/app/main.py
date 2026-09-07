@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api.v1 import health, live, live_rooms, live_runs, llm, platform_connections, tts
+from .api.v1 import health, live, live_library, live_rooms, live_runs, llm, platform_connections, platform_events, tts
 from .core.config import settings
 from .core.logging import setup_logging
 from .services.live_runs import media_supervisor
@@ -43,7 +43,9 @@ app.include_router(tts.router, prefix=settings.api_prefix)
 app.include_router(llm.router, prefix=settings.api_prefix)
 app.include_router(live.router, prefix=settings.api_prefix)
 app.include_router(live_rooms.router, prefix=settings.api_prefix)
+app.include_router(live_library.router, prefix=settings.api_prefix)
 app.include_router(platform_connections.router, prefix=settings.api_prefix)
+app.include_router(platform_events.router, prefix=settings.api_prefix)
 app.include_router(live_runs.router, prefix=settings.api_prefix)
 
 

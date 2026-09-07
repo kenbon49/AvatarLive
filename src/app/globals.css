@@ -417,7 +417,7 @@ img, video, canvas { display: block; }
 .xlEditorGrid { height: calc(100% - 48px); min-height: 0; display: grid; grid-template-columns: 526px minmax(250px, 1fr) 364px; grid-template-rows: minmax(0, 1fr); background: #1e1f1f; }
 
 .xlScriptPanel { min-width: 0; height: 100%; overflow: hidden; background: var(--xl-panel); }
-.xlPanelToolbar { height: 48px; padding: 0 16px; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: 1fr auto 104px; align-items: center; }
+.xlPanelToolbar { height: 48px; padding: 0 16px; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: minmax(80px, 1fr) auto minmax(0, auto); align-items: center; }
 .xlPanelToolbar > div:first-child { display: flex; align-items: center; gap: 8px; }
 .xlPanelToolbar strong { color: #f7f7f9; font-size: 14px; font-weight: 500; }
 .xlPanelToolbar span { color: var(--xl-muted); }
@@ -430,6 +430,9 @@ img, video, canvas { display: block; }
 .xlScriptTools button:hover { background: var(--xl-panel-raised); }
 .xlScriptTools button.active { color: var(--xl-accent); background: #1b3435; }
 .xlScriptTools .xlPopMenu { right: 0; }
+.xlPlaybackStatus { max-width: 86px; overflow: hidden; color: #8f9696; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.xlPlaybackStatus.running { color: var(--xl-accent); }
+.xlPlaybackStatus.paused { color: #f2bf69; }
 .xlScriptComposer { height: 112px; padding: 10px 12px; border-bottom: 1px solid var(--xl-line); background: #18191a; }
 .xlScriptComposer textarea { width: 100%; height: 58px; padding: 8px 10px; border: 1px solid #3d3d3d; border-radius: 6px; resize: none; outline: 0; color: var(--xl-text); background: #252627; font-size: 13px; line-height: 18px; }
 .xlScriptComposer textarea:focus { border-color: var(--xl-accent); }
@@ -478,6 +481,10 @@ img, video, canvas { display: block; }
 .xlSceneHost { z-index: 3; object-fit: contain; object-position: center bottom; transform-origin: center; transition: opacity .2s; }
 .xlStreamCanvas { z-index: 4; opacity: 0; object-fit: contain; }
 .xlStreamCanvas.active { opacity: 1; }
+.xlProductCardOverlay { position: absolute; z-index: 22; left: 7%; right: 7%; bottom: 8%; min-height: 12%; padding: 8px 10px; border-radius: 5px; display: flex; flex-direction: column; justify-content: center; gap: 2px; pointer-events: none; color: white; background: rgba(10, 14, 17, .84); }
+.xlProductCardOverlay strong { overflow: hidden; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.xlProductCardOverlay b { color: #ffcf4a; font-size: 14px; }
+.xlProductCardOverlay small { overflow: hidden; color: #b8c6c8; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .xlWorkspaceHidden { display: none !important; }
 .xlPreviewIngestState { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; color: #31536a; background: #edf7fb; font-size: 12px; }
 .xlPreviewIngestState i { width: 7px; height: 7px; border-radius: 50%; background: #d19b2e; box-shadow: 0 0 0 3px rgba(209, 155, 46, .14); }
@@ -701,6 +708,80 @@ img, video, canvas { display: block; }
 .xlModal > header strong { font-size: 15px; font-weight: 500; }
 .xlModal > header button { width: 30px; height: 30px; border-radius: 5px; display: grid; place-items: center; color: #8b8b8c; }
 .xlModal > header button:hover { color: white; background: #303132; }
+.xlProductPickerModal { width: min(1120px, 97vw); max-height: min(840px, 94vh); display: grid; grid-template-rows: 54px minmax(0, 1fr) 58px; }
+.xlProductPickerModal > header > span { display: flex; align-items: center; gap: 8px; }
+.xlProductPickerModal > header > span svg { color: var(--xl-accent); }
+.xlProductPickerBody { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 286px; }
+.xlProductPickerMain { min-width: 0; overflow-y: auto; background: #191a1b; }
+.xlProductPickerTabs { height: 48px; padding: 0 20px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: end; gap: 26px; }
+.xlProductPickerTabs button { height: 48px; border-bottom: 2px solid transparent; color: #898b8c; font-size: 12px; }
+.xlProductPickerTabs button.active { border-color: var(--xl-accent); color: var(--xl-accent); }
+.xlProductPickerToolbar { padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.xlProductPickerToolbar > button { height: 31px; padding: 0 10px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; color: #aeb4b4; background: #303233; font-size: 10px; }
+.xlProductPickerToolbar > button:disabled { opacity: .55; }
+.xlProductPickerToolbar label { width: min(320px, 55%); height: 32px; padding: 0 10px; border: 1px solid #37393a; border-radius: 5px; display: flex; align-items: center; gap: 7px; color: #707475; background: #252627; }
+.xlProductPickerToolbar input { min-width: 0; flex: 1; border: 0; outline: 0; color: #e7e7e7; background: transparent; }
+.xlProductDraftForm { margin: 0 18px 14px; border: 1px solid rgba(20, 204, 201, .24); border-radius: 8px; background: linear-gradient(145deg, rgba(20, 204, 201, .07), rgba(29, 31, 32, .98)); }
+.xlProductDraftTitle { min-height: 43px; padding: 9px 12px; border-bottom: 1px solid rgba(20, 204, 201, .14); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.xlProductDraftTitle > span { display: flex; align-items: center; gap: 6px; color: #d7eeee; }
+.xlProductDraftTitle strong { font-size: 11px; font-weight: 500; }
+.xlProductDraftTitle small { color: #768282; font-size: 9px; }
+.xlProductDraftGrid { padding: 11px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 9px 11px; }
+.xlProductDraftGrid label { min-width: 0; display: block; }
+.xlProductDraftGrid label.wide { grid-column: 1 / -1; }
+.xlProductDraftGrid label > span { margin-bottom: 5px; display: block; color: #9ca3a3; font-size: 9px; }
+.xlProductDraftGrid input, .xlProductDraftGrid textarea { width: 100%; border: 1px solid #3b3e3f; border-radius: 5px; outline: 0; color: #e9e9e9; background: #202223; font: inherit; font-size: 11px; }
+.xlProductDraftGrid input { height: 33px; padding: 0 9px; }
+.xlProductDraftGrid textarea { padding: 8px 9px; resize: vertical; line-height: 17px; }
+.xlProductDraftGrid input:focus, .xlProductDraftGrid textarea:focus { border-color: rgba(20, 204, 201, .65); }
+.xlProductDraftActions { padding: 0 12px 11px; display: flex; justify-content: flex-end; }
+.xlProductDraftActions button { height: 30px; padding: 0 11px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #102020; background: var(--xl-accent); font-size: 9px; }
+.xlProductDraftActions button:disabled { opacity: .45; }
+.xlProductPickerError { margin: 0 18px 10px; padding: 8px 10px; border-radius: 5px; color: #efaaa1; background: #432d2b; font-size: 9px; }
+.xlProductCatalogLoading, .xlProductCatalogEmpty { min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #687071; text-align: center; }
+.xlProductCatalogLoading { flex-direction: row; font-size: 10px; }
+.xlProductCatalogEmpty.compact { min-height: 120px; }
+.xlProductCatalogEmpty > svg { color: #526364; }
+.xlProductCatalogEmpty strong { color: #b9c0c0; font-size: 11px; font-weight: 500; }
+.xlProductCatalogEmpty p { max-width: 420px; margin: 0; color: #737979; font-size: 9px; line-height: 16px; }
+.xlProductCatalogEmpty button { height: 29px; padding: 0 10px; border-radius: 5px; color: #7d8585; background: #2b2d2e; font-size: 9px; }
+.xlProductCatalogGrid { padding: 2px 18px 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.xlProductCatalogGrid > button { min-width: 0; min-height: 76px; padding: 9px; border: 1px solid #343637; border-radius: 7px; position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: center; gap: 10px; color: #dcdede; background: #252728; text-align: left; }
+.xlProductCatalogGrid > button:hover { border-color: #4a5959; background: #292d2d; }
+.xlProductCatalogGrid > button.selected { border-color: var(--xl-accent); background: #243132; }
+.xlProductCatalogCheck { width: 16px; height: 16px; border: 1px solid #626768; border-radius: 4px; position: absolute; left: 6px; top: 6px; display: grid; place-items: center; color: #102020; background: #202223; }
+.xlProductCatalogGrid > button.selected .xlProductCatalogCheck { border-color: var(--xl-accent); background: var(--xl-accent); }
+.xlProductCatalogImage { width: 56px; height: 56px; border-radius: 6px; overflow: hidden; display: grid; place-items: center; color: #536061; background: #17191a; }
+.xlProductCatalogImage img { width: 100%; height: 100%; object-fit: cover; }
+.xlProductCatalogCopy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.xlProductCatalogCopy strong { overflow: hidden; font-size: 11px; line-height: 15px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.xlProductCatalogCopy small { overflow: hidden; color: #777d7d; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.xlProductCatalogCopy b { color: #f2b45d; font-size: 12px; font-weight: 600; }
+.xlSelectedProducts { min-height: 0; border-left: 1px solid var(--xl-line); display: grid; grid-template-rows: 49px minmax(0, 1fr); background: #202122; }
+.xlSelectedProducts > header { padding: 0 13px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; }
+.xlSelectedProducts > header > span { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.xlSelectedProducts > header strong { font-size: 11px; font-weight: 500; }
+.xlSelectedProducts > header small { color: var(--xl-accent); font-size: 9px; }
+.xlSelectedProducts > div { min-height: 0; padding: 9px; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+.xlSelectedProducts article { min-height: 58px; padding: 7px; border: 1px solid #353738; border-radius: 6px; display: grid; grid-template-columns: 18px 42px minmax(0, 1fr) 48px; align-items: center; gap: 6px; background: #282a2b; }
+.xlSelectedProductIndex { color: #737979; font-size: 9px; text-align: center; }
+.xlSelectedProductImage { width: 42px; height: 42px; border-radius: 5px; overflow: hidden; display: grid; place-items: center; color: #536061; background: #191b1c; }
+.xlSelectedProductImage img { width: 100%; height: 100%; object-fit: cover; }
+.xlSelectedProducts article > span:nth-child(3) { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.xlSelectedProducts article strong { overflow: hidden; font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.xlSelectedProducts article small { color: #d8a259; font-size: 8px; }
+.xlSelectedProductActions { display: grid; grid-template-columns: 1fr 1fr; }
+.xlSelectedProductActions button { width: 22px; height: 21px; display: grid; place-items: center; color: #737979; }
+.xlSelectedProductActions button:last-child { grid-column: 1 / -1; width: 44px; }
+.xlSelectedProductActions button:hover:not(:disabled) { color: #f29a91; }
+.xlSelectedProductActions button:disabled { opacity: .25; }
+.xlSelectedProductsEmpty { min-height: 180px !important; align-items: center; justify-content: center; color: #62696a; font-size: 9px; }
+.xlProductPickerFooter { padding: 9px 18px; border-top: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.xlProductPickerFooter > span { color: #777d7d; font-size: 9px; }
+.xlProductPickerFooter > div { display: flex; gap: 7px; }
+.xlProductPickerFooter button { height: 32px; padding: 0 13px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #c5c8c8; background: #303233; }
+.xlProductPickerFooter button:last-child { color: #102020; background: var(--xl-accent); }
+.xlProductPickerFooter button:disabled { opacity: .4; }
 .xlSettingsBody { height: 520px; display: grid; grid-template-columns: 196px minmax(0, 1fr); }
 .xlSettingsBody > nav { padding: 16px 8px; border-right: 1px solid var(--xl-line); display: flex; flex-direction: column; gap: 6px; }
 .xlSettingsBody > nav button { min-height: 44px; padding: 0 14px; border-radius: 6px; display: flex; align-items: center; gap: 10px; color: #c4c4c4; text-align: left; }
@@ -726,6 +807,9 @@ img, video, canvas { display: block; }
 .xlStepper button:nth-child(3) { border-radius: 0 5px 5px 0; }
 .xlStepper em { margin-left: 8px; color: #ababab; font-style: normal; }
 .xlSettingNote { max-width: 700px; margin-top: 22px; padding: 14px; border: 1px solid rgba(20, 204, 201, .15); border-radius: 7px; color: #a9caca; background: rgba(20, 204, 201, .06); font-size: 11px; line-height: 19px; }
+.xlDynamicGenerateButton { min-height: 34px; margin-top: 16px; padding: 0 12px; border: 1px solid rgba(20, 204, 201, .35); border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; color: var(--xl-accent); background: rgba(20, 204, 201, .08); font-size: 11px; }
+.xlDynamicGenerateButton:hover:not(:disabled) { background: rgba(20, 204, 201, .15); }
+.xlDynamicGenerateButton:disabled { opacity: .55; cursor: not-allowed; }
 .xlOutputSettings, .xlEnvironmentSettings { max-width: 720px; }
 .xlSettingIntro { min-height: 62px; padding: 13px 15px; border: 1px solid #343536; border-radius: 8px; display: flex; align-items: center; gap: 11px; background: #242526; }
 .xlSettingIntro > svg { color: var(--xl-accent); }
@@ -1096,6 +1180,23 @@ img, video, canvas { display: block; }
   .xlLocalRtmpTest > button { width: 100%; }
   .xlPlatformCenterGrid { grid-template-columns: 1fr; }
   .xlPlatformPreflight { grid-template-columns: 1fr 1fr; }
+}
+
+/* Keep text-entry controls legible across the console and creator modules. */
+:where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']), textarea, select) {
+  font-size: 14px !important;
+}
+
+@media (max-width: 800px) {
+  .xlProductPickerModal { max-height: 94vh; grid-template-rows: 54px minmax(0, 1fr) auto; }
+  .xlProductPickerBody { grid-template-columns: 1fr; overflow-y: auto; }
+  .xlProductPickerMain { overflow: visible; }
+  .xlSelectedProducts { min-height: 220px; border-top: 1px solid var(--xl-line); border-left: 0; }
+  .xlProductCatalogGrid { grid-template-columns: 1fr; }
+  .xlProductDraftGrid { grid-template-columns: 1fr; }
+  .xlProductDraftGrid label.wide { grid-column: auto; }
+  .xlProductPickerFooter { align-items: flex-start; flex-direction: column; }
+  .xlProductPickerFooter > div { align-self: flex-end; }
 }
 
 @media (max-width: 480px) {

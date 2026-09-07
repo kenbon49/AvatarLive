@@ -22,13 +22,28 @@ class CamelModel(BaseModel):
 
 
 class LiveRoomGoodsItem(CamelModel):
-    id: int
+    id: str | int
     name: str = Field(min_length=1, max_length=200)
     source: str = Field(min_length=1, max_length=80)
+    selection_id: str | None = Field(default=None, max_length=36)
+    source_type: Literal["self_built", "platform", "script_library"] | None = None
+    platform: str | None = Field(default=None, max_length=50)
+    platform_account_id: str | None = Field(default=None, max_length=36)
+    platform_status: str | None = Field(default=None, max_length=30)
+    sku: str = Field(default="", max_length=160)
+    image_url: str | None = Field(default=None, max_length=1000)
+    price: float | None = Field(default=None, ge=0)
+    original_price: float | None = Field(default=None, ge=0)
+    selling_points: list[str] = Field(default_factory=list, max_length=30)
+    stock_message: str = Field(default="", max_length=500)
+    after_sales: str = Field(default="", max_length=5000)
+    platform_product_id: str = Field(default="", max_length=200)
+    risk_words: list[str] = Field(default_factory=list, max_length=100)
 
 
 class LiveRoomScriptItem(CamelModel):
     id: int
+    product_id: str | int | None = None
     title: str = Field(min_length=1, max_length=200)
     category: Literal["开场", "讲品", "促单"]
     duration: str = Field(max_length=20)
@@ -99,6 +114,7 @@ class LiveRoomOptions(CamelModel):
     product: bool
     reply_limit: int = Field(ge=1, le=20)
     reply_mode: Literal["hybrid", "library"]
+    loop_playback: bool = False
 
 
 class LiveRoomOutputConfig(CamelModel):
@@ -119,7 +135,7 @@ class LiveRoomConfig(CamelModel):
     voice: LiveRoomVoiceSettings
     playback_mode: Literal["sequence", "random"]
     goods: list[LiveRoomGoodsItem] = Field(min_length=1, max_length=500)
-    active_goods_id: int
+    active_goods_id: str | int
     scripts: list[LiveRoomScriptItem] = Field(default_factory=list, max_length=5000)
     qa_items: list[LiveRoomQaItem] = Field(default_factory=list, max_length=5000)
     selected_template_id: str = Field(min_length=1, max_length=160)

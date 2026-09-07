@@ -21,3 +21,4 @@ public/assets/musetalk-body/**/*.npz
 apps/api/.env
 infra/.env
 scripts/.env
+secrets

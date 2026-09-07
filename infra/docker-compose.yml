@@ -129,6 +129,8 @@ services:
         REGISTRY: ${REGISTRY}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
         NEXT_PUBLIC_API_BASE_URL: ""
+        API_UPSTREAM: http://api:8000
+        SRS_API_UPSTREAM: http://srs:1985
         NEXT_PUBLIC_RENDERER_BACKEND: ${NEXT_PUBLIC_RENDERER_BACKEND:-unreal}
         NEXT_PUBLIC_PIXELSTREAMING_URL: ${NEXT_PUBLIC_PIXELSTREAMING_URL:-ws://localhost:8888}
         NEXT_PUBLIC_FLASHHEAD_URL: ${NEXT_PUBLIC_FLASHHEAD_URL:-}
@@ -141,6 +143,8 @@ services:
         NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS: ${NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS:-1500}
         LIVEACT_UPSTREAM: ${LIVEACT_DOCKER_UPSTREAM:-http://host.docker.internal:5071}
     environment:
+      API_UPSTREAM: http://api:8000
+      SRS_API_UPSTREAM: http://srs:1985
       FLASHHEAD_UPSTREAM: ${FLASHHEAD_DOCKER_UPSTREAM:-http://host.docker.internal:8030}
       MUSETALK_UPSTREAM: ${MUSETALK_DOCKER_UPSTREAM:-http://host.docker.internal:8031}
       MUSETALK_TOTAL_UPSTREAM: ${MUSETALK_TOTAL_UPSTREAM:-http://host.docker.internal:8085}
@@ -167,6 +171,30 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then((response) => { if (response.status >= 500) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Remote-managed Cloudflare Tunnel for avator.ipaperview.com. Sharing the
+  # web network namespace makes its configured 127.0.0.1:3000 origin resolve
+  # to Next.js without publishing port 3000 on the host.
+  cloudflared:
+    profiles: ["tunnel"]
+    image: ${REGISTRY}cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.7.3}
+    # Compose secrets are bind mounts outside Swarm, so match the token file's
+    # host owner instead of the image's built-in uid (65532).
+    user: "${CLOUDFLARED_UID:-1000}:${CLOUDFLARED_GID:-1000}"
+    restart: unless-stopped
+    network_mode: "service:web"
+    command: ["tunnel", "run", "--token-file", "/run/secrets/cloudflare_tunnel_token"]
+    secrets:
+      - cloudflare_tunnel_token
+    depends_on:
+      web:
+        condition: service_healthy
 
   # ===== 单口反代（Caddy :8018）=====
   # 浏览器只访问 http://<主机>:8018；/api* /health* 转发后端，其余转发前端
@@ -210,3 +238,7 @@ volumes:
   minio_data:
   livetalking_models:
   livetalking_data:
+
+secrets:
+  cloudflare_tunnel_token:
+    file: ../secrets/cloudflare-tunnel-token

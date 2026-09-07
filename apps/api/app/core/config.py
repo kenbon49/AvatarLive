@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://synlive:synlive@localhost:5432/synlive"
     # URL-safe base64 encoded 32-byte master key for AES-GCM credential envelopes.
     platform_encryption_key: str = ""
+    # JSON object mapping connector slugs to HMAC secrets, for example
+    # {"douyin-bridge":"replace-with-a-random-secret"}.
+    platform_webhook_secrets: str = "{}"
+    platform_webhook_signature_tolerance_seconds: int = Field(default=300, ge=30, le=3600)
+    platform_webhook_rate_limit_per_minute: int = Field(default=600, ge=1, le=100_000)
     # Test-pattern publishing is opt-in and must stay disabled in production.
     live_run_allow_test_pattern: bool = False
     # Media supervisor settings. The API container publishes to SRS over the

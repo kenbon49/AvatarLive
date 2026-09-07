@@ -1,5 +1,8 @@
 import type { NextConfig } from 'next';
 
+const apiUpstream = (process.env.API_UPSTREAM ?? 'http://localhost:8000').replace(/\/$/, '');
+const srsApiUpstream = (process.env.SRS_API_UPSTREAM ?? 'http://localhost:1985').replace(/\/$/, '');
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Hide Next.js development-only toolbar and its diagnostics panel.
@@ -15,9 +18,13 @@ const nextConfig: NextConfig = {
   // ③ 跨源 CORS。前端 API_BASE 设为 ''(同源),fetch('/api/...'、'/health/...') 由这些 rewrite 转后端。
   async rewrites() {
     return [
-      { source: '/health/:path*', destination: 'http://localhost:8000/health/:path*' },
-      { source: '/api/:path*', destination: 'http://localhost:8000/api/:path*' },
-      { source: '/rtc/:path*', destination: 'http://localhost:1985/rtc/:path*' },
+      { source: '/health/:path*', destination: `${apiUpstream}/health/:path*` },
+      { source: '/api/:path*', destination: `${apiUpstream}/api/:path*` },
+      { source: '/docs/:path*', destination: `${apiUpstream}/docs/:path*` },
+      { source: '/redoc/:path*', destination: `${apiUpstream}/redoc/:path*` },
+      { source: '/openapi.json', destination: `${apiUpstream}/openapi.json` },
+      { source: '/openapi/:path*', destination: `${apiUpstream}/openapi/:path*` },
+      { source: '/rtc/:path*', destination: `${srsApiUpstream}/rtc/:path*` },
       // FlashHead Lite 使用独立 :8030，不占用 LiveTalking :8028。浏览器始终走同源路径，
       // 容器部署时由 FLASHHEAD_UPSTREAM 指向宿主机服务。
       {

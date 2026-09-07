@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import tempfile
 import time
@@ -15,17 +16,25 @@ os.environ["PLATFORM_ENCRYPTION_KEY"] = base64.urlsafe_b64encode(bytes(range(32)
 from fastapi.testclient import TestClient
 
 from app.db import Base, SessionLocal, engine
+from app.core.config import settings
 from app.main import app
 from app.models.live_room import LiveRoom
+from app.models.live_library import LiveRoomProduct, LiveRoomProductSelection, LiveRoomScriptLibrary
 from app.models.live_run import LiveRun, LiveRunTarget
 from app.models.platform_connection import PlatformConnection
+from app.models.platform_event import PlatformLiveEvent
 from app.services.live_runs import preflight as live_run_preflight
 from app.services.live_runs import media_supervisor
 from app.services.platforms import (
     LocalRtmpSelfTestError,
     LocalRtmpSelfTestResult,
     RtmpProbeError,
+    FixedWindowRateLimiter,
     probe_rtmp_endpoint,
+    sign_webhook,
+    verify_webhook_signature,
+    WebhookSignatureError,
+    webhook_rate_limiter,
 )
 
 
@@ -120,6 +129,19 @@ class LiveRoomApiTest(unittest.TestCase):
     def setUp(self) -> None:
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
+        settings.platform_webhook_secrets = json.dumps({"test-bridge": "test-webhook-secret-123456789"})
+        settings.platform_webhook_rate_limit_per_minute = 600
+        webhook_rate_limiter.reset()
+
+    def post_platform_event(self, payload: dict, *, signature: str | None = None):
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        timestamp = str(int(time.time()))
+        headers = {
+            "Content-Type": "application/json",
+            "X-SynLive-Timestamp": timestamp,
+            "X-SynLive-Signature": signature or f"sha256={sign_webhook('test-webhook-secret-123456789', timestamp, body)}",
+        }
+        return self.client.post("/api/v1/platform-events/webhooks/test-bridge", content=body, headers=headers)
 
     def test_create_update_copy_publish_and_persist(self) -> None:
         create_response = self.client.post(
@@ -188,6 +210,147 @@ class LiveRoomApiTest(unittest.TestCase):
             json={"name": "无商品直播间", "config": invalid},
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_room_library_persists_products_and_scripts(self) -> None:
+        room_response = self.client.post(
+            "/api/v1/live-rooms",
+            json={"name": "商品脚本测试", "config": room_config()},
+        )
+        self.assertEqual(room_response.status_code, 201, room_response.text)
+        room_id = room_response.json()["id"]
+        product_response = self.client.post(
+            f"/api/v1/live-rooms/{room_id}/products",
+            json={
+                "name": "精品咖啡豆",
+                "sku": "COFFEE-001",
+                "price": 39.9,
+                "originalPrice": 59.9,
+                "sellingPoints": ["新鲜烘焙", "醇厚风味"],
+                "stockMessage": "库存 100 件",
+                "afterSales": "七天无理由",
+                "platformProductId": "douyin-001",
+                "riskWords": ["全网最低"],
+            },
+        )
+        self.assertEqual(product_response.status_code, 201, product_response.text)
+        product = product_response.json()
+        self.assertEqual(product["sellingPoints"], ["新鲜烘焙", "醇厚风味"])
+        self.assertEqual(product["sourceType"], "self_built")
+        self.assertTrue(product["selectionId"])
+        script_response = self.client.post(
+            f"/api/v1/live-rooms/{room_id}/scripts",
+            json={
+                "productId": product["id"],
+                "title": "商品开场",
+                "category": "开场",
+                "duration": "00:20",
+                "text": "欢迎来到咖啡专场。",
+                "tags": ["欢迎"],
+            },
+        )
+        self.assertEqual(script_response.status_code, 201, script_response.text)
+        self.assertEqual(script_response.json()["liveRoomId"], room_id)
+        self.assertEqual(script_response.json()["productId"], product["id"])
+        self.assertEqual(len(self.client.get(f"/api/v1/live-rooms/{room_id}/products").json()), 1)
+        self.assertEqual(len(self.client.get(f"/api/v1/live-rooms/{room_id}/scripts").json()), 1)
+        catalog_response = self.client.get("/api/v1/products", params={"hasScripts": "true"})
+        self.assertEqual(catalog_response.status_code, 200, catalog_response.text)
+        self.assertEqual(catalog_response.json()[0]["id"], product["id"])
+
+        second_room_response = self.client.post(
+            "/api/v1/live-rooms",
+            json={"name": "复用商品测试", "config": room_config()},
+        )
+        second_room_id = second_room_response.json()["id"]
+        attach_response = self.client.post(
+            f"/api/v1/live-rooms/{second_room_id}/product-selections",
+            json={"productIds": [product["id"]]},
+        )
+        self.assertEqual(attach_response.status_code, 200, attach_response.text)
+        self.assertEqual(attach_response.json()[0]["price"], 39.9)
+        self.assertIsNone(attach_response.json()[0].get("imageUrl"))
+
+        detach_response = self.client.delete(f"/api/v1/live-rooms/{room_id}/products/{product['id']}")
+        self.assertEqual(detach_response.status_code, 204, detach_response.text)
+        self.assertEqual(self.client.get(f"/api/v1/live-rooms/{room_id}/products").json(), [])
+        self.assertEqual(len(self.client.get(f"/api/v1/live-rooms/{second_room_id}/products").json()), 1)
+        with SessionLocal() as db:
+            self.assertEqual(db.query(LiveRoomProduct).count(), 1)
+            self.assertEqual(db.query(LiveRoomProductSelection).count(), 1)
+            self.assertEqual(db.query(LiveRoomScriptLibrary).count(), 1)
+
+    def test_platform_event_webhook_verifies_persists_and_deduplicates(self) -> None:
+        room_response = self.client.post(
+            "/api/v1/live-rooms",
+            json={"name": "平台事件测试", "config": room_config()},
+        )
+        self.assertEqual(room_response.status_code, 201, room_response.text)
+        room_id = room_response.json()["id"]
+        payload = {
+            "externalEventId": "comment-0001",
+            "eventType": "comment",
+            "liveRoomId": room_id,
+            "actorId": "viewer-7",
+            "actorName": "测试观众",
+            "content": "咖啡豆是什么烘焙度？",
+            "occurredAt": "2026-09-01T10:00:00+00:00",
+            "data": {"sourceRoomId": "platform-room-8"},
+        }
+
+        first_response = self.post_platform_event(payload)
+        self.assertEqual(first_response.status_code, 202, first_response.text)
+        first = first_response.json()
+        self.assertTrue(first["accepted"])
+        self.assertFalse(first["duplicate"])
+        self.assertEqual(first["event"]["platform"], "test-bridge")
+        self.assertEqual(first["event"]["content"], payload["content"])
+
+        duplicate_response = self.post_platform_event(payload)
+        self.assertEqual(duplicate_response.status_code, 202, duplicate_response.text)
+        duplicate = duplicate_response.json()
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["event"]["id"], first["event"]["id"])
+
+        list_response = self.client.get(
+            f"/api/v1/live-rooms/{room_id}/platform-events",
+            params={"eventType": "comment"},
+        )
+        self.assertEqual(list_response.status_code, 200, list_response.text)
+        self.assertEqual(len(list_response.json()), 1)
+        with SessionLocal() as db:
+            self.assertEqual(db.query(PlatformLiveEvent).count(), 1)
+
+    def test_platform_event_webhook_rejects_bad_signature_and_limits_bursts(self) -> None:
+        room_response = self.client.post(
+            "/api/v1/live-rooms",
+            json={"name": "事件安全测试", "config": room_config()},
+        )
+        room_id = room_response.json()["id"]
+        payload = {
+            "externalEventId": "follow-0001",
+            "eventType": "follow",
+            "liveRoomId": room_id,
+        }
+        invalid_response = self.post_platform_event(payload, signature="sha256=" + "0" * 64)
+        self.assertEqual(invalid_response.status_code, 401, invalid_response.text)
+
+        limiter = FixedWindowRateLimiter()
+        self.assertTrue(limiter.allow("connector:127.0.0.1", 2, now=10))
+        self.assertTrue(limiter.allow("connector:127.0.0.1", 2, now=11))
+        self.assertFalse(limiter.allow("connector:127.0.0.1", 2, now=12))
+        self.assertTrue(limiter.allow("connector:127.0.0.1", 2, now=71))
+
+        stale_timestamp = "100"
+        body = b"{}"
+        with self.assertRaises(WebhookSignatureError):
+            verify_webhook_signature(
+                secret="test-webhook-secret-123456789",
+                timestamp=stale_timestamp,
+                signature=sign_webhook("test-webhook-secret-123456789", stale_timestamp, body),
+                body=body,
+                tolerance_seconds=300,
+                now=401,
+            )
 
     def test_platform_connection_encrypts_secret_and_tracks_reachability(self) -> None:
         stream_key = "super-private-stream-key-9876"

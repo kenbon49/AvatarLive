@@ -90,6 +90,12 @@ export class WindowCaptureSession {
     this.options.onState?.('stopped');
   }
 
+  async replaceAudioTrack(track: MediaStreamTrack): Promise<void> {
+    const sender = this.peer.getSenders().find((candidate) => candidate.track?.kind === 'audio');
+    if (!sender) throw new Error('节目输出窗口音频发送器尚未就绪');
+    await sender.replaceTrack(track);
+  }
+
   private readonly handleMessage = (event: MessageEvent) => {
     if (event.origin !== window.location.origin || event.source !== this.popup) return;
     const message = event.data as { type?: string; sessionId?: string; sdp?: string } | null;

@@ -36,8 +36,23 @@ miss=0
 [ -n "${AZURE_SERVICE_KEY:-}" ] || { echo "$(c_yel '  ⚠ AZURE_SERVICE_KEY 未填 → TTS 不可用')"; miss=1; }
 [ -n "${LITELLM_LLM_API_KEY:-}" ] || { echo "$(c_yel '  ⚠ LITELLM_LLM_API_KEY 未填 → LLM 不可用')"; miss=1; }
 
+TUNNEL_TOKEN_PATH="$ROOT/secrets/cloudflare-tunnel-token"
+compose_profiles=(--profile media)
+tunnel_enabled=0
+if [ -s "$TUNNEL_TOKEN_PATH" ]; then
+  # Local Compose preserves the bind-mounted secret's host ownership.
+  export CLOUDFLARED_UID="${CLOUDFLARED_UID:-$(stat -c %u "$TUNNEL_TOKEN_PATH")}"
+  export CLOUDFLARED_GID="${CLOUDFLARED_GID:-$(stat -c %g "$TUNNEL_TOKEN_PATH")}"
+  compose_profiles+=(--profile tunnel)
+  tunnel_enabled=1
+  echo "$(c_grn '  Cloudflare Tunnel token 已配置，将随 Web 服务启动')"
+else
+  echo "$(c_yel '  ⚠ 未配置 Cloudflare Tunnel token，公网 Tunnel 本次不会启动')"
+  echo "$(c_dim '    执行 ./scripts/configure-cloudflare-tunnel-token.sh 后重新部署即可启用。')"
+fi
+
 echo "$(c_dim '== 构建并启动整套服务（首次构建 api/前端镜像，请耐心）==')"
-docker compose -f infra/docker-compose.yml --env-file .env --profile media up -d --build
+docker compose -f infra/docker-compose.yml --env-file .env "${compose_profiles[@]}" up -d --build
 
 echo "$(c_dim '== 等待反代就绪 ==')"
 ok=0
@@ -48,12 +63,13 @@ done
 [ "$ok" = 1 ] && echo "$(c_grn '服务就绪 ✔')" || echo "$(c_red '未就绪：docker compose -f infra/docker-compose.yml logs proxy api')"
 
 echo; echo "$(c_dim '== 服务状态 ==')"
-docker compose -f infra/docker-compose.yml --env-file .env --profile media ps --format 'table {{.Service}}\t{{.Status}}' || true
+docker compose -f infra/docker-compose.yml --env-file .env "${compose_profiles[@]}" ps --format 'table {{.Service}}\t{{.Status}}' || true
 
 echo; echo "$(c_grn '==================== 部署完成 ====================')"
 echo "  浏览器打开 : http://${ACCESS_HOST}:${ACCESS_PORT}/live"
 echo "  API 文档    : http://${ACCESS_HOST}:${ACCESS_PORT}/docs"
 echo "  就绪检查    : http://${ACCESS_HOST}:${ACCESS_PORT}/health/ready"
+[ "$tunnel_enabled" = 1 ] && echo "  公网入口    : https://avator.ipaperview.com"
 [ "$miss" = 1 ] && echo "$(c_yel '  密钥未填全：编辑根目录 .env 后重跑本脚本。')"
 echo
 echo "$(c_dim '下一步：起 LiveTalking（host 网络）让数字人动嘴：')"

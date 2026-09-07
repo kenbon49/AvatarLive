@@ -4,6 +4,8 @@ import { FormEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, u
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
   BookOpenText,
   Check,
   CheckSquare,
@@ -25,16 +27,23 @@ import {
   Library,
   Link2,
   LoaderCircle,
+  Mic,
   MessageCircleQuestion,
+  Pause,
+  PackageOpen,
   Play,
   Plus,
   Pencil,
   Radio,
+  RotateCcw,
+  RefreshCw,
   Save,
   Search,
   Server,
   Settings2,
   ShieldCheck,
+  ShoppingBag,
+  SkipForward,
   Shuffle,
   Sparkles,
   Trash2,
@@ -59,14 +68,29 @@ import {
   type WindowCaptureState,
 } from '@/lib/window-capture-session';
 import { ProductShell } from '@/components/product-shell';
+import { API_BASE } from '@/lib/api';
 import {
   copyLiveRoom,
   createLiveRoom,
   listLiveRooms,
+  listLiveRoomScripts,
+  listProductScripts,
+  createLiveRoomScript,
+  listLiveRoomProducts,
+  listProductCatalog,
+  createCatalogProduct,
+  attachLiveRoomProducts,
+  reorderLiveRoomProducts,
+  detachLiveRoomProduct,
   publishLiveRoom,
   updateLiveRoom,
   type LiveRoom,
   type LiveRoomConfig,
+  type LiveRoomGoodsItem,
+  type LiveRoomLibraryScript,
+  type LiveRoomProduct,
+  type ProductCatalogItem,
+  type ProductInput,
 } from '@/lib/live-room-api';
 import {
   createLiveRun,
@@ -86,6 +110,10 @@ import {
   type LocalRtmpSelfTestResult,
   type PlatformConnection,
 } from '@/lib/platform-connection-api';
+import { LivePlaybackQueue, type PlaybackQueueStatus } from '@/lib/live-playback-queue';
+import { MuseTalkMicrophoneStream } from '@/lib/musetalk-microphone';
+import { buildDynamicScriptPrompt, normalizeGeneratedScript, validateDynamicScript } from '@/lib/live-dynamic-script';
+import { buildProductStarterScripts } from '@/lib/live-product-scripts';
 
 const AVATARS = [
   { id: 'chinese', name: '中文女', role: '智能接待顾问', image: '/assets/musetalk-avatars/chinese.jpg', type: '真人', gender: '女', age: '青年' },
@@ -103,6 +131,7 @@ const AVATARS = [
 
 type ScriptItem = {
   id: number;
+  productId?: string | number;
   title: string;
   category: '开场' | '讲品' | '促单';
   duration: string;
@@ -188,10 +217,52 @@ type CloneVoiceDraft = {
   previewAudio: string;
 };
 
-type DialogName = 'settings' | 'voice' | 'livePlatform' | 'library' | 'scriptImport' | 'avatarConfirm' | null;
+type DialogName = 'settings' | 'voice' | 'livePlatform' | 'productPicker' | 'library' | 'scriptImport' | 'avatarConfirm' | null;
 type WorkspaceMode = 'script' | 'qa';
 type SettingsTab = 'qa' | 'dynamic' | 'ambience' | 'product' | 'output' | 'environment';
 type OutputConfig = { resolution: string; frameRate: string; codec: string; protocol: string };
+type ProductPickerTab = 'platform' | 'script_library' | 'self_built';
+
+const EMPTY_PRODUCT_DRAFT: ProductInput = {
+  name: '',
+  sku: '',
+  imageUrl: undefined,
+  price: undefined,
+  originalPrice: undefined,
+  sellingPoints: [],
+  stockMessage: '',
+  afterSales: '',
+  platformProductId: '',
+  riskWords: [],
+};
+
+function productSourceLabel(product: Pick<ProductCatalogItem, 'sourceType' | 'platform'>): string {
+  if (product.sourceType === 'platform') return product.platform || '平台商品';
+  if (product.sourceType === 'script_library') return '脚本库商品';
+  return '自建商品';
+}
+
+function selectedProductToGoods(product: LiveRoomProduct): LiveRoomGoodsItem {
+  return {
+    id: product.id,
+    selectionId: product.selectionId,
+    source: productSourceLabel(product),
+    sourceType: product.sourceType,
+    platform: product.platform,
+    platformAccountId: product.platformAccountId,
+    platformStatus: product.platformStatus,
+    name: product.name,
+    sku: product.sku,
+    imageUrl: product.imageUrl,
+    price: product.price,
+    originalPrice: product.originalPrice,
+    sellingPoints: product.sellingPoints,
+    stockMessage: product.stockMessage,
+    afterSales: product.afterSales,
+    platformProductId: product.platformProductId,
+    riskWords: product.riskWords,
+  };
+}
 
 export type LiveStudioInitialState = {
   autoDetectEnvironment?: boolean;
@@ -370,7 +441,7 @@ const createDefaultRoomConfig = (): LiveRoomConfig => ({
   qaItems: [],
   selectedTemplateId: 'food',
   layers: createTemplateLayers('food', '中文女'),
-  liveOptions: { qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid' },
+  liveOptions: { qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false },
   outputConfig: { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' },
   selectedPlatforms: [],
   selectedPlatformConnectionIds: [],
@@ -427,6 +498,9 @@ export function LiveStudio({
   const previewCanvasRef = useRef<HTMLDivElement>(null);
   const canvasGestureRef = useRef<CanvasGesture | null>(null);
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
+  const playbackQueueRef = useRef<LivePlaybackQueue<number> | null>(null);
+  const microphoneRef = useRef<MuseTalkMicrophoneStream | null>(null);
+  const resumeQueueAfterMicrophoneRef = useRef(false);
   const browserPublisherRef = useRef<BrowserLivePublisher | null>(null);
   const captureCompositorRef = useRef<SceneCompositor | null>(null);
   const windowCaptureSessionRef = useRef<WindowCaptureSession | null>(null);
@@ -495,9 +569,25 @@ export function LiveStudio({
   const [cloneError, setCloneError] = useState('');
   const [playbackMode, setPlaybackMode] = useState<'sequence' | 'random'>('sequence');
   const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
-  const [showGoodsMenu, setShowGoodsMenu] = useState(false);
-  const [goods, setGoods] = useState([{ id: 1, name: '咖啡豆2026-08-07 10:39:34', source: '商品' }]);
-  const [activeGoodsId, setActiveGoodsId] = useState(1);
+  const [playbackLoop, setPlaybackLoop] = useState(false);
+  const [playbackQueueStatus, setPlaybackQueueStatus] = useState<PlaybackQueueStatus>('idle');
+  const [currentPlaybackScriptId, setCurrentPlaybackScriptId] = useState<number | null>(null);
+  const [microphoneState, setMicrophoneState] = useState<'idle' | 'connecting' | 'recording' | 'submitting'>('idle');
+  const [goods, setGoods] = useState<LiveRoomConfig['goods']>([{ id: 1, name: '咖啡豆2026-08-07 10:39:34', source: '商品' }]);
+  const [activeGoodsId, setActiveGoodsId] = useState<string | number>(1);
+  const [productPickerTab, setProductPickerTab] = useState<ProductPickerTab>('self_built');
+  const [productCatalog, setProductCatalog] = useState<ProductCatalogItem[]>([]);
+  const [productCatalogResultIds, setProductCatalogResultIds] = useState<string[]>([]);
+  const [productCatalogRefreshVersion, setProductCatalogRefreshVersion] = useState(0);
+  const [productCatalogLoading, setProductCatalogLoading] = useState(false);
+  const [productCatalogError, setProductCatalogError] = useState('');
+  const [productQuery, setProductQuery] = useState('');
+  const [selectedCatalogProductIds, setSelectedCatalogProductIds] = useState<string[]>([]);
+  const [productDraft, setProductDraft] = useState<ProductInput>(EMPTY_PRODUCT_DRAFT);
+  const [productDraftSellingPoints, setProductDraftSellingPoints] = useState('');
+  const [productDraftRiskWords, setProductDraftRiskWords] = useState('');
+  const [productDraftSaving, setProductDraftSaving] = useState(false);
+  const [productSelectionSaving, setProductSelectionSaving] = useState(false);
   const [templateQuery, setTemplateQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState('全部');
   const [templateColor, setTemplateColor] = useState('全部');
@@ -529,8 +619,11 @@ export function LiveStudio({
   const [qaQuestion, setQaQuestion] = useState('这款咖啡豆适合哪种冲泡方式？');
   const [qaAnswer, setQaAnswer] = useState('手冲、浓缩和冰咖啡都适合，可以按照日常口味调整研磨度。');
   const [showQaComposer, setShowQaComposer] = useState(false);
+  const [libraryScripts, setLibraryScripts] = useState<LiveRoomLibraryScript[]>([]);
+  const [librarySaving, setLibrarySaving] = useState(false);
+  const [dynamicGenerating, setDynamicGenerating] = useState(false);
   const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>(initialSettingsTab);
-  const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid' });
+  const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false });
   const [outputConfig, setOutputConfig] = useState<OutputConfig>(initialOutputConfig ?? { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' });
   const [environmentCheckedAt, setEnvironmentCheckedAt] = useState('尚未检测');
   const [environmentInfo, setEnvironmentInfo] = useState({ browser: '待检测', cpu: '待检测', gpu: '待检测' });
@@ -558,6 +651,16 @@ export function LiveStudio({
   const [elapsed, setElapsed] = useState('00:00:00');
 
   const activeGoods = goods.find((item) => item.id === activeGoodsId) ?? goods[0];
+  const activeProductScripts = scripts.filter((item) => item.productId === undefined || item.productId === activeGoods?.id);
+  const visibleCatalogProducts = productCatalogResultIds.flatMap((id) => {
+    const product = productCatalog.find((item) => item.id === id);
+    return product ? [product] : [];
+  });
+  const selectedProductSummary: Array<ProductCatalogItem | LiveRoomGoodsItem> = selectedCatalogProductIds.map((id) => {
+    const catalogProduct = productCatalog.find((item) => item.id === id);
+    if (catalogProduct) return catalogProduct;
+    return goods.find((item) => item.id === id);
+  }).filter((product): product is ProductCatalogItem | LiveRoomGoodsItem => Boolean(product));
   const selectedTemplate = LIVE_TEMPLATES.find((item) => item.id === selectedTemplateId) ?? LIVE_TEMPLATES[3];
   const filteredTemplates = useMemo(() => LIVE_TEMPLATES.filter((item) => (
     item.name.includes(templateQuery.trim())
@@ -579,14 +682,20 @@ export function LiveStudio({
     return inScope && matchesFilters && `${item.name}${item.role}`.toLowerCase().includes(hostQuery.trim().toLowerCase());
   }), [hostFilters, hostQuery, hostScope]);
   const filteredQaItems = useMemo(() => qaItems.filter((item) => `${item.question}${item.answer}`.includes(qaQuery.trim())), [qaItems, qaQuery]);
-  const filteredLibrary = useMemo(() => TALK_LIBRARY.filter((item) => (
+  const filteredLibrary = useMemo(() => [...TALK_LIBRARY, ...libraryScripts].filter((item) => (
     (libraryCategory === '全部' || item.category === libraryCategory)
     && `${item.title}${item.text}`.includes(libraryQuery.trim())
-  )), [libraryCategory, libraryQuery]);
+  )), [libraryCategory, libraryQuery, libraryScripts]);
   const inspectorLayer = layers.find((item) => item.id === inspectorLayerId) ?? null;
   const hostLayer = layers.find((item) => item.sceneKey === 'host') ?? null;
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
   const previewBackground = backgroundLayer?.preview ?? selectedTemplate.image;
+  const speakingScript = scripts.find((item) => item.id === currentPlaybackScriptId)
+    ?? scripts.find((item) => item.state === 'playing');
+  const speakingGoods = speakingScript?.productId === undefined
+    ? activeGoods
+    : goods.find((item) => item.id === speakingScript.productId) ?? activeGoods;
+  const visibleProductCard = liveOptions.product && speakingScript ? speakingGoods : undefined;
   broadcastSceneRef.current = {
     layers: layers.map((layer) => ({
       ...layer,
@@ -595,6 +704,12 @@ export function LiveStudio({
     backgroundUrl: previewBackground,
     hostUrl: avatar.image,
     mediaActive,
+    productCard: visibleProductCard ? {
+      title: visibleProductCard.name,
+      price: visibleProductCard.price,
+      originalPrice: visibleProductCard.originalPrice,
+      sellingPoints: visibleProductCard.sellingPoints,
+    } : undefined,
   };
   const estimatedTime = '02:59';
   const currentAssets = materialTab === 'image' || materialTab === 'video'
@@ -616,7 +731,7 @@ export function LiveStudio({
     qaItems,
     selectedTemplateId,
     layers,
-    liveOptions,
+    liveOptions: { ...liveOptions, loopPlayback: playbackLoop },
     outputConfig,
     selectedPlatforms,
     selectedPlatformConnectionIds,
@@ -629,6 +744,7 @@ export function LiveStudio({
     layers,
     liveOptions,
     outputConfig,
+    playbackLoop,
     playbackMode,
     qaItems,
     scripts,
@@ -792,6 +908,7 @@ export function LiveStudio({
     setPendingVoiceSpeed(config.voice.speed);
     setPendingVoicePitch(config.voice.pitch);
     setPlaybackMode(config.playbackMode);
+    setPlaybackLoop(Boolean(config.liveOptions.loopPlayback));
     setGoods(config.goods);
     setActiveGoodsId(config.goods.some((item) => item.id === config.activeGoodsId) ? config.activeGoodsId : config.goods[0].id);
     setScripts(config.scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
@@ -898,6 +1015,45 @@ export function LiveStudio({
   }, [avatarId, entered]);
 
   useEffect(() => {
+    if (!entered) return;
+    const queue = new LivePlaybackQueue<number>({
+      speak: async (item) => {
+        const stream = streamRef.current;
+        if (!stream) throw new Error('数字人媒体流尚未准备好');
+        await stream.speak(item.text);
+      },
+      cancel: () => streamRef.current?.cancel(),
+      retryCount: 1,
+      onState: (status, currentId) => {
+        setPlaybackQueueStatus(status);
+        setCurrentPlaybackScriptId(currentId);
+      },
+      onItemState: (id, state) => {
+        if (state === 'playing') setCurrentPlaybackScriptId(id);
+        else setCurrentPlaybackScriptId((current) => current === id ? null : current);
+        setScripts((items) => items.map((item) => item.id === id ? { ...item, state } : item));
+      },
+      onError: (_id, error, attempt) => {
+        if (attempt > 1) return;
+        setNotice(`话术播报失败，正在重试：${error instanceof Error ? error.message : '未知错误'}`);
+      },
+    });
+    playbackQueueRef.current = queue;
+    return () => {
+      playbackQueueRef.current = null;
+      void queue.stop();
+      setPlaybackQueueStatus('idle');
+      setCurrentPlaybackScriptId(null);
+    };
+  }, [entered]);
+
+  useEffect(() => {
+    if (currentPlaybackScriptId === null) return;
+    const productId = scripts.find((item) => item.id === currentPlaybackScriptId)?.productId;
+    if (productId !== undefined && goods.some((item) => item.id === productId)) setActiveGoodsId(productId);
+  }, [currentPlaybackScriptId, goods, scripts]);
+
+  useEffect(() => {
     if (!entered || !room || liveRun || runRecoveryAttemptedRef.current) return;
     runRecoveryAttemptedRef.current = true;
     const runId = window.localStorage.getItem(ACTIVE_LIVE_RUN_STORAGE_KEY);
@@ -988,8 +1144,11 @@ export function LiveStudio({
   }, [startedAt]);
 
   const play = async (item: ScriptItem) => {
-    if (playbackBusy || !streamRef.current || item.state === 'playing') return;
+    if (playbackBusy || playbackQueueStatus !== 'idle' || !streamRef.current || item.state === 'playing') return;
     setError('');
+    if (item.productId !== undefined && goods.some((product) => product.id === item.productId)) {
+      setActiveGoodsId(item.productId);
+    }
     setScripts((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, state: 'playing' } : candidate));
     try {
       await streamRef.current.speak(item.text);
@@ -1002,26 +1161,129 @@ export function LiveStudio({
     }
   };
 
+  const startScriptQueue = () => {
+    if (playbackBusy || playbackQueueStatus !== 'idle' || !scripts.length) return;
+    const queue = playbackQueueRef.current;
+    if (!queue) {
+      setError('自动播报队列尚未初始化');
+      return;
+    }
+    setError('');
+    void queue.start(
+      scripts.map((item) => ({ id: item.id, text: item.text })),
+      { mode: playbackMode, loop: playbackLoop },
+    ).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+  };
+
+  const pauseScriptQueue = () => playbackQueueRef.current?.pause();
+  const resumeScriptQueue = () => playbackQueueRef.current?.resume();
+  const skipScriptQueue = () => { void playbackQueueRef.current?.skip(); };
+  const stopScriptQueue = () => { void playbackQueueRef.current?.stop(); };
+
+  const replaceOutputAudio = async (track: MediaStreamTrack) => {
+    if (browserPublisherRef.current) {
+      await browserPublisherRef.current.replaceAudioTrack(track);
+    } else if (windowCaptureSessionRef.current) {
+      await windowCaptureSessionRef.current.replaceAudioTrack(track);
+    }
+  };
+
+  const toggleMicrophoneTakeover = async () => {
+    const active = microphoneRef.current;
+    if (active) {
+      setMicrophoneState('submitting');
+      const avatarTrack = streamRef.current?.getOutputAudioTrack();
+      try {
+        await active.stop();
+        microphoneRef.current = null;
+        if (avatarTrack?.readyState === 'live') await replaceOutputAudio(avatarTrack);
+        setMicrophoneState('idle');
+        setNotice('真人接管已结束，已恢复数字人播报音频');
+        if (resumeQueueAfterMicrophoneRef.current) {
+          resumeQueueAfterMicrophoneRef.current = false;
+          resumeScriptQueue();
+        }
+      } catch (cause) {
+        microphoneRef.current = null;
+        setMicrophoneState('idle');
+        setError(`真人接管提交失败：${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+      return;
+    }
+    setMicrophoneState('connecting');
+    setError('');
+    resumeQueueAfterMicrophoneRef.current = playbackQueueStatus !== 'idle';
+    if (resumeQueueAfterMicrophoneRef.current) playbackQueueRef.current?.pause();
+    await streamRef.current?.cancel();
+    const next = new MuseTalkMicrophoneStream();
+    microphoneRef.current = next;
+    try {
+      await next.start('auto');
+      const track = next.getInputAudioTrack();
+      if (!track) throw new Error('未获取到麦克风音频轨');
+      if (browserPublisherRef.current || windowCaptureSessionRef.current) await replaceOutputAudio(track);
+      setMicrophoneState('recording');
+      setNotice('真人接管中：麦克风音频已接入输出，点击按钮结束接管');
+    } catch (cause) {
+      microphoneRef.current = null;
+      await next.cancel();
+      setMicrophoneState('idle');
+      setError(`真人接管启动失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  };
+
   const addScript = (event: FormEvent) => {
     event.preventDefault();
     if (!draft.trim()) return;
-    setScripts((items) => [...items, { id: Date.now(), title: '自定义直播话术', category: '讲品', duration: '00:30', text: draft.trim(), state: 'ready' }]);
+    setScripts((items) => [...items, { id: Date.now(), productId: activeGoods?.id, title: '自定义直播话术', category: '讲品', duration: '00:30', text: draft.trim(), state: 'ready' }]);
     setDraft('');
     setShowComposer(false);
     setNotice('已添加一条新话术');
   };
 
-  const addGeneratedScript = () => {
-    setScripts((items) => [...items, {
-      id: Date.now(),
-      title: 'AI 动态促单话术',
-      category: '促单',
-      duration: '00:28',
-      text: '刚进入直播间的朋友看这里，今天的咖啡豆福利已经为大家准备好了。香气、口感和性价比都在线，喜欢醇厚风味的朋友现在下单最合适。',
-      state: 'ready',
-    }]);
-    setShowScriptMenu(false);
-    setNotice('AI 已生成一条促单话术');
+  const generateDynamicScript = async () => {
+    if (dynamicGenerating) return;
+    setDynamicGenerating(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/llm/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: buildDynamicScriptPrompt({
+            productName: activeGoods?.name || '未命名商品',
+            productSellingPoints: activeGoods?.sellingPoints,
+            currentScripts: activeProductScripts.map((item) => item.text),
+          }) }],
+          max_tokens: 360,
+          temperature: 0.7,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as { content?: unknown; detail?: unknown };
+      if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : `LLM 请求失败（HTTP ${response.status}）`);
+      const text = normalizeGeneratedScript(payload.content);
+      if (!text) throw new Error('LLM 未返回有效话术');
+      const validation = validateDynamicScript(text, activeProductScripts.map((item) => item.text), activeGoods?.riskWords);
+      if (!validation.ok) {
+        if (validation.riskWords.length) throw new Error(`命中风险词：${validation.riskWords.join('、')}`);
+        throw new Error('与最近话术过于相似，请调整商品信息后重试');
+      }
+      setScripts((items) => [...items, {
+        id: Date.now(),
+        productId: activeGoods?.id,
+        title: 'AI 动态话术',
+        category: '讲品',
+        duration: `00:${String(Math.min(59, Math.max(20, Math.round(text.length * 0.45)))).padStart(2, '0')}`,
+        text,
+        state: 'ready',
+      }]);
+      setNotice('AI 已根据当前商品和已播内容生成话术');
+    } catch (cause) {
+      setError(`AI 动态话术生成失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setDynamicGenerating(false);
+      setShowScriptMenu(false);
+    }
   };
 
   const importDocument = async (file?: File) => {
@@ -1050,7 +1312,7 @@ export function LiveStudio({
 
   const applyImportedScripts = () => {
     const baseId = Date.now();
-    setScripts((items) => [...items, ...importedScripts.map((item, index) => ({ ...item, id: baseId + index, state: 'ready' as const }))]);
+    setScripts((items) => [...items, ...importedScripts.map((item, index) => ({ ...item, id: baseId + index, productId: activeGoods?.id, state: 'ready' as const }))]);
     setDialog(null);
     setNotice(`已从“${importedDocumentName}”加入 ${importedScripts.length} 个话术节点`);
   };
@@ -1093,6 +1355,58 @@ export function LiveStudio({
     if (dialog !== 'livePlatform') return;
     void loadPlatformConnectionOptions();
   }, [dialog, loadPlatformConnectionOptions]);
+
+  useEffect(() => {
+    if (!room?.id) {
+      setLibraryScripts([]);
+      return;
+    }
+    let cancelled = false;
+    void listLiveRoomScripts(room.id).then((items) => {
+      if (!cancelled) setLibraryScripts(items);
+    }).catch(() => {
+      if (!cancelled) setLibraryScripts([]);
+    });
+    return () => { cancelled = true; };
+  }, [room?.id]);
+
+  useEffect(() => {
+    if (!room?.id) return;
+    let cancelled = false;
+    void listLiveRoomProducts(room.id).then((items) => {
+      if (cancelled || !items.length) return;
+      const selected = items.map(selectedProductToGoods);
+      setGoods(selected);
+      setActiveGoodsId((current) => selected.some((item) => item.id === current) ? current : selected[0].id);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [room?.id]);
+
+  useEffect(() => {
+    if (dialog !== 'productPicker') return;
+    let cancelled = false;
+    setProductCatalogLoading(true);
+    setProductCatalogError('');
+    const options = productPickerTab === 'platform'
+      ? { query: productQuery, sourceType: 'platform' as const }
+      : productPickerTab === 'script_library'
+        ? { query: productQuery, hasScripts: true }
+        : { query: productQuery, sourceType: 'self_built' as const };
+    void listProductCatalog(options).then((items) => {
+      if (cancelled) return;
+      setProductCatalogResultIds(items.map((item) => item.id));
+      setProductCatalog((current) => {
+        const byId = new Map(current.map((item) => [item.id, item]));
+        items.forEach((item) => byId.set(item.id, item));
+        return [...byId.values()];
+      });
+    }).catch((cause) => {
+      if (!cancelled) setProductCatalogError(cause instanceof Error ? cause.message : '商品库加载失败');
+    }).finally(() => {
+      if (!cancelled) setProductCatalogLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [dialog, productCatalogRefreshVersion, productPickerTab, productQuery]);
 
   const openNewRtmpConnection = () => {
     setEditingPlatformConnectionId(null);
@@ -1362,6 +1676,11 @@ export function LiveStudio({
   const stopLive = async () => {
     setError('');
     try {
+      await playbackQueueRef.current?.stop();
+      const microphone = microphoneRef.current;
+      microphoneRef.current = null;
+      await microphone?.cancel();
+      setMicrophoneState('idle');
       stopWindowCapture();
       await stopBrowserPublisher();
       await streamRef.current?.stopLive();
@@ -1636,17 +1955,172 @@ export function LiveStudio({
     }
   };
 
-  const saveToLibrary = () => {
-    setNotice(`已将 ${scripts.length} 条话术保存到脚本库`);
+  const saveToLibrary = async () => {
+    const activeProductId = typeof activeGoods?.id === 'string' ? activeGoods.id : undefined;
+    const productScripts = scripts.filter((item) => item.productId === undefined || item.productId === activeGoods?.id);
+    if (!room?.id || librarySaving || !productScripts.length) {
+      if (!room?.id) setNotice('请先保存直播间，再保存到脚本库');
+      return;
+    }
+    const existingKeys = new Set(libraryScripts.map((item) => `${item.productId ?? ''}\u0000${item.title}\u0000${item.text}`));
+    const pendingScripts = productScripts.filter((item) => !existingKeys.has(`${activeProductId ?? ''}\u0000${item.title}\u0000${item.text}`));
+    if (!pendingScripts.length) {
+      setNotice('当前话术已全部存在于脚本库');
+      return;
+    }
+    setLibrarySaving(true);
+    try {
+      const saved = await Promise.all(pendingScripts.map((item) => createLiveRoomScript(room.id, {
+        productId: activeProductId,
+        title: item.title,
+        category: item.category,
+        duration: item.duration,
+        text: item.text,
+        tags: [],
+      })));
+      if (activeProductId) {
+        setScripts((items) => items.map((item) => pendingScripts.some((candidate) => candidate.id === item.id)
+          ? { ...item, productId: activeProductId }
+          : item));
+      }
+      setLibraryScripts((items) => [...items, ...saved]);
+      setNotice(`已将 ${saved.length} 条话术保存到脚本库`);
+    } catch (caught) {
+      setNotice(`脚本库保存失败：${caught instanceof Error ? caught.message : '未知错误'}`);
+    } finally {
+      setLibrarySaving(false);
+    }
   };
 
-  const addGoods = (source: string) => {
-    const id = Date.now();
-    const label = source === '新建空白商品' ? '未命名商品' : source.replace('添加', '');
-    setGoods((items) => [...items, { id, name: `${label}${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`, source }]);
-    setActiveGoodsId(id);
-    setShowGoodsMenu(false);
-    setNotice(`${source}成功`);
+  const openProductPicker = () => {
+    if (!room?.id) {
+      setNotice('请先保存直播间，再从商品库选品');
+      return;
+    }
+    setSelectedCatalogProductIds(goods.flatMap((item) => typeof item.id === 'string' ? [item.id] : []));
+    setProductPickerTab('self_built');
+    setProductQuery('');
+    setProductCatalogError('');
+    setDialog('productPicker');
+  };
+
+  const toggleCatalogProduct = (productId: string) => {
+    setSelectedCatalogProductIds((items) => items.includes(productId)
+      ? items.filter((item) => item !== productId)
+      : [...items, productId]);
+  };
+
+  const moveSelectedCatalogProduct = (productId: string, direction: -1 | 1) => {
+    setSelectedCatalogProductIds((items) => {
+      const index = items.indexOf(productId);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= items.length) return items;
+      const next = [...items];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const saveSelfBuiltProduct = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!productDraft.name.trim() || productDraftSaving) return;
+    setProductDraftSaving(true);
+    setProductCatalogError('');
+    try {
+      const product = await createCatalogProduct({
+        ...productDraft,
+        name: productDraft.name.trim(),
+        sku: (productDraft.sku ?? '').trim(),
+        sellingPoints: productDraftSellingPoints.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean),
+        riskWords: productDraftRiskWords.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean),
+      });
+      setProductCatalog((items) => [product, ...items]);
+      setProductCatalogResultIds((items) => [product.id, ...items.filter((id) => id !== product.id)]);
+      setSelectedCatalogProductIds((items) => items.includes(product.id) ? items : [...items, product.id]);
+      setProductDraft(EMPTY_PRODUCT_DRAFT);
+      setProductDraftSellingPoints('');
+      setProductDraftRiskWords('');
+      setNotice('自建商品已保存到商品库，并加入待选商品单');
+    } catch (cause) {
+      setProductCatalogError(cause instanceof Error ? cause.message : '自建商品保存失败');
+    } finally {
+      setProductDraftSaving(false);
+    }
+  };
+
+  const applyProductSelection = async () => {
+    if (!room?.id || productSelectionSaving) return;
+    const selectedIds = [...new Set(selectedCatalogProductIds)];
+    if (!selectedIds.length) {
+      setProductCatalogError('直播间至少需要选择一个商品');
+      return;
+    }
+    setProductSelectionSaving(true);
+    setProductCatalogError('');
+    try {
+      const existingIds = goods.flatMap((item) => typeof item.id === 'string' ? [item.id] : []);
+      const addedIds = selectedIds.filter((id) => !existingIds.includes(id));
+      const removedIds = existingIds.filter((id) => !selectedIds.includes(id));
+      await attachLiveRoomProducts(room.id, selectedIds);
+      await Promise.all(removedIds.map((productId) => detachLiveRoomProduct(room.id, productId)));
+      const currentSelections = await listLiveRoomProducts(room.id);
+      const selectionIds = selectedIds.map((productId) => currentSelections.find((item) => item.id === productId)?.selectionId).filter((id): id is string => Boolean(id));
+      const selectedProducts = await reorderLiveRoomProducts(room.id, selectionIds);
+      const nextGoods = selectedProducts.map(selectedProductToGoods);
+      const savedScriptGroups = await Promise.all(addedIds.map(async (productId) => {
+        const saved = await listProductScripts(productId).catch(() => []);
+        return { productId, saved };
+      }));
+      const nextActiveGoodsId = nextGoods.some((item) => item.id === activeGoodsId)
+        ? activeGoodsId
+        : (addedIds[0] ?? nextGoods[0].id);
+      const selectedSet = new Set(selectedIds);
+      const retained = scripts.filter((item) => typeof item.productId !== 'string' || selectedSet.has(item.productId));
+      const keys = new Set(retained.map((item) => `${item.productId ?? ''}\u0000${item.title}\u0000${item.text}`));
+      const additions: ScriptItem[] = [];
+      savedScriptGroups.forEach(({ productId, saved }) => {
+        if (saved.length) {
+          saved.forEach((script) => {
+            const key = `${productId}\u0000${script.title}\u0000${script.text}`;
+            if (keys.has(key)) return;
+            keys.add(key);
+            additions.push({
+              id: Date.now() + additions.length,
+              productId,
+              title: script.title,
+              category: script.category,
+              duration: script.duration,
+              text: script.text,
+              state: 'ready',
+            });
+          });
+          return;
+        }
+        const product = nextGoods.find((item) => item.id === productId);
+        if (product) additions.push(...buildProductStarterScripts(product, Date.now() + additions.length));
+      });
+      const nextScripts = [...retained, ...additions];
+      setGoods(nextGoods);
+      setActiveGoodsId(nextActiveGoodsId);
+      setScripts(nextScripts);
+      const nextConfig = {
+        ...buildRoomConfig(),
+        goods: nextGoods,
+        activeGoodsId: nextActiveGoodsId,
+        scripts: nextScripts,
+      };
+      const savedRoom = await updateLiveRoom(room, nextConfig);
+      setRoom(savedRoom);
+      setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
+      setSavedConfigSignature(JSON.stringify(savedRoom.config));
+      setSavedAt(formatSavedAt(savedRoom.updatedAt));
+      setDialog(null);
+      setNotice(`直播商品单已更新：${nextGoods.length} 件商品${addedIds.length ? `，新增 ${addedIds.length} 件并生成/恢复关联话术` : ''}`);
+    } catch (cause) {
+      setProductCatalogError(cause instanceof Error ? cause.message : '直播商品单更新失败');
+    } finally {
+      setProductSelectionSaving(false);
+    }
   };
 
   const shuffleScripts = () => {
@@ -2016,19 +2490,16 @@ export function LiveStudio({
           <h2>直播商品单</h2>
           <div className="xlGoodsTools">
             <div className="xlMenuAnchor">
-              <button type="button" aria-expanded={showPlaybackMenu} onClick={() => { setShowPlaybackMenu((value) => !value); setShowGoodsMenu(false); }}>{playbackMode === 'sequence' ? '顺序播放' : '随机播放'} <ChevronDown size={13} /></button>
+              <button type="button" aria-expanded={showPlaybackMenu} onClick={() => setShowPlaybackMenu((value) => !value)}>{playbackMode === 'sequence' ? '顺序播放' : '随机播放'} <ChevronDown size={13} /></button>
               {showPlaybackMenu && <div className="xlPopMenu compact"><button className={playbackMode === 'sequence' ? 'active' : ''} type="button" onClick={() => { setPlaybackMode('sequence'); setShowPlaybackMenu(false); }}>顺序播放</button><button className={playbackMode === 'random' ? 'active' : ''} type="button" onClick={() => { setPlaybackMode('random'); setShowPlaybackMenu(false); }}>随机播放</button></div>}
             </div>
-            <div className="xlMenuAnchor">
-              <button type="button" aria-label="添加商品" aria-expanded={showGoodsMenu} onClick={() => { setShowGoodsMenu((value) => !value); setShowPlaybackMenu(false); }}><Plus size={16} /></button>
-              {showGoodsMenu && <div className="xlPopMenu goods">{['从脚本库添加', '添加平台商品', '添加自建商品', '新建空白商品'].map((label) => <button type="button" key={label} onClick={() => addGoods(label)}><Plus size={13} />{label}</button>)}</div>}
-            </div>
+            <button type="button" aria-label="打开直播商品选择" onClick={() => { setShowPlaybackMenu(false); openProductPicker(); }}><Plus size={16} /></button>
           </div>
           <div className="xlGoodsList">
             {goods.map((item, index) => (
               <button type="button" className={`xlGoodsCard ${activeGoodsId === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setActiveGoodsId(item.id)}>
                 <span className="xlGoodsIndex">{index + 1}</span>
-                <span className="xlGoodsScene"><img src={previewBackground} alt="" />{hostLayer && !avatarSwitching && <img src={previewHost} alt="" style={{ opacity: hostLayer.opacity / 100 }} />}<em>{item.source === '商品' ? '咖啡豆' : '文本'}</em></span>
+                <span className="xlGoodsScene">{item.imageUrl ? <img src={item.imageUrl} alt="" /> : <><img src={previewBackground} alt="" />{hostLayer && !avatarSwitching && <img src={previewHost} alt="" style={{ opacity: hostLayer.opacity / 100 }} />}</>}<em>{item.source}</em></span>
                 <strong>{item.name}</strong>
               </button>
             ))}
@@ -2039,7 +2510,7 @@ export function LiveStudio({
           <header className="xlProductHeader">
             <div className="xlProductName"><span>商品{goods.findIndex((item) => item.id === activeGoodsId) + 1}</span><strong>{activeGoods.name}</strong></div>
             <div className="xlModeSwitch"><button className={workspaceMode === 'script' ? 'active' : ''} type="button" onClick={() => setWorkspaceMode('script')}>脚本</button><button className={workspaceMode === 'qa' ? 'active' : ''} type="button" onClick={() => setWorkspaceMode('qa')}>问答</button></div>
-            <button type="button" className="xlSaveScript" onClick={saveToLibrary}><Save size={13} />保存到脚本库</button>
+            <button type="button" className="xlSaveScript" onClick={() => void saveToLibrary()} disabled={librarySaving || !room}><Save size={13} />{librarySaving ? '保存中…' : '保存到脚本库'}</button>
           </header>
 
           <>
@@ -2051,19 +2522,26 @@ export function LiveStudio({
             <div className={`xlEditorGrid ${workspaceMode === 'qa' ? 'xlWorkspaceHidden' : ''}`}>
               <section className="xlScriptPanel">
                 <header className="xlPanelToolbar">
-                  <div><strong>话术列表</strong><span>共{scripts.length}条</span></div>
+                  <div><strong>话术列表</strong><span>当前商品 {activeProductScripts.length} 条 · 全场 {scripts.length} 条</span></div>
                   <button type="button" className="xlSpeaker" aria-label={`选择主播声音，当前${selectedVoice.name}`} onClick={openVoiceDialog}><img src={selectedVoice.image} alt="" /><span>{selectedVoice.name}</span></button>
                   <div className="xlScriptTools">
+                    <span className={`xlPlaybackStatus ${microphoneState !== 'idle' ? 'running' : playbackQueueStatus}`} aria-live="polite">{microphoneState === 'recording' ? '真人接管中' : microphoneState === 'submitting' ? '正在提交真人语音' : playbackQueueStatus === 'running' ? `自动播报中${currentPlaybackScriptId ? ` · 第${scripts.findIndex((item) => item.id === currentPlaybackScriptId) + 1}条` : ''}` : playbackQueueStatus === 'paused' ? '自动播报已暂停' : '待机'}</span>
+                    {playbackQueueStatus === 'idle' && <button type="button" aria-label="开始自动播报" onClick={startScriptQueue} disabled={playbackBusy || !scripts.length}><Play size={15} fill="currentColor" /></button>}
+                    {playbackQueueStatus === 'running' && <button type="button" aria-label="暂停自动播报" onClick={pauseScriptQueue}><Pause size={15} /></button>}
+                    {playbackQueueStatus === 'paused' && <button type="button" aria-label="继续自动播报" onClick={resumeScriptQueue}><Play size={15} fill="currentColor" /></button>}
+                    {playbackQueueStatus !== 'idle' && <><button type="button" aria-label="跳过当前话术" onClick={skipScriptQueue}><SkipForward size={15} /></button><button type="button" aria-label="停止自动播报" onClick={stopScriptQueue}><CircleStop size={15} /></button></>}
+                    <button type="button" className={playbackLoop ? 'active' : ''} aria-label={playbackLoop ? '关闭循环播放' : '开启循环播放'} aria-pressed={playbackLoop} onClick={() => setPlaybackLoop((value) => !value)}><RotateCcw size={15} /></button>
+                    <button type="button" className={microphoneState !== 'idle' ? 'active' : ''} aria-label={microphoneState === 'idle' ? '开始真人接管' : '结束真人接管'} aria-pressed={microphoneState !== 'idle'} onClick={() => void toggleMicrophoneTakeover()} disabled={microphoneState === 'connecting' || !streamReady}><Mic size={15} /></button>
                     {batchMode && selectedScriptIds.length ? <button type="button" aria-label="删除已选话术" onClick={deleteSelectedScripts}><Trash2 size={15} /></button> : <button type="button" aria-label="随机排序" onClick={shuffleScripts}><Shuffle size={15} /></button>}
                     <button className={batchMode ? 'active' : ''} type="button" aria-label={batchMode ? '退出批量选择' : '批量选择'} onClick={toggleBatchMode}>{batchMode ? <X size={15} /> : <Check size={15} />}</button>
-                    <div className="xlMenuAnchor"><button type="button" aria-label="添加话术" aria-expanded={showScriptMenu} onClick={() => setShowScriptMenu((value) => !value)}><Plus size={17} /></button>{showScriptMenu && <div className="xlPopMenu script"><button type="button" onClick={() => { setShowComposer(true); setShowScriptMenu(false); }}><Plus size={13} />新建话术</button><button type="button" onClick={() => documentInputRef.current?.click()}><FileUp size={13} />导入文档</button><button type="button" onClick={() => { setDialog('library'); setShowScriptMenu(false); }}><Library size={13} />从话术库选择</button><button type="button" onClick={addGeneratedScript}><WandSparkles size={13} />AI 生成话术</button></div>}</div>
+                    <div className="xlMenuAnchor"><button type="button" aria-label="添加话术" aria-expanded={showScriptMenu} onClick={() => setShowScriptMenu((value) => !value)}><Plus size={17} /></button>{showScriptMenu && <div className="xlPopMenu script"><button type="button" onClick={() => { setShowComposer(true); setShowScriptMenu(false); }}><Plus size={13} />新建话术</button><button type="button" onClick={() => documentInputRef.current?.click()}><FileUp size={13} />导入文档</button><button type="button" onClick={() => { setDialog('library'); setShowScriptMenu(false); }}><Library size={13} />从话术库选择</button><button type="button" onClick={() => void generateDynamicScript()} disabled={dynamicGenerating}><WandSparkles size={13} />{dynamicGenerating ? 'AI 生成中' : 'AI 生成话术'}</button></div>}</div>
                   </div>
                 </header>
 
                 {showComposer && <form className="xlScriptComposer" onSubmit={addScript}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="输入新的直播话术…" rows={3} maxLength={200} autoFocus /><div><span>{draft.length}/200</span><span><button className="secondary" type="button" onClick={() => setShowComposer(false)}>取消</button><button type="submit" disabled={!draft.trim()}><Plus size={14} />添加话术</button></span></div></form>}
 
                 <div className="xlScriptList">
-                  {scripts.map((item, index) => {
+                  {activeProductScripts.map((item, index) => {
                     const selected = selectedScriptIds.includes(item.id);
                     return <article className={`xlScriptItem ${item.state} ${selected ? 'selected' : ''}`} key={item.id} onClick={() => { if (batchMode) toggleScriptSelection(item.id); }}>
                       <button className="xlScriptNumber" type="button" aria-label={batchMode ? `${selected ? '取消选择' : '选择'}${item.title}` : `第${index + 1}条话术`} onClick={(event) => { if (batchMode) { event.stopPropagation(); toggleScriptSelection(item.id); } }}>{batchMode ? (selected ? <CheckSquare size={16} /> : <span className="xlEmptyCheck" />) : index + 1}</button>
@@ -2098,6 +2576,7 @@ export function LiveStudio({
                     />
                     {avatarSwitching && <div className="xlAvatarLoading" role="status"><i /><span>主播形象加载中</span></div>}
                     {layers.map((item, index) => item.kind === 'text' ? <span className={`xlCanvasText ${item.sceneKey === 'custom' ? 'custom' : item.sceneKey ?? ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: 10 + layers.length - index, transform: `translate(-50%, -50%) rotate(${item.rotation}deg)`, opacity: item.opacity / 100, color: item.color, fontFamily: FONT_FAMILIES[item.fontFamily ?? '默认字体'], fontSize: `${item.fontSize ?? 16}px`, fontWeight: item.fontWeight, fontStyle: item.fontStyle, textDecoration: item.textDecoration, textAlign: item.textAlign, letterSpacing: `${item.letterSpacing ?? 0}px`, lineHeight: item.lineHeight, WebkitTextStroke: item.strokeEnabled ? `1px ${item.strokeColor ?? '#000000'}` : undefined, textShadow: item.shadowEnabled ? `${item.shadowX ?? 4}px ${item.shadowY ?? 4}px ${item.shadowBlur ?? 8}px ${item.shadowColor ?? '#000000'}` : undefined }} key={item.id}>{item.value}</span> : item.sceneKey === 'custom' && item.kind !== 'host' ? <span className={`xlCustomSceneAsset ${item.kind}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: 10 + layers.length - index, transform: `translate(-50%, -50%) rotate(${item.rotation}deg)`, opacity: item.opacity / 100 }} key={item.id}>{item.kind === 'image' && item.preview ? <img src={item.preview} alt={item.value} /> : item.kind === 'image' ? <ImageIcon size={23} /> : <Video size={23} />}<em>{item.value}</em></span> : null)}
+                    {visibleProductCard && <div className="xlProductCardOverlay"><strong>{visibleProductCard.name}</strong>{typeof visibleProductCard.price === 'number' && <b>¥{visibleProductCard.price.toFixed(2)}</b>}{visibleProductCard.sellingPoints?.length ? <small>{visibleProductCard.sellingPoints.slice(0, 2).join(' · ')}</small> : null}</div>}
                     {layers.map((item, index) => <button className={`xlLayerHitTarget ${item.sceneKey === 'templateBackground' ? 'background' : ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: 30 + layers.length - index, transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }} type="button" aria-label={`选择并移动图层：${item.value}`} aria-pressed={selectedLayerId === item.id} data-layer-hit={item.id} key={`hit-${item.id}`} onPointerDown={(event) => beginCanvasGesture(event, item, 'move')} onClick={(event) => { event.stopPropagation(); openLayerInspector(item.id); }} />)}
                     {inspectorLayer && <div className={`xlLayerSelectionBox ${inspectorLayer.kind}`} style={{ left: `${inspectorLayer.x}%`, top: `${inspectorLayer.y}%`, width: `${inspectorLayer.width}%`, height: `${inspectorLayer.height}%`, transform: `translate(-50%, -50%) rotate(${inspectorLayer.rotation}deg)` }} role="group" aria-label={`画布控制：${inspectorLayer.value}`} onPointerDownCapture={(event) => beginSelectionGesture(event, inspectorLayer)}>
                       {(['nw', 'ne', 'se', 'sw'] as const).map((handle) => <span className={`xlResizeHandle ${handle}`} role="button" aria-label={`${handle}方向缩放${inspectorLayer.value}`} data-resize-handle={handle} key={handle} />)}
@@ -2170,6 +2649,49 @@ export function LiveStudio({
 
       {notice && <div className="xlToast" role="status"><Check size={15} />{notice}</div>}
 
+      {dialog === 'productPicker' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
+        <section className="xlModal xlProductPickerModal" role="dialog" aria-modal="true" aria-label="选择直播商品" onMouseDown={(event) => event.stopPropagation()}>
+          <header><span><ShoppingBag size={17} /><strong>选择直播商品</strong></span><button type="button" aria-label="关闭商品选择" onClick={() => setDialog(null)}><X size={17} /></button></header>
+          <div className="xlProductPickerBody">
+            <div className="xlProductPickerMain">
+              <nav className="xlProductPickerTabs" aria-label="商品来源">{([['platform', '平台商品'], ['script_library', '脚本库'], ['self_built', '自建商品']] as const).map(([id, label]) => <button className={productPickerTab === id ? 'active' : ''} type="button" key={id} onClick={() => { setProductPickerTab(id); setProductQuery(''); }}>{label}</button>)}</nav>
+              <div className="xlProductPickerToolbar"><button type="button" onClick={() => setProductCatalogRefreshVersion((value) => value + 1)} disabled={productCatalogLoading}><RefreshCw className={productCatalogLoading ? 'xlVoiceSpinner' : ''} size={14} />刷新数据</button><label><Search size={15} /><input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} placeholder="搜索商品名称或 SKU" /></label></div>
+
+              {productPickerTab === 'self_built' && <form className="xlProductDraftForm" onSubmit={saveSelfBuiltProduct}>
+                <div className="xlProductDraftTitle"><span><Plus size={15} /><strong>新建自建商品</strong></span><small>保存后进入商品库，可跨直播间重复选择</small></div>
+                <div className="xlProductDraftGrid">
+                  <label><span>商品名称 *</span><input value={productDraft.name} onChange={(event) => setProductDraft((value) => ({ ...value, name: event.target.value }))} placeholder="例如：精品咖啡豆" maxLength={200} /></label>
+                  <label><span>SKU</span><input value={productDraft.sku} onChange={(event) => setProductDraft((value) => ({ ...value, sku: event.target.value }))} placeholder="内部商品编码" maxLength={160} /></label>
+                  <label className="wide"><span>商品图片 URL</span><input value={productDraft.imageUrl ?? ''} onChange={(event) => setProductDraft((value) => ({ ...value, imageUrl: event.target.value || undefined }))} placeholder="https://..." /></label>
+                  <label><span>直播价</span><input type="number" min="0" step="0.01" value={productDraft.price ?? ''} onChange={(event) => setProductDraft((value) => ({ ...value, price: event.target.value ? Number(event.target.value) : undefined }))} placeholder="0.00" /></label>
+                  <label><span>原价</span><input type="number" min="0" step="0.01" value={productDraft.originalPrice ?? ''} onChange={(event) => setProductDraft((value) => ({ ...value, originalPrice: event.target.value ? Number(event.target.value) : undefined }))} placeholder="0.00" /></label>
+                  <label className="wide"><span>商品卖点</span><textarea value={productDraftSellingPoints} onChange={(event) => setProductDraftSellingPoints(event.target.value)} placeholder="每行一个卖点，或使用逗号分隔" rows={2} /></label>
+                  <label><span>库存提示</span><input value={productDraft.stockMessage} onChange={(event) => setProductDraft((value) => ({ ...value, stockMessage: event.target.value }))} placeholder="例如：现货 100 件" /></label>
+                  <label><span>售后说明</span><input value={productDraft.afterSales} onChange={(event) => setProductDraft((value) => ({ ...value, afterSales: event.target.value }))} placeholder="例如：七天无理由" /></label>
+                  <label className="wide"><span>风险词</span><input value={productDraftRiskWords} onChange={(event) => setProductDraftRiskWords(event.target.value)} placeholder="多个风险词用逗号分隔" /></label>
+                </div>
+                <div className="xlProductDraftActions"><button type="submit" disabled={!productDraft.name.trim() || productDraftSaving}>{productDraftSaving ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <Save size={14} />}{productDraftSaving ? '保存中' : '保存并加入待选'}</button></div>
+              </form>}
+
+              {productCatalogError && <div className="xlProductPickerError">{productCatalogError}</div>}
+              {productPickerTab === 'platform' && !productCatalogLoading && !visibleCatalogProducts.length && <div className="xlProductCatalogEmpty"><Link2 size={32} /><strong>还没有授权可读取商品的商家或达人账号</strong><p>RTMP 推流连接不能读取商品。配置平台开放应用并完成 OAuth 后，平台商品才会出现在这里。</p><button type="button" disabled>等待平台 App ID / Secret</button></div>}
+              {productPickerTab === 'script_library' && !productCatalogLoading && !visibleCatalogProducts.length && <div className="xlProductCatalogEmpty"><BookOpenText size={32} /><strong>脚本库里还没有关联商品</strong><p>在直播控制台选中商品并点击“保存到脚本库”，下次即可从这里恢复商品和话术。</p></div>}
+              {productPickerTab === 'self_built' && !productCatalogLoading && !visibleCatalogProducts.length && <div className="xlProductCatalogEmpty compact"><PackageOpen size={28} /><strong>还没有自建商品</strong><p>填写上方商品资料后保存，系统不会再创建空白占位商品。</p></div>}
+              {productCatalogLoading ? <div className="xlProductCatalogLoading"><LoaderCircle className="xlVoiceSpinner" size={17} />正在加载商品库</div> : visibleCatalogProducts.length > 0 && <div className="xlProductCatalogGrid">{visibleCatalogProducts.map((product) => {
+                const selected = selectedCatalogProductIds.includes(product.id);
+                return <button className={selected ? 'selected' : ''} type="button" role="checkbox" aria-checked={selected} key={product.id} onClick={() => toggleCatalogProduct(product.id)}><span className="xlProductCatalogCheck">{selected && <Check size={13} />}</span><span className="xlProductCatalogImage">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <PackageOpen size={24} />}</span><span className="xlProductCatalogCopy"><strong>{product.name}</strong><small>{product.sku || productSourceLabel(product)}</small>{typeof product.price === 'number' && <b>¥{product.price.toFixed(2)}</b>}</span></button>;
+              })}</div>}
+            </div>
+            <aside className="xlSelectedProducts">
+              <header><span><strong>直播商品单</strong><small>已选 {selectedCatalogProductIds.length} 件</small></span></header>
+              <div>{selectedProductSummary.map((product, index) => <article key={String(product.id)}><span className="xlSelectedProductIndex">{index + 1}</span><span className="xlSelectedProductImage">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <PackageOpen size={17} />}</span><span><strong>{product.name}</strong><small>{typeof product.price === 'number' ? `¥${product.price.toFixed(2)}` : ('source' in product ? product.source : productSourceLabel(product))}</small></span><span className="xlSelectedProductActions"><button type="button" aria-label={`上移${product.name}`} disabled={index === 0} onClick={() => moveSelectedCatalogProduct(String(product.id), -1)}><ArrowUp size={12} /></button><button type="button" aria-label={`下移${product.name}`} disabled={index === selectedProductSummary.length - 1} onClick={() => moveSelectedCatalogProduct(String(product.id), 1)}><ArrowDown size={12} /></button><button type="button" aria-label={`移除${product.name}`} onClick={() => toggleCatalogProduct(String(product.id))}><X size={13} /></button></span></article>)}</div>
+              {!selectedProductSummary.length && <div className="xlSelectedProductsEmpty"><ShoppingBag size={28} /><span>从左侧选择直播商品</span></div>}
+            </aside>
+          </div>
+          <footer className="xlProductPickerFooter"><span>确认后会保留完整商品资料，并为新增商品生成或恢复关联话术。</span><div><button type="button" onClick={() => setDialog(null)}>取消</button><button type="button" disabled={!selectedCatalogProductIds.length || productSelectionSaving} onClick={() => void applyProductSelection()}>{productSelectionSaving ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <Check size={14} />}{productSelectionSaving ? '正在更新' : '加入直播间'}</button></div></footer>
+        </section>
+      </div>}
+
       {dialog === 'voice' && <div className="xlModalBackdrop" onMouseDown={closeVoiceDialog}>
         <section className={`xlModal xlVoiceModal ${voiceTab === 'clone' ? 'cloneMode' : ''}`} role="dialog" aria-modal="true" aria-label="主播声音" onMouseDown={(event) => event.stopPropagation()}>
           <header><strong>主播声音</strong><button type="button" aria-label="关闭主播声音" onClick={closeVoiceDialog}><X size={17} /></button></header>
@@ -2236,9 +2758,9 @@ export function LiveStudio({
             <nav>{SETTINGS_TABS.map((tab) => { const Icon = tab.icon; return <button className={settingsTab === tab.id ? 'active' : ''} type="button" key={tab.id} onClick={() => setSettingsTab(tab.id)}><Icon size={16} />{tab.label}{tab.id === 'dynamic' && <em>NEW</em>}</button>; })}</nav>
             <div className="xlSettingsContent">
               {settingsTab === 'qa' && <><div className="xlSettingRow"><span><strong>开启问答</strong><small>自动识别直播间问题并生成回复</small></span><button className={`xlSwitch ${liveOptions.qa ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.qa} onClick={() => setLiveOptions((value) => ({ ...value, qa: !value.qa }))}><i /></button></div><div className="xlSettingBlock"><strong>回复范围</strong><div className="xlRadioGroup"><button className={liveOptions.replyMode === 'hybrid' ? 'active' : ''} type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyMode: 'hybrid' }))}>智能回复 + 问答库</button><button className={liveOptions.replyMode === 'library' ? 'active' : ''} type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyMode: 'library' }))}>仅问答库回复</button></div></div><div className="xlSettingBlock"><strong>单次回复上限</strong><div className="xlStepper"><button type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyLimit: Math.max(1, value.replyLimit - 1) }))}>−</button><span>{liveOptions.replyLimit}</span><button type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyLimit: Math.min(20, value.replyLimit + 1) }))}>+</button><em>条</em></div></div></>}
-              {settingsTab === 'dynamic' && <><div className="xlSettingRow"><span><strong>开启 AI 动态话术</strong><small>根据直播节奏智能改写和补充话术</small></span><button className={`xlSwitch ${liveOptions.dynamic ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.dynamic} onClick={() => setLiveOptions((value) => ({ ...value, dynamic: !value.dynamic }))}><i /></button></div><div className="xlSettingNote">AI 会保留商品卖点并动态生成表达，降低重复播报。</div></>}
+              {settingsTab === 'dynamic' && <><div className="xlSettingRow"><span><strong>开启 AI 动态话术</strong><small>根据直播节奏智能改写和补充话术</small></span><button className={`xlSwitch ${liveOptions.dynamic ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.dynamic} onClick={() => setLiveOptions((value) => ({ ...value, dynamic: !value.dynamic }))}><i /></button></div><div className="xlSettingNote">AI 会保留商品卖点并动态生成表达，降低重复播报。</div><button type="button" className="xlDynamicGenerateButton" onClick={() => void generateDynamicScript()} disabled={!liveOptions.dynamic || dynamicGenerating}>{dynamicGenerating ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <WandSparkles size={14} />}{dynamicGenerating ? '正在生成动态话术' : '根据当前商品生成一条话术'}</button></>}
               {settingsTab === 'ambience' && <><div className="xlSettingRow"><span><strong>开启氛围互动</strong><small>自动欢迎新观众并感谢关注、点赞</small></span><button className={`xlSwitch ${liveOptions.ambience ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.ambience} onClick={() => setLiveOptions((value) => ({ ...value, ambience: !value.ambience }))}><i /></button></div><div className="xlSettingNote">互动内容会在当前话术播放间隙插入，不打断商品讲解。</div></>}
-              {settingsTab === 'product' && <><div className="xlSettingRow"><span><strong>随讲解弹商品卡</strong><small>讲到价格和下单信息时自动展示商品卡</small></span><button className={`xlSwitch ${liveOptions.product ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.product} onClick={() => setLiveOptions((value) => ({ ...value, product: !value.product }))}><i /></button></div><div className="xlSettingNote">商品卡跟随促单话术出现，观众可快速找到当前商品。</div></>}
+              {settingsTab === 'product' && <><div className="xlSettingRow"><span><strong>随讲解弹商品卡</strong><small>播报已关联商品的话术时自动展示对应商品卡</small></span><button className={`xlSwitch ${liveOptions.product ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.product} onClick={() => setLiveOptions((value) => ({ ...value, product: !value.product }))}><i /></button></div><div className="xlSettingNote">画面商品卡在话术开始时出现、结束时隐藏；平台原生可点击商品卡仍需商家 OAuth 和平台接口。</div></>}
               {settingsTab === 'output' && <div className="xlOutputSettings">
                 <div className="xlSettingIntro"><Video size={18} /><span><strong>实时渲染输出预设</strong><small>配置目标画质、编码和媒体协议</small></span><em>当前 {outputConfig.resolution} · {outputConfig.frameRate}</em></div>
                 {[
@@ -2357,8 +2879,8 @@ export function LiveStudio({
       {dialog === 'library' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
         <section className="xlModal xlLibraryModal" role="dialog" aria-modal="true" aria-label="行业话术库" onMouseDown={(event) => event.stopPropagation()}>
           <header><strong>行业话术库</strong><button type="button" aria-label="关闭话术库" onClick={() => setDialog(null)}><X size={17} /></button></header>
-          <div className="xlLibraryToolbar"><div>{['全部', '电商', '教育', '金融', '通用'].map((category) => <button className={libraryCategory === category ? 'active' : ''} type="button" key={category} onClick={() => setLibraryCategory(category)}>{category}</button>)}</div><label><Search size={14} /><input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="搜索话术" /></label></div>
-          <div className="xlLibraryList">{filteredLibrary.map((item) => <article key={item.title}><span><BookOpenText size={16} /></span><div><small>{item.category}</small><strong>{item.title}</strong><p>{item.text}</p></div><button type="button" onClick={() => { setScripts((items) => [...items, { id: Date.now(), title: item.title, category: item.category === '电商' ? '促单' : '讲品', duration: '00:32', text: item.text, state: 'ready' }]); setDialog(null); setNotice('已从话术库添加内容'); }}><Plus size={14} />添加</button></article>)}</div>
+          <div className="xlLibraryToolbar"><div>{['全部', '电商', '教育', '金融', '通用', '开场', '讲品', '促单'].map((category) => <button className={libraryCategory === category ? 'active' : ''} type="button" key={category} onClick={() => setLibraryCategory(category)}>{category}</button>)}</div><label><Search size={14} /><input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="搜索话术" /></label></div>
+          <div className="xlLibraryList">{filteredLibrary.map((item) => <article key={`${item.title}-${item.text}`}><span><BookOpenText size={16} /></span><div><small>{item.category}</small><strong>{item.title}</strong><p>{item.text}</p></div><button type="button" onClick={() => { const category = item.category === '开场' || item.category === '讲品' || item.category === '促单' ? item.category : item.category === '电商' ? '促单' : '讲品'; const duration = 'duration' in item && item.duration ? item.duration : '00:32'; setScripts((items) => [...items, { id: Date.now(), productId: activeGoods?.id, title: item.title, category, duration, text: item.text, state: 'ready' }]); setDialog(null); setNotice('已从话术库添加内容'); }}><Plus size={14} />添加</button></article>)}</div>
           {!filteredLibrary.length && <div className="xlLibraryEmpty"><Database size={28} />没有匹配的话术</div>}
         </section>
       </div>}
