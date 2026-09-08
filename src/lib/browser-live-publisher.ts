@@ -3,6 +3,7 @@ import {
   normalizeChromaKeySettings,
   type ChromaKeySettings,
 } from './chroma-key';
+import { layersBackToFront } from './live-layer-order';
 
 export type BroadcastSceneLayer = {
   id: string;
@@ -288,14 +289,15 @@ export class SceneCompositor {
     const background = this.image(scene.backgroundUrl);
     if (background) drawCover(context, background, width, height);
 
-    const host = scene.layers.find((layer) => layer.sceneKey === 'host');
-    if (host) {
-      const liveSource = scene.mediaActive && this.sourceCanvas.width && this.sourceCanvas.height
-        ? this.sourceCanvas
-        : this.image(scene.hostUrl);
-      if (liveSource) {
+    layersBackToFront(scene.layers).forEach((layer) => {
+      if (layer.sceneKey === 'templateBackground') return;
+      if (layer.sceneKey === 'host') {
+        const liveSource = scene.mediaActive && this.sourceCanvas.width && this.sourceCanvas.height
+          ? this.sourceCanvas
+          : this.image(scene.hostUrl);
+        if (!liveSource) return;
         let hostSource = liveSource;
-        const chromaKey = layerChromaKeySettings(host);
+        const chromaKey = layerChromaKeySettings(layer);
         if (!scene.mediaActive && chromaKey.enabled) {
           const dimensions = sourceDimensions(liveSource);
           this.keyedHostRenderer.render(
@@ -306,12 +308,9 @@ export class SceneCompositor {
           );
           hostSource = this.keyedHostCanvas;
         }
-        this.drawVisualLayer(context, host, hostSource, 'contain');
+        this.drawVisualLayer(context, layer, hostSource, 'contain');
+        return;
       }
-    }
-
-    [...scene.layers].reverse().forEach((layer) => {
-      if (layer.sceneKey === 'host' || layer.sceneKey === 'templateBackground') return;
       if (layer.kind === 'text') this.drawTextLayer(context, layer);
       if (layer.kind === 'image' && layer.preview) {
         const image = this.image(layer.preview);
