@@ -60,6 +60,8 @@ import {
   MuseTalkAvatarProfile,
   MuseTalkTotalStream,
   prepareMuseTalkSpeech,
+  prepareMuseTalkVideos,
+  lookupMuseTalkVideos,
 } from '@/lib/musetalk-total-stream';
 import {
   BrowserLivePublisher,
@@ -613,6 +615,7 @@ export function LiveStudio({
   const [mediaActive, setMediaActive] = useState(false);
   const [streamReady, setStreamReady] = useState(false);
   const [stage, setStage] = useState('idle');
+  const [preparedVideoProgress, setPreparedVideoProgress] = useState<{ ready: number; total: number } | null>(null);
   const [onAir, setOnAir] = useState(false);
   const [liveRun, setLiveRun] = useState<LiveRun | null>(null);
   const [liveRunPreflight, setLiveRunPreflight] = useState<LiveRunPreflightResponse | null>(null);
@@ -882,9 +885,10 @@ export function LiveStudio({
   const roomConfigSignature = useMemo(() => JSON.stringify(buildRoomConfig()), [buildRoomConfig]);
   const speechWarmupSignature = useMemo(() => JSON.stringify({
     texts: scripts.map((item) => item.text.trim()).filter(Boolean),
+    avatarId,
     voiceId: selectedVoiceId,
     speed: voiceSpeed,
-  }), [scripts, selectedVoiceId, voiceSpeed]);
+  }), [avatarId, scripts, selectedVoiceId, voiceSpeed]);
   const roomDirty = Boolean(room && savedConfigSignature && roomConfigSignature !== savedConfigSignature);
   const selectedPlatformConnections = platformConnections.filter((connection) => (
     selectedPlatformConnectionIds.includes(connection.id)
@@ -1128,6 +1132,7 @@ export function LiveStudio({
       return;
     }
     const stream = new MuseTalkTotalStream(canvasRef.current, {
+      avatarId,
       profile: avatarId,
       language: 'ZH',
       voice: selectedVoiceId,
@@ -1152,20 +1157,42 @@ export function LiveStudio({
     if (!entered || !room) return;
     const warmup = JSON.parse(speechWarmupSignature) as {
       texts: string[];
+      avatarId: MuseTalkAvatarProfile;
       voiceId: string;
       speed: number;
     };
-    if (!warmup.texts.length) return;
-    void prepareMuseTalkSpeech(warmup.texts, {
-      language: 'ZH',
+    if (!warmup.texts.length) {
+      setPreparedVideoProgress(null);
+      return;
+    }
+    let cancelled = false;
+    setPreparedVideoProgress({ ready: 0, total: warmup.texts.length });
+    const options = {
+      profile: warmup.avatarId,
+      language: 'ZH' as const,
       voiceId: warmup.voiceId,
       speed: warmup.speed,
-    }).then((result) => {
-      if (result.failed) console.warn('Some live-script audio units could not be prepared.', result);
-    }).catch((cause) => {
-      // Pre-generation is optional; speak() falls back to live TTS on a miss.
-      console.warn('Live-script audio pre-generation failed.', cause);
+      sourceTimeSeconds: 0,
+    };
+    void (async () => {
+      const speech = await prepareMuseTalkSpeech(warmup.texts, options);
+      if (speech.failed) console.warn('Some live-script audio units could not be prepared.', speech);
+      let videos = await prepareMuseTalkVideos(warmup.texts, options);
+      while (!cancelled) {
+        const ready = videos.filter((item) => item.status === 'ready').length;
+        setPreparedVideoProgress({ ready, total: videos.length });
+        if (ready === videos.length || videos.every((item) => item.status !== 'preparing')) return;
+        await new Promise((resolve) => window.setTimeout(resolve, 5_000));
+        if (cancelled) return;
+        videos = await lookupMuseTalkVideos(warmup.texts, options);
+      }
+    })().catch((cause) => {
+      // Pre-generation is optional; speak() falls back to live TTS and rendering on a miss.
+      console.warn('Live-script media pre-generation failed.', cause);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [entered, room?.id, speechWarmupSignature]);
 
   useEffect(() => {
@@ -2941,7 +2968,7 @@ export function LiveStudio({
                   <div><strong>话术列表</strong><span>当前商品 {activeProductScripts.length} 条 · 全场 {scripts.length} 条</span></div>
                   <button type="button" className="xlSpeaker" aria-label={`选择主播声音，当前${selectedVoice.name}`} onClick={openVoiceDialog}><img src={selectedVoice.image} alt="" /><span>{selectedVoice.name}</span></button>
                   <div className="xlScriptTools">
-                    <span className={`xlPlaybackStatus ${microphoneState !== 'idle' ? 'running' : playbackQueueStatus}`} aria-live="polite">{microphoneState === 'recording' ? '真人接管中' : microphoneState === 'submitting' ? '正在提交真人语音' : playbackQueueStatus === 'running' ? `自动播报中${currentPlaybackScriptId ? ` · 第${scripts.findIndex((item) => item.id === currentPlaybackScriptId) + 1}条` : ''}` : playbackQueueStatus === 'paused' ? '自动播报已暂停' : '待机'}</span>
+                    <span className={`xlPlaybackStatus ${microphoneState !== 'idle' ? 'running' : playbackQueueStatus}`} aria-live="polite">{microphoneState === 'recording' ? '真人接管中' : microphoneState === 'submitting' ? '正在提交真人语音' : playbackQueueStatus === 'running' ? `自动播报中${currentPlaybackScriptId ? ` · 第${scripts.findIndex((item) => item.id === currentPlaybackScriptId) + 1}条` : ''}` : playbackQueueStatus === 'paused' ? '自动播报已暂停' : preparedVideoProgress && preparedVideoProgress.ready < preparedVideoProgress.total ? `视频预生成 ${preparedVideoProgress.ready}/${preparedVideoProgress.total}` : preparedVideoProgress?.total ? `${preparedVideoProgress.ready} 条视频已就绪` : '待机'}</span>
                     {playbackQueueStatus === 'idle' && <button type="button" aria-label="开始自动播报" onClick={startScriptQueue} disabled={playbackBusy || !scripts.length}><Play size={15} fill="currentColor" /></button>}
                     {playbackQueueStatus === 'running' && <button type="button" aria-label="暂停自动播报" onClick={pauseScriptQueue}><Pause size={15} /></button>}
                     {playbackQueueStatus === 'paused' && <button type="button" aria-label="继续自动播报" onClick={resumeScriptQueue}><Play size={15} fill="currentColor" /></button>}

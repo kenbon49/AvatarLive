@@ -155,6 +155,79 @@ export async function prepareMuseTalkSpeech(
   return response.json() as Promise<MuseTalkSpeechPrepareResult>;
 }
 
+export type MuseTalkPreparedVideoStatus = 'missing' | 'preparing' | 'ready' | 'failed';
+
+export interface MuseTalkPreparedVideo {
+  index: number;
+  key: string;
+  status: MuseTalkPreparedVideoStatus;
+  url?: string;
+  duration_seconds?: number;
+  width?: number;
+  height?: number;
+  fps?: number;
+  background_removed?: boolean;
+  error?: string;
+}
+
+type MuseTalkPreparedVideoOptions = {
+  profile?: MuseTalkStreamProfile;
+  language?: 'ZH' | 'EN';
+  voiceId?: string;
+  speed?: number;
+  sourceTimeSeconds?: number;
+};
+
+function preparedVideoPayload(texts: string[], options: MuseTalkPreparedVideoOptions) {
+  return {
+    texts: [...new Set(texts.map((text) => text.trim()).filter(Boolean))].slice(0, 50),
+    profile: options.profile || 'chinese',
+    language: options.language ?? 'ZH',
+    voice_id: options.voiceId || undefined,
+    speed: options.speed ?? 1,
+    source_time_seconds: options.sourceTimeSeconds ?? 0,
+  };
+}
+
+function withPreparedVideoUrl(item: MuseTalkPreparedVideo): MuseTalkPreparedVideo {
+  if (!item.url) return item;
+  return {
+    ...item,
+    url: item.url.startsWith('/musetalk-total-api/')
+      ? item.url
+      : `/musetalk-total-api${item.url.startsWith('/') ? item.url : `/${item.url}`}`,
+  };
+}
+
+async function requestPreparedVideos(
+  endpoint: 'prepare' | 'lookup',
+  texts: string[],
+  options: MuseTalkPreparedVideoOptions,
+): Promise<MuseTalkPreparedVideo[]> {
+  const payload = preparedVideoPayload(texts, options);
+  if (!payload.texts.length) return [];
+  const response = await fetch(`/musetalk-total-api/v1/videos/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`数字人视频${endpoint === 'prepare' ? '预生成' : '查询'}失败（HTTP ${response.status}）`);
+  const result = (await response.json()) as { items?: MuseTalkPreparedVideo[] };
+  return Array.isArray(result.items) ? result.items.map(withPreparedVideoUrl) : [];
+}
+
+export function prepareMuseTalkVideos(
+  texts: string[], options: MuseTalkPreparedVideoOptions = {},
+): Promise<MuseTalkPreparedVideo[]> {
+  return requestPreparedVideos('prepare', texts, options);
+}
+
+export function lookupMuseTalkVideos(
+  texts: string[], options: MuseTalkPreparedVideoOptions = {},
+): Promise<MuseTalkPreparedVideo[]> {
+  return requestPreparedVideos('lookup', texts, options);
+}
+
 export interface MuseTalkTotalOptions {
   avatarId?: string;
   profile?: MuseTalkStreamProfile;
@@ -199,6 +272,9 @@ const PLAYBACK_BUFFER_MS = Number.isFinite(configuredPlaybackBufferMs)
   : 1500;
 const PLAYBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const PLAYBACK_COMPLETION_FALLBACK_MS = 2_500;
+
+class PreparedVideoPlaybackCancelled extends Error {}
+
 function isAvatarProfile(value: unknown): value is MuseTalkAvatarProfile {
   return typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,95}$/.test(value);
 }
@@ -349,6 +425,7 @@ export class ServerTotalStream {
   private audioSources = new Set<AudioBufferSourceNode>();
   private audioScheduledUntil = 0;
   private sessionGeneration = 0;
+  private requestGeneration = 0;
   private textGeneration = 0;
   private mediaStartAudio = 0;
   private mediaStartWall = 0;
@@ -387,6 +464,11 @@ export class ServerTotalStream {
   private visibilityListenerAttached = false;
   private pendingPlaybackCompletion: { active: ActiveRequest; result: MuseTalkTotalResult } | null = null;
   private activeRequest: ActiveRequest | null = null;
+  private preparedVideo: HTMLVideoElement | null = null;
+  private preparedVideoAudioSource: MediaElementAudioSourceNode | null = null;
+  private preparedVideoActiveRequest: ActiveRequest | null = null;
+  private preparedVideoFrameRequest: number | null = null;
+  private preparedVideoFrameRequestKind: 'raf' | 'timeout' | null = null;
   private readonly frameRenderer: ChromaKeyRenderer;
 
   constructor(
@@ -397,6 +479,17 @@ export class ServerTotalStream {
   }
 
   private readonly handleVisibilityChange = () => {
+    const preparedActive = this.preparedVideoActiveRequest;
+    if (preparedActive && this.preparedVideoFrameRequest !== null) {
+      if (this.preparedVideoFrameRequestKind === 'timeout') {
+        window.clearTimeout(this.preparedVideoFrameRequest);
+      } else {
+        window.cancelAnimationFrame(this.preparedVideoFrameRequest);
+      }
+      this.preparedVideoFrameRequest = null;
+      this.preparedVideoFrameRequestKind = null;
+      this.requestPreparedVideoFrame(preparedActive);
+    }
     if (!this.mediaTimelineStarted) return;
     const backgrounded = document.hidden || !document.hasFocus();
     if (backgrounded && this.videoFrameRequestKind === 'raf' && this.videoFrameRequest !== null) {
@@ -661,6 +754,173 @@ export class ServerTotalStream {
     this.videoEndPts = 0;
   }
 
+  private ensurePreparedVideo(): HTMLVideoElement {
+    if (this.preparedVideo) return this.preparedVideo;
+    const audioContext = this.audioContext;
+    if (!audioContext || !this.audioCaptureDestination) {
+      throw new Error('数字人视频音频输出尚未准备好');
+    }
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.playsInline = true;
+    video.crossOrigin = 'anonymous';
+    const source = audioContext.createMediaElementSource(video);
+    source.connect(audioContext.destination);
+    source.connect(this.audioCaptureDestination);
+    this.preparedVideo = video;
+    this.preparedVideoAudioSource = source;
+    return video;
+  }
+
+  private drawPreparedVideoFrame(active: ActiveRequest) {
+    const video = this.preparedVideo;
+    if (!video || this.activeRequest !== active || this.preparedVideoActiveRequest !== active) return;
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) {
+      // The prepared artifact already carries an alpha channel. Applying the
+      // configurable chroma key again would damage white areas on the avatar.
+      this.frameRenderer.render(video, video.videoWidth, video.videoHeight, { enabled: false });
+      this.setMediaActive(true);
+    }
+  }
+
+  private requestPreparedVideoFrame(active: ActiveRequest) {
+    if (this.preparedVideoFrameRequest !== null) return;
+    if (document.hidden || !document.hasFocus()) {
+      this.preparedVideoFrameRequestKind = 'timeout';
+      this.preparedVideoFrameRequest = window.setTimeout(() => {
+        this.preparedVideoFrameRequest = null;
+        this.preparedVideoFrameRequestKind = null;
+        this.drawPreparedVideoFrame(active);
+        const video = this.preparedVideo;
+        if (video && !video.paused && !video.ended && this.preparedVideoActiveRequest === active) {
+          this.requestPreparedVideoFrame(active);
+        }
+      }, Math.max(16, Math.round(1000 / this.mediaFps)));
+      return;
+    }
+    this.preparedVideoFrameRequestKind = 'raf';
+    this.preparedVideoFrameRequest = window.requestAnimationFrame(() => {
+      this.preparedVideoFrameRequest = null;
+      this.preparedVideoFrameRequestKind = null;
+      this.drawPreparedVideoFrame(active);
+      const video = this.preparedVideo;
+      if (video && !video.paused && !video.ended && this.preparedVideoActiveRequest === active) {
+        this.requestPreparedVideoFrame(active);
+      }
+    });
+  }
+
+  private clearPreparedVideoPlayback(clearSource = false) {
+    if (this.preparedVideoFrameRequest !== null) {
+      if (this.preparedVideoFrameRequestKind === 'timeout') {
+        window.clearTimeout(this.preparedVideoFrameRequest);
+      } else {
+        window.cancelAnimationFrame(this.preparedVideoFrameRequest);
+      }
+      this.preparedVideoFrameRequest = null;
+      this.preparedVideoFrameRequestKind = null;
+    }
+    const video = this.preparedVideo;
+    if (!video) return;
+    video.onloadeddata = null;
+    video.onended = null;
+    video.onerror = null;
+    video.pause();
+    if (clearSource) {
+      video.removeAttribute('src');
+      video.load();
+    }
+  }
+
+  private failPreparedVideo(active: ActiveRequest, error: Error) {
+    if (this.activeRequest !== active) return;
+    this.activeRequest = null;
+    this.preparedVideoActiveRequest = null;
+    this.clearPreparedVideoPlayback();
+    this.setMediaActive(false);
+    this.setStage('error');
+    active.reject(error);
+  }
+
+  private playPreparedVideo(
+    text: string,
+    item: MuseTalkPreparedVideo,
+    sourceTimeSeconds: number | null,
+    startedAt: number,
+  ): Promise<MuseTalkTotalResult> {
+    return new Promise<MuseTalkTotalResult>((resolve, reject) => {
+      let video: HTMLVideoElement;
+      try {
+        video = this.ensurePreparedVideo();
+      } catch (cause) {
+        reject(cause instanceof Error ? cause : new Error(String(cause)));
+        return;
+      }
+      const active: ActiveRequest = {
+        requestId: `prepared-video-${item.key}`,
+        startedAt,
+        answer: text,
+        streamedText: text,
+        llmLatencyMs: 0,
+        sourceTimeSeconds,
+        resolve,
+        reject,
+      };
+      this.activeRequest = active;
+      this.preparedVideoActiveRequest = active;
+      this.textGeneration += 1;
+      this.resetTextTimeline();
+      this.clearVideoPlayback();
+      this.clearPreparedVideoPlayback();
+
+      const fail = (message: string) => {
+        this.failPreparedVideo(active, new Error(message));
+      };
+      video.onerror = () => fail('预生成数字人视频解码失败');
+      video.onloadeddata = () => {
+        if (this.activeRequest !== active || this.preparedVideoActiveRequest !== active) return;
+        void Promise.resolve(this.options.onPlaybackReady?.()).then(async () => {
+          if (this.activeRequest !== active || this.preparedVideoActiveRequest !== active) return;
+          this.displayedText = text;
+          this.options.onTextUnit?.(text, text);
+          this.setStage('playing');
+          try {
+            await video.play();
+            this.drawPreparedVideoFrame(active);
+            this.requestPreparedVideoFrame(active);
+          } catch (cause) {
+            this.failPreparedVideo(
+              active,
+              cause instanceof Error ? cause : new Error('预生成数字人视频无法播放'),
+            );
+          }
+        }).catch((cause) => {
+          this.failPreparedVideo(active, cause instanceof Error ? cause : new Error(String(cause)));
+        });
+      };
+      video.onended = () => {
+        if (this.activeRequest !== active || this.preparedVideoActiveRequest !== active) return;
+        this.drawPreparedVideoFrame(active);
+        this.clearPreparedVideoPlayback();
+        this.activeRequest = null;
+        this.preparedVideoActiveRequest = null;
+        this.setStage('idle');
+        const elapsedSeconds = Number.isFinite(video.duration) ? video.duration : video.currentTime;
+        const nextSourceTime = sourceTimeSeconds === null
+          ? undefined
+          : sourceTimeSeconds + Math.max(0, elapsedSeconds);
+        active.resolve({
+          answer: text,
+          llmLatencyMs: 0,
+          totalLatencyMs: Math.round(performance.now() - startedAt),
+        });
+        void this.finishPlaybackHandoff(nextSourceTime).finally(() => this.setMediaActive(false, true));
+      };
+      video.src = item.url as string;
+      video.load();
+    });
+  }
+
   private queueTextUnit(sequence: number, text: string, ptsSeconds: number, generation: number) {
     if (!text || this.scheduledTextUnits.has(sequence)) return;
     this.pendingTextUnits.set(sequence, { text, ptsSeconds });
@@ -726,6 +986,11 @@ export class ServerTotalStream {
       }
     }
     this.audioSources.clear();
+    this.clearPreparedVideoPlayback(true);
+    this.preparedVideoAudioSource?.disconnect();
+    this.preparedVideoAudioSource = null;
+    this.preparedVideo = null;
+    this.preparedVideoActiveRequest = null;
     this.audioWorkletNode?.port.postMessage({ type: 'stop' });
     this.audioWorkletNode?.disconnect();
     this.audioWorkletNode = null;
@@ -1116,7 +1381,9 @@ export class ServerTotalStream {
 
   async ask(question: string): Promise<MuseTalkTotalResult> {
     if (this.activeRequest) throw new Error('MuseTalk 总流程正在处理上一条问题');
+    const requestGeneration = ++this.requestGeneration;
     await this.startLive();
+    if (requestGeneration !== this.requestGeneration) throw new Error('请求已取消');
     const websocket = this.requireLive();
     const requestId = nextRequestId();
     const startedAt = performance.now();
@@ -1169,9 +1436,9 @@ export class ServerTotalStream {
 
   async speak(text: string): Promise<MuseTalkTotalResult> {
     if (this.activeRequest) throw new Error('MuseTalk 正在播放上一段内容');
-    await this.startLive();
-    const websocket = this.requireLive();
-    const requestId = nextRequestId();
+    const requestGeneration = ++this.requestGeneration;
+    const normalizedText = text.trim();
+    if (!normalizedText) throw new Error('话术内容不能为空');
     const startedAt = performance.now();
     const sourceTime = this.options.getSourceTimeSeconds
       ? Number(this.options.getSourceTimeSeconds())
@@ -1179,6 +1446,37 @@ export class ServerTotalStream {
     const sourceTimeSeconds = sourceTime !== null && Number.isFinite(sourceTime) && sourceTime >= 0
       ? sourceTime
       : null;
+    await this.prepareAudio();
+    if (requestGeneration !== this.requestGeneration) {
+      throw new PreparedVideoPlaybackCancelled('请求已取消');
+    }
+    try {
+      const [prepared] = await lookupMuseTalkVideos([normalizedText], {
+        profile: this.options.profile || 'chinese',
+        language: this.options.language || 'ZH',
+        voiceId: this.options.voice,
+        speed: this.options.speed || 1,
+        sourceTimeSeconds: sourceTimeSeconds ?? 0,
+      });
+      if (requestGeneration !== this.requestGeneration) {
+        throw new PreparedVideoPlaybackCancelled('请求已取消');
+      }
+      if (prepared?.status === 'ready' && prepared.url && prepared.background_removed) {
+        return await this.playPreparedVideo(normalizedText, prepared, sourceTimeSeconds, startedAt);
+      }
+    } catch (cause) {
+      if (cause instanceof PreparedVideoPlaybackCancelled) throw cause;
+      console.warn('Prepared MuseTalk video unavailable; falling back to live rendering.', cause);
+      this.preparedVideoActiveRequest = null;
+      this.clearPreparedVideoPlayback();
+    }
+
+    await this.startLive();
+    if (requestGeneration !== this.requestGeneration) {
+      throw new PreparedVideoPlaybackCancelled('请求已取消');
+    }
+    const websocket = this.requireLive();
+    const requestId = nextRequestId();
     this.textGeneration += 1;
     this.resetTextTimeline();
     this.mediaTimelineStarted = false;
@@ -1220,14 +1518,21 @@ export class ServerTotalStream {
   }
 
   async cancel(): Promise<void> {
+    this.requestGeneration += 1;
     this.textGeneration += 1;
     const active = this.activeRequest;
     this.activeRequest = null;
+    const preparedVideoActive = this.preparedVideoActiveRequest === active;
+    this.preparedVideoActiveRequest = null;
     const requestId = active?.requestId;
-    if (active) active.reject(new Error('请求已取消'));
+    if (active) {
+      active.reject(preparedVideoActive
+        ? new PreparedVideoPlaybackCancelled('请求已取消')
+        : new Error('请求已取消'));
+    }
     this.resetTextTimeline();
     const websocket = this.websocket;
-    if (requestId && websocket && websocket.readyState === WebSocket.OPEN) {
+    if (!preparedVideoActive && requestId && websocket && websocket.readyState === WebSocket.OPEN) {
       websocket.send(
         JSON.stringify({ type: 'cancel', request_id: requestId }),
       );
@@ -1240,10 +1545,17 @@ export class ServerTotalStream {
   async stopLive(): Promise<void> {
     this.closedByUser = true;
     this.sessionGeneration += 1;
+    this.requestGeneration += 1;
     this.textGeneration += 1;
     const active = this.activeRequest;
     this.activeRequest = null;
-    if (active) active.reject(new Error('直播已停止'));
+    const preparedVideoActive = this.preparedVideoActiveRequest === active;
+    this.preparedVideoActiveRequest = null;
+    if (active) {
+      active.reject(preparedVideoActive
+        ? new PreparedVideoPlaybackCancelled('直播已停止')
+        : new Error('直播已停止'));
+    }
     this.resetTextTimeline();
     const websocket = this.websocket;
     this.websocket = null;
