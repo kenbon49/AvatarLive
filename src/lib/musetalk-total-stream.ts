@@ -1,6 +1,7 @@
 import { getMuseTalkAvatars } from './api';
 import { LocalMuseTalkStream } from './musetalk-local-stream';
 import {
+  hasVideoDecodeCapacity,
   selectVideoFrameForDecode,
   selectVideoFramesToDrop,
 } from './musetalk-video-queue';
@@ -139,6 +140,8 @@ const PACKET_HEADER_BYTES = 24;
 const PLAYBACK_LEAD_SECONDS = 0.12;
 const MAX_PENDING_VIDEO_DECODES = 2;
 const MAX_QUEUED_VIDEO_FRAMES = 90;
+const DECODED_VIDEO_BUFFER_SECONDS = 2;
+const AUDIO_WORKLET_LOAD_TIMEOUT_MS = 5_000;
 const configuredPlaybackBufferMs = Number(
   process.env.NEXT_PUBLIC_MUSETALK_PLAYBACK_BUFFER_MS || 1500,
 );
@@ -477,7 +480,16 @@ export class ServerTotalStream {
   }
 
   private pumpVideoDecodes() {
-    while (this.pendingVideoDecodes < MAX_PENDING_VIDEO_DECODES && this.queuedVideoFrames.size) {
+    while (
+      this.pendingVideoDecodes < MAX_PENDING_VIDEO_DECODES
+      && this.queuedVideoFrames.size
+      && hasVideoDecodeCapacity(
+        this.decodedVideoFrames.size,
+        this.pendingVideoDecodes,
+        this.mediaFps,
+        DECODED_VIDEO_BUFFER_SECONDS,
+      )
+    ) {
       const audioContext = this.audioContext;
       const mediaPts = this.mediaTimelineStarted && audioContext
         ? audioContext.currentTime - this.mediaStartAudio
@@ -576,6 +588,8 @@ export class ServerTotalStream {
         this.setMediaActive(true);
       }
     }
+
+    this.pumpVideoDecodes();
 
     // When decoding or the tab stalls, only the newest due frame is drawn.
     // Replaying every overdue timer is the visible fast/slow judder.
@@ -957,8 +971,17 @@ export class ServerTotalStream {
       this.audioContext = new AudioContext({ latencyHint: 'interactive', sampleRate: 16_000 });
       this.audioCaptureDestination = this.audioContext.createMediaStreamDestination();
       if (this.audioContext.sampleRate === 16_000 && this.audioContext.audioWorklet) {
+        let workletLoadTimeout: number | null = null;
         try {
-          await this.audioContext.audioWorklet.addModule('/vendor/musetalk-playback-worklet.js');
+          await Promise.race([
+            this.audioContext.audioWorklet.addModule('/vendor/musetalk-playback-worklet.js'),
+            new Promise<never>((_resolve, reject) => {
+              workletLoadTimeout = window.setTimeout(
+                () => reject(new Error('MuseTalk AudioWorklet load timed out')),
+                AUDIO_WORKLET_LOAD_TIMEOUT_MS,
+              );
+            }),
+          ]);
           const node = new AudioWorkletNode(this.audioContext, 'musetalk-playback-worklet', {
             numberOfInputs: 0,
             numberOfOutputs: 1,
@@ -979,6 +1002,8 @@ export class ServerTotalStream {
         } catch (error) {
           console.warn('MuseTalk AudioWorklet unavailable; using scheduled audio fallback.', error);
           this.audioWorkletNode = null;
+        } finally {
+          if (workletLoadTimeout !== null) window.clearTimeout(workletLoadTimeout);
         }
       }
     }

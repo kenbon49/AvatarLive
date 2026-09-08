@@ -3,6 +3,28 @@ export type VideoDecodeSelection = {
   stalePts: number[];
 };
 
+export function decodedVideoFrameLimit(
+  fps: number,
+  bufferSeconds = 2,
+): number {
+  const normalizedFps = Number.isFinite(fps) ? Math.max(1, fps) : 1;
+  const normalizedBufferSeconds = Number.isFinite(bufferSeconds)
+    ? Math.max(0, bufferSeconds)
+    : 0;
+  return Math.max(1, Math.ceil(normalizedFps * normalizedBufferSeconds));
+}
+
+export function hasVideoDecodeCapacity(
+  decodedFrames: number,
+  pendingDecodes: number,
+  fps: number,
+  bufferSeconds = 2,
+): boolean {
+  const occupiedSlots = Math.max(0, Math.floor(decodedFrames))
+    + Math.max(0, Math.floor(pendingDecodes));
+  return occupiedSlots < decodedVideoFrameLimit(fps, bufferSeconds);
+}
+
 export function selectVideoFrameForDecode(
   timestamps: Iterable<number>,
   mediaPts: number | null,
