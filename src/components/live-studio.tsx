@@ -56,7 +56,11 @@ import {
   WandSparkles,
   X,
 } from 'lucide-react';
-import { MuseTalkAvatarProfile, MuseTalkTotalStream } from '@/lib/musetalk-total-stream';
+import {
+  MuseTalkAvatarProfile,
+  MuseTalkTotalStream,
+  prepareMuseTalkSpeech,
+} from '@/lib/musetalk-total-stream';
 import {
   BrowserLivePublisher,
   layerChromaKeySettings,
@@ -876,6 +880,11 @@ export function LiveStudio({
   ]);
 
   const roomConfigSignature = useMemo(() => JSON.stringify(buildRoomConfig()), [buildRoomConfig]);
+  const speechWarmupSignature = useMemo(() => JSON.stringify({
+    texts: scripts.map((item) => item.text.trim()).filter(Boolean),
+    voiceId: selectedVoiceId,
+    speed: voiceSpeed,
+  }), [scripts, selectedVoiceId, voiceSpeed]);
   const roomDirty = Boolean(room && savedConfigSignature && roomConfigSignature !== savedConfigSignature);
   const selectedPlatformConnections = platformConnections.filter((connection) => (
     selectedPlatformConnectionIds.includes(connection.id)
@@ -1121,6 +1130,8 @@ export function LiveStudio({
     const stream = new MuseTalkTotalStream(canvasRef.current, {
       profile: avatarId,
       language: 'ZH',
+      voice: selectedVoiceId,
+      speed: voiceSpeed,
       getChromaKey: () => {
         const host = broadcastSceneRef.current?.layers.find((layer) => layer.sceneKey === 'host');
         return layerChromaKeySettings(host);
@@ -1135,7 +1146,27 @@ export function LiveStudio({
       void stream.stopLive();
       if (streamRef.current === stream) streamRef.current = null;
     };
-  }, [avatarId, entered]);
+  }, [avatarId, entered, selectedVoiceId, voiceSpeed]);
+
+  useEffect(() => {
+    if (!entered || !room) return;
+    const warmup = JSON.parse(speechWarmupSignature) as {
+      texts: string[];
+      voiceId: string;
+      speed: number;
+    };
+    if (!warmup.texts.length) return;
+    void prepareMuseTalkSpeech(warmup.texts, {
+      language: 'ZH',
+      voiceId: warmup.voiceId,
+      speed: warmup.speed,
+    }).then((result) => {
+      if (result.failed) console.warn('Some live-script audio units could not be prepared.', result);
+    }).catch((cause) => {
+      // Pre-generation is optional; speak() falls back to live TTS on a miss.
+      console.warn('Live-script audio pre-generation failed.', cause);
+    });
+  }, [entered, room?.id, speechWarmupSignature]);
 
   useEffect(() => {
     if (!entered) return;

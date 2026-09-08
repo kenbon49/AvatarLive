@@ -106,6 +106,55 @@ export async function cloneMuseTalkVoice(name: string, audio: File): Promise<Mus
   return normalized;
 }
 
+export interface MuseTalkSpeechPrepareResult {
+  requested_texts: number;
+  units: number;
+  cache_hits: number;
+  generated: number;
+  failed: number;
+  errors: string[];
+  elapsed_ms: number;
+}
+
+export async function prepareMuseTalkSpeech(
+  texts: string[],
+  options: { language?: 'ZH' | 'EN'; voiceId?: string; speed?: number } = {},
+): Promise<MuseTalkSpeechPrepareResult> {
+  const normalizedTexts = [...new Set(texts.map((text) => text.trim()).filter(Boolean))].slice(0, 50);
+  if (!normalizedTexts.length) {
+    return {
+      requested_texts: 0,
+      units: 0,
+      cache_hits: 0,
+      generated: 0,
+      failed: 0,
+      errors: [],
+      elapsed_ms: 0,
+    };
+  }
+  const response = await fetch('/musetalk-total-api/v1/speech/prepare', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      texts: normalizedTexts,
+      language: options.language ?? 'ZH',
+      voice_id: options.voiceId || undefined,
+      speed: options.speed ?? 1,
+    }),
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const payload = (await response.json()) as { detail?: unknown };
+      if (typeof payload.detail === 'string') detail = payload.detail;
+    } catch {
+      // Keep the HTTP status when the proxy returns a non-JSON error page.
+    }
+    throw new Error(`话术音频预生成失败：${detail}`);
+  }
+  return response.json() as Promise<MuseTalkSpeechPrepareResult>;
+}
+
 export interface MuseTalkTotalOptions {
   avatarId?: string;
   profile?: MuseTalkStreamProfile;
