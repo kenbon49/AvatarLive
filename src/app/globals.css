@@ -766,8 +766,13 @@ img, video, canvas { display: block; }
 .xlProductGenerationOptions { padding: 0 12px 9px; display: flex; align-items: center; gap: 8px; }
 .xlProductGenerationOptions label { height: 31px; padding: 0 7px 0 9px; border: 1px solid #373c3c; border-radius: 5px; display: flex; align-items: center; gap: 7px; color: #929b9b; background: #202223; }
 .xlProductGenerationOptions label > span { font-size: 8px; white-space: nowrap; }
-.xlProductGenerationOptions input { width: 58px; height: 25px; padding: 0 5px; border: 0; border-left: 1px solid #373c3c; outline: 0; color: #e2e7e7; background: transparent; text-align: right; }
+.xlProductGenerationOptions input, .xlProductGenerationOptions select { height: 25px; padding: 0 5px; border: 0; border-left: 1px solid #373c3c; outline: 0; color: #e2e7e7; background: transparent; }
+.xlProductGenerationOptions input { width: 58px; text-align: right; }
+.xlProductGenerationOptions select { width: 88px; }
 .xlProductGenerationOptions small { color: #6f7777; font-size: 8px; }
+.xlProductGenerationDirection { margin: 0 12px 9px; display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 8px; color: #929b9b; font-size: 9px; }
+.xlProductGenerationDirection input { width: 100%; height: 31px; padding: 0 9px; border: 1px solid #373c3c; border-radius: 5px; outline: 0; color: #e2e7e7; background: #202223; }
+.xlProductGenerationDirection input:focus { border-color: rgba(20, 204, 201, .65); }
 .xlProductAiSourceGrid { padding: 0 12px 11px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(180px, .6fr); gap: 10px; }
 .xlProductDocumentSource, .xlProductImageSource { min-width: 0; border: 1px solid #373c3c; border-radius: 6px; overflow: hidden; background: #202223; }
 .xlProductDocumentSource > header, .xlProductImageSource > header { min-height: 34px; padding: 0 8px 0 10px; border-bottom: 1px solid #343838; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -1286,6 +1291,7 @@ img, video, canvas { display: block; }
   .xlProductAiSourceHeader, .xlProductGeneratedScripts > header { align-items: flex-start; flex-direction: column; gap: 3px; }
   .xlProductGenerationOptions { align-items: stretch; flex-direction: column; }
   .xlProductGenerationOptions label { justify-content: space-between; }
+  .xlProductGenerationDirection { grid-template-columns: 1fr; }
   .xlScriptEditFields { grid-template-columns: 1fr; }
   .xlScriptEditFields label.wide { grid-column: auto; }
   .xlProductPickerFooter { align-items: flex-start; flex-direction: column; }

@@ -118,7 +118,15 @@ import { LivePlaybackQueue, type PlaybackQueueStatus } from '@/lib/live-playback
 import { MuseTalkMicrophoneStream } from '@/lib/musetalk-microphone';
 import { buildDynamicScriptPrompt, normalizeGeneratedScript, validateDynamicScript } from '@/lib/live-dynamic-script';
 import { buildProductStarterScripts } from '@/lib/live-product-scripts';
-import { buildProductScriptMessageContent, buildProductScriptPrompt, parseProductScripts, type ProductScriptDraft } from '@/lib/live-product-ai';
+import {
+  buildProductScriptMessageContent,
+  buildProductScriptPrompt,
+  PRODUCT_SCRIPT_STYLES,
+  PRODUCT_SCRIPT_SYSTEM_PROMPT,
+  parseProductScripts,
+  type ProductScriptDraft,
+  type ProductScriptStyle,
+} from '@/lib/live-product-ai';
 import { layerZIndex } from '@/lib/live-layer-order';
 
 const AVATARS = [
@@ -683,6 +691,8 @@ export function LiveStudio({
   const [productGeneratedScripts, setProductGeneratedScripts] = useState<ProductScriptDraft[]>([]);
   const [productScriptCount, setProductScriptCount] = useState(3);
   const [productScriptMaxCharacters, setProductScriptMaxCharacters] = useState(180);
+  const [productScriptStyle, setProductScriptStyle] = useState<ProductScriptStyle>('自然亲切');
+  const [productScriptDirection, setProductScriptDirection] = useState('');
   const [pendingProductScripts, setPendingProductScripts] = useState<Record<string, ProductScriptDraft[]>>({});
   const [productDraftGenerating, setProductDraftGenerating] = useState(false);
   const [productDraftSaving, setProductDraftSaving] = useState(false);
@@ -2226,6 +2236,9 @@ export function LiveStudio({
         referenceImageCount: productReferenceImages.length,
         scriptCount: productScriptCount,
         maxCharactersPerScript: productScriptMaxCharacters,
+        style: productScriptStyle,
+        creativeDirection: productScriptDirection,
+        previousScripts: productGeneratedScripts,
       });
       const content = buildProductScriptMessageContent(prompt, productReferenceImages.map((image) => image.dataUrl));
       const response = await fetch(`${API_BASE}/api/v1/llm/chat`, {
@@ -2234,8 +2247,9 @@ export function LiveStudio({
         body: JSON.stringify({
           model_id: 'llm-gpt',
           messages: [{ role: 'user', content }],
+          system_prompt: PRODUCT_SCRIPT_SYSTEM_PROMPT,
           max_tokens: Math.min(12_000, Math.max(800, Math.ceil(productScriptCount * productScriptMaxCharacters * 1.8))),
-          temperature: 0.7,
+          temperature: 1,
         }),
       });
       const payload = await response.json().catch(() => ({})) as {
@@ -2329,6 +2343,8 @@ export function LiveStudio({
       setProductReferenceText('');
       setProductReferenceImages([]);
       setProductGeneratedScripts([]);
+      setProductScriptStyle('自然亲切');
+      setProductScriptDirection('');
       setNotice(`自建商品已保存并加入待选商品单${productGeneratedScripts.length ? '，AI 话术将在确认时保存' : ''}`);
     } catch (cause) {
       setProductCatalogError(cause instanceof Error ? cause.message : '自建商品保存失败');
@@ -3055,7 +3071,9 @@ export function LiveStudio({
                   <div className="xlProductGenerationOptions">
                     <label><span>生成条数</span><input type="number" min="1" max="10" step="1" value={productScriptCount} onChange={(event) => { setProductScriptCount(Math.min(10, Math.max(1, Number(event.target.value) || 1))); setProductGeneratedScripts([]); }} /><small>条</small></label>
                     <label><span>单条文本上限</span><input type="number" min="40" max="1000" step="10" value={productScriptMaxCharacters} onChange={(event) => { setProductScriptMaxCharacters(Math.min(1000, Math.max(40, Number(event.target.value) || 40))); setProductGeneratedScripts([]); }} /><small>字</small></label>
+                    <label><span>话术风格</span><select value={productScriptStyle} onChange={(event) => { setProductScriptStyle(event.target.value as ProductScriptStyle); setProductGeneratedScripts([]); }}>{PRODUCT_SCRIPT_STYLES.map((style) => <option value={style} key={style}>{style}</option>)}</select></label>
                   </div>
+                  <label className="xlProductGenerationDirection"><span>受众与表达要求</span><input value={productScriptDirection} onChange={(event) => { setProductScriptDirection(event.target.value); setProductGeneratedScripts([]); }} placeholder="例如：面向办公室人群，语气自然，重点讲香气和冲泡便利" maxLength={500} /></label>
                   <div className="xlProductAiSourceGrid">
                     <div className="xlProductDocumentSource">
                       <header><span><FileText size={14} /><strong>商品文档与配图</strong></span><button type="button" onClick={() => productDocumentInputRef.current?.click()}><Upload size={13} />{productReferenceDocumentName || productReferenceImages.length ? '添加资料' : '上传资料'}</button></header>
