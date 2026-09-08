@@ -97,6 +97,10 @@ export type LiveRoomLayerItem = {
   shadowBlur?: number;
   shadowX?: number;
   shadowY?: number;
+  chromaKeyEnabled?: boolean;
+  chromaKeyColor?: string;
+  chromaKeyTolerance?: number;
+  chromaKeySoftness?: number;
 };
 
 export type LiveRoomOutputConfig = {

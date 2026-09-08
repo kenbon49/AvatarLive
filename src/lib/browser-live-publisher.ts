@@ -1,3 +1,9 @@
+import {
+  ChromaKeyRenderer,
+  normalizeChromaKeySettings,
+  type ChromaKeySettings,
+} from './chroma-key';
+
 export type BroadcastSceneLayer = {
   id: string;
   kind: 'text' | 'image' | 'video' | 'host';
@@ -18,6 +24,10 @@ export type BroadcastSceneLayer = {
   fontStyle?: 'normal' | 'italic';
   textAlign?: 'left' | 'center' | 'right';
   lineHeight?: number;
+  chromaKeyEnabled?: boolean;
+  chromaKeyColor?: string;
+  chromaKeyTolerance?: number;
+  chromaKeySoftness?: number;
 };
 
 export type BroadcastSceneSnapshot = {
@@ -207,9 +217,22 @@ function drawContain(context: CanvasRenderingContext2D, image: CanvasImageSource
   context.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
 }
 
+export function layerChromaKeySettings(
+  layer: Pick<BroadcastSceneLayer, 'chromaKeyEnabled' | 'chromaKeyColor' | 'chromaKeyTolerance' | 'chromaKeySoftness'> | null | undefined,
+): ChromaKeySettings {
+  return normalizeChromaKeySettings({
+    enabled: layer?.chromaKeyEnabled,
+    color: layer?.chromaKeyColor,
+    tolerance: layer?.chromaKeyTolerance,
+    softness: layer?.chromaKeySoftness,
+  });
+}
+
 export class SceneCompositor {
   private readonly canvas = document.createElement('canvas');
   private readonly images = new Map<string, HTMLImageElement>();
+  private readonly keyedHostCanvas = document.createElement('canvas');
+  private readonly keyedHostRenderer = new ChromaKeyRenderer(this.keyedHostCanvas);
   private frameTimer: number | null = null;
   private stream: MediaStream | null = null;
 
@@ -270,7 +293,21 @@ export class SceneCompositor {
       const liveSource = scene.mediaActive && this.sourceCanvas.width && this.sourceCanvas.height
         ? this.sourceCanvas
         : this.image(scene.hostUrl);
-      if (liveSource) this.drawVisualLayer(context, host, liveSource, 'contain');
+      if (liveSource) {
+        let hostSource = liveSource;
+        const chromaKey = layerChromaKeySettings(host);
+        if (!scene.mediaActive && chromaKey.enabled) {
+          const dimensions = sourceDimensions(liveSource);
+          this.keyedHostRenderer.render(
+            liveSource as HTMLCanvasElement | HTMLImageElement,
+            dimensions.width,
+            dimensions.height,
+            chromaKey,
+          );
+          hostSource = this.keyedHostCanvas;
+        }
+        this.drawVisualLayer(context, host, hostSource, 'contain');
+      }
     }
 
     [...scene.layers].reverse().forEach((layer) => {

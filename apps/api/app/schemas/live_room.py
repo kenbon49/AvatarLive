@@ -99,6 +99,10 @@ class LiveRoomLayerItem(CamelModel):
     shadow_blur: float | None = None
     shadow_x: float | None = None
     shadow_y: float | None = None
+    chroma_key_enabled: bool | None = None
+    chroma_key_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    chroma_key_tolerance: float | None = Field(default=None, ge=0, le=40)
+    chroma_key_softness: float | None = Field(default=None, ge=0, le=40)
 
 
 class LiveRoomVoiceSettings(CamelModel):

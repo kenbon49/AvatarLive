@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
     ports:
       - "${QDRANT_PORT:-6333}:6333"   # REST / Dashboard
-      - "6334:6334"                    # gRPC
+      - "${QDRANT_GRPC_PORT:-6334}:6334" # gRPC
     volumes:
       - qdrant_data:/qdrant/storage
 
@@ -61,7 +61,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
       - "${MINIO_PORT:-9000}:9000"     # S3 API
-      - "9001:9001"                     # Console
+      - "${MINIO_CONSOLE_PORT:-9001}:9001" # Console
     volumes:
       - minio_data:/data
     healthcheck:
@@ -81,8 +81,8 @@ services:
     ports:
       - "${SRS_RTMP_PORT:-1935}:1935"   # RTMP 推流
       - "${SRS_HTTP_PORT:-18080}:8080"   # HTTP-FLV / HLS; 8080 is commonly occupied by another service
-      - "1985:1985"                      # HTTP API
-      - "8000:8000/udp"                  # WebRTC
+      - "${SRS_API_PORT:-1985}:1985"      # HTTP API
+      - "${SRS_WEBRTC_PORT:-8000}:8000/udp" # WebRTC
     volumes:
       - ./srs/conf/srs.conf:/usr/local/srs/conf/srs.conf
     command: ["./objs/srs", "-c", "conf/srs.conf"]
@@ -149,15 +149,15 @@ services:
       MUSETALK_UPSTREAM: ${MUSETALK_DOCKER_UPSTREAM:-http://host.docker.internal:8031}
       MUSETALK_TOTAL_UPSTREAM: ${MUSETALK_TOTAL_UPSTREAM:-http://host.docker.internal:8085}
       LIVEACT_UPSTREAM: ${LIVEACT_DOCKER_UPSTREAM:-http://host.docker.internal:5071}
-      SEO_IMAGE_API_BASE_URL: ${SEO_IMAGE_API_BASE_URL:-http://host.docker.internal:8080}
+      SEO_IMAGE_API_BASE_URL: ${SEO_IMAGE_API_BASE_URL:-http://host.docker.internal:8086}
       SEO_IMAGE_API_KEY: ${SEO_IMAGE_API_KEY:-}
       SEO_IMAGE_MODEL: ${SEO_IMAGE_MODEL:-gemini-3.1-flash-image}
-      SEO_VOICE_API_BASE_URL: ${SEO_VOICE_API_BASE_URL:-${SEO_IMAGE_API_BASE_URL:-http://host.docker.internal:8080}}
+      SEO_VOICE_API_BASE_URL: ${SEO_VOICE_API_BASE_URL:-${SEO_IMAGE_API_BASE_URL:-http://host.docker.internal:8086}}
       SEO_VOICE_API_KEY: ${SEO_VOICE_API_KEY:-${SEO_IMAGE_API_KEY:-}}
       # Node 22 通过环境代理访问 Fish Audio CDN；未配置代理时保持直连。
       HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
       NO_PROXY: host.docker.internal,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}
-      SEO_VIDEO_API_BASE_URL: ${SEO_VIDEO_API_BASE_URL:-http://host.docker.internal:8080}
+      SEO_VIDEO_API_BASE_URL: ${SEO_VIDEO_API_BASE_URL:-http://host.docker.internal:8086}
       SEO_VIDEO_API_KEY: ${SEO_VIDEO_API_KEY:-}
       SEO_VIDEO_MODEL: ${SEO_VIDEO_MODEL:-happyhorse-1.0-video-edit}
       SEO_VIDEO_FALLBACK_MODEL: ${SEO_VIDEO_FALLBACK_MODEL:-doubao-seedance-2-5-260628}

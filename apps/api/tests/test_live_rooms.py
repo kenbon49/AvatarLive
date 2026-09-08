@@ -93,6 +93,10 @@ def room_config() -> dict:
                 "height": 70,
                 "rotation": 0,
                 "opacity": 100,
+                "chromaKeyEnabled": True,
+                "chromaKeyColor": "#f8f8f8",
+                "chromaKeyTolerance": 4,
+                "chromaKeySoftness": 6,
             }
         ],
         "liveOptions": {

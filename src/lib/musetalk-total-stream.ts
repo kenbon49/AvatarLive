@@ -4,6 +4,7 @@ import {
   selectVideoFrameForDecode,
   selectVideoFramesToDrop,
 } from './musetalk-video-queue';
+import { ChromaKeyRenderer, type ChromaKeySettings } from './chroma-key';
 
 export interface MuseTalkTotalResult {
   answer: string;
@@ -110,6 +111,7 @@ export interface MuseTalkTotalOptions {
   language?: 'ZH' | 'EN';
   voice?: string;
   speed?: number;
+  getChromaKey?: () => Partial<ChromaKeySettings> | undefined;
   getSourceTimeSeconds?: () => number | undefined;
   onMediaActive?: (active: boolean) => void;
   // Resolving this releases the buffered audio/video timeline together.
@@ -333,11 +335,14 @@ export class ServerTotalStream {
   private visibilityListenerAttached = false;
   private pendingPlaybackCompletion: { active: ActiveRequest; result: MuseTalkTotalResult } | null = null;
   private activeRequest: ActiveRequest | null = null;
+  private readonly frameRenderer: ChromaKeyRenderer;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly options: MuseTalkTotalOptions = {},
-  ) {}
+  ) {
+    this.frameRenderer = new ChromaKeyRenderer(canvas);
+  }
 
   private readonly handleVisibilityChange = () => {
     if (!this.mediaTimelineStarted) return;
@@ -560,11 +565,12 @@ export class ServerTotalStream {
         }
       }
       if (bitmap) {
-        if (this.canvas.width !== bitmap.width || this.canvas.height !== bitmap.height) {
-          this.canvas.width = bitmap.width;
-          this.canvas.height = bitmap.height;
-        }
-        this.canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
+        this.frameRenderer.render(
+          bitmap,
+          bitmap.width,
+          bitmap.height,
+          this.options.getChromaKey?.(),
+        );
         bitmap.close();
         this.lastDrawnVideoPts = nextPts;
         this.setMediaActive(true);

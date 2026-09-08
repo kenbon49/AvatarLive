@@ -12,6 +12,7 @@ import type {
   MuseTalkTotalOptions,
   MuseTalkTotalResult,
 } from './musetalk-total-stream';
+import { ChromaKeyRenderer } from './chroma-key';
 
 const PROFILE_TO_RENDERER: Partial<Record<MuseTalkAvatarProfile, string>> = {
   chinese: 'suqing',
@@ -70,11 +71,14 @@ export class LocalMuseTalkStream {
   private operationGeneration = 0;
   private activeOperation = false;
   private sessionId: string | null = null;
+  private readonly frameRenderer: ChromaKeyRenderer;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly options: MuseTalkTotalOptions = {},
-  ) {}
+  ) {
+    this.frameRenderer = new ChromaKeyRenderer(canvas);
+  }
 
   private setStage(stage: string) {
     this.options.onStage?.(stage);
@@ -106,11 +110,12 @@ export class LocalMuseTalkStream {
     const draw = () => {
       if (this.video !== video || this.closedByUser) return;
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) {
-        if (this.canvas.width !== video.videoWidth || this.canvas.height !== video.videoHeight) {
-          this.canvas.width = video.videoWidth;
-          this.canvas.height = video.videoHeight;
-        }
-        this.canvas.getContext('2d')?.drawImage(video, 0, 0, this.canvas.width, this.canvas.height);
+        this.frameRenderer.render(
+          video,
+          video.videoWidth,
+          video.videoHeight,
+          this.options.getChromaKey?.(),
+        );
         if (this.firstFrameResolve) {
           this.firstFrameResolve();
           this.clearFirstFrameWait();

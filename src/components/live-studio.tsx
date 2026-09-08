@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, PointerEvent as ReactPointerEvent, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -34,6 +34,7 @@ import {
   Play,
   Plus,
   Pencil,
+  Pipette,
   Radio,
   RotateCcw,
   RefreshCw,
@@ -58,10 +59,12 @@ import {
 import { MuseTalkAvatarProfile, MuseTalkTotalStream } from '@/lib/musetalk-total-stream';
 import {
   BrowserLivePublisher,
+  layerChromaKeySettings,
   SceneCompositor,
   type BroadcastSceneSnapshot,
   type BrowserPublisherState,
 } from '@/lib/browser-live-publisher';
+import { ChromaKeyRenderer, type ChromaKeySettings } from '@/lib/chroma-key';
 import {
   openWindowCaptureWindow,
   WindowCaptureSession,
@@ -167,6 +170,10 @@ type LayerItem = {
   shadowBlur?: number;
   shadowX?: number;
   shadowY?: number;
+  chromaKeyEnabled?: boolean;
+  chromaKeyColor?: string;
+  chromaKeyTolerance?: number;
+  chromaKeySoftness?: number;
 };
 
 type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
@@ -364,7 +371,22 @@ const createTemplateLayers = (templateId: string, avatarName: string): LayerItem
     { id: `title-${template.id}`, kind: 'text', value: template.title, sceneKey: 'templateTitle', x: 50, y: 15, width: 76, height: 12, rotation: 0, opacity: 100, fontSize: 26, color: '#ffffff', ...textLayerDefaults, fontWeight: 'bold' },
     { id: `tag-${template.id}`, kind: 'text', value: template.tag, sceneKey: 'templateTag', x: 50, y: 23, width: 56, height: 7, rotation: 0, opacity: 100, fontSize: 13, color: '#ffffff', ...textLayerDefaults },
     { id: `footer-${template.id}`, kind: 'text', value: template.footer, sceneKey: 'templateFooter', x: 50, y: 91, width: 72, height: 8, rotation: 0, opacity: 100, fontSize: 18, color: '#ffffff', ...textLayerDefaults },
-    { id: 'host', kind: 'host', value: avatarName, sceneKey: 'host', x: 50, y: 64, width: 76, height: 70, rotation: 0, opacity: 100 },
+    {
+      id: 'host',
+      kind: 'host',
+      value: avatarName,
+      sceneKey: 'host',
+      x: 50,
+      y: 64,
+      width: 76,
+      height: 70,
+      rotation: 0,
+      opacity: 100,
+      chromaKeyEnabled: false,
+      chromaKeyColor: '#ffffff',
+      chromaKeyTolerance: 4,
+      chromaKeySoftness: 6,
+    },
     { id: `background-${template.id}`, kind: 'image', value: '图片', sceneKey: 'templateBackground', preview: template.image, x: 50, y: 50, width: 100, height: 100, rotation: 0, opacity: 100 },
   ];
 };
@@ -463,6 +485,43 @@ const EMPTY_RTMP_DRAFT: RtmpConnectionDraft = {
   streamKey: '',
   status: 'enabled',
 };
+
+function ChromaKeyHostPreview({
+  src,
+  settings,
+  className,
+  style,
+  label,
+}: {
+  src: string;
+  settings: ChromaKeySettings;
+  className: string;
+  style: CSSProperties;
+  label: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rendererRef = useRef<ChromaKeyRenderer | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const renderer = rendererRef.current ?? new ChromaKeyRenderer(canvas);
+    rendererRef.current = renderer;
+    const image = new Image();
+    let cancelled = false;
+    image.decoding = 'async';
+    image.onload = () => {
+      if (cancelled) return;
+      renderer.render(image, image.naturalWidth, image.naturalHeight, settings);
+    };
+    image.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.color, settings.enabled, settings.softness, settings.tolerance, src]);
+
+  return <canvas ref={canvasRef} className={className} style={style} role="img" aria-label={label} />;
+}
 
 function validateRtmpDraft(draft: RtmpConnectionDraft, editing: boolean): string | null {
   if (!draft.name.trim()) return '请填写连接名称';
@@ -606,6 +665,7 @@ export function LiveStudio({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const chromaColorInputRef = useRef<HTMLInputElement>(null);
   const materialsScrollRef = useRef<HTMLDivElement>(null);
   const layerListRef = useRef<HTMLDivElement>(null);
   const [customText, setCustomText] = useState('直播间专属福利');
@@ -688,6 +748,7 @@ export function LiveStudio({
   )), [libraryCategory, libraryQuery, libraryScripts]);
   const inspectorLayer = layers.find((item) => item.id === inspectorLayerId) ?? null;
   const hostLayer = layers.find((item) => item.sceneKey === 'host') ?? null;
+  const hostChromaKey = layerChromaKeySettings(hostLayer);
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
   const previewBackground = backgroundLayer?.preview ?? selectedTemplate.image;
   const speakingScript = scripts.find((item) => item.id === currentPlaybackScriptId)
@@ -1002,6 +1063,10 @@ export function LiveStudio({
     const stream = new MuseTalkTotalStream(canvasRef.current, {
       profile: avatarId,
       language: 'ZH',
+      getChromaKey: () => {
+        const host = broadcastSceneRef.current?.layers.find((layer) => layer.sceneKey === 'host');
+        return layerChromaKeySettings(host);
+      },
       onStage: setStage,
       onMediaActive: setMediaActive,
     });
@@ -2166,6 +2231,28 @@ export function LiveStudio({
     setLayers((items) => items.map((item) => item.id === id ? { ...item, ...values } : item));
   };
 
+  const pickChromaKeyColor = async (layer: LayerItem) => {
+    const EyeDropper = (window as typeof window & {
+      EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> };
+    }).EyeDropper;
+    if (!EyeDropper) {
+      chromaColorInputRef.current?.click();
+      return;
+    }
+    try {
+      const result = await new EyeDropper().open();
+      updateLayer(layer.id, {
+        chromaKeyEnabled: true,
+        chromaKeyColor: result.sRGBHex,
+      });
+      setNotice(`已选取背景色 ${result.sRGBHex.toUpperCase()}`);
+    } catch (caught) {
+      if (!(caught instanceof DOMException) || caught.name !== 'AbortError') {
+        setNotice('取色失败，请使用颜色色块选择');
+      }
+    }
+  };
+
   const beginCanvasGesture = (event: ReactPointerEvent<HTMLElement>, layer: LayerItem, mode: CanvasGesture['mode'], handle?: ResizeHandle) => {
     if (event.button !== 0 || !previewCanvasRef.current) return;
     event.preventDefault();
@@ -2558,7 +2645,7 @@ export function LiveStudio({
                   {previewHelp && <div className="xlPreviewHelp">预览会实时同步模板、主播、文本与图层显隐状态。</div>}
                   <div className={`xlPortraitCanvas ${canvasGestureMode ? `interacting ${canvasGestureMode}` : ''}`} ref={previewCanvasRef} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasGesture} onPointerCancel={finishCanvasGesture} onLostPointerCapture={finishCanvasGesture}>
                     {backgroundLayer && <img className="xlSceneBackground" src={previewBackground} alt={`${selectedTemplate.name}直播模板`} style={{ left: `${backgroundLayer.x}%`, top: `${backgroundLayer.y}%`, right: 'auto', bottom: 'auto', width: `${backgroundLayer.width}%`, height: `${backgroundLayer.height}%`, transform: `translate(-50%, -50%) rotate(${backgroundLayer.rotation}deg)`, opacity: backgroundLayer.opacity / 100 }} />}
-                    {hostLayer && !avatarSwitching && <img className={mediaActive ? 'xlSceneHost hidden' : 'xlSceneHost'} src={previewHost} alt={`${avatar.name}直播预览`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, opacity: hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />}
+                    {hostLayer && !avatarSwitching && <ChromaKeyHostPreview className="xlSceneHost" src={previewHost} settings={hostChromaKey} label={`${avatar.name}直播预览`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, opacity: mediaActive ? 0 : hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />}
                     <canvas
                       ref={canvasRef}
                       className={mediaActive ? 'xlStreamCanvas active' : 'xlStreamCanvas'}
@@ -2570,7 +2657,7 @@ export function LiveStudio({
                         bottom: 'auto',
                         width: `${hostLayer.width}%`,
                         height: `${hostLayer.height}%`,
-                        opacity: hostLayer.opacity / 100,
+                        opacity: mediaActive ? hostLayer.opacity / 100 : 0,
                         transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)`,
                       } : undefined}
                     />
@@ -2604,6 +2691,14 @@ export function LiveStudio({
                         <div className="xlInspectorSection"><strong>位置</strong><div className="xlInspectorPosition"><label><span>X</span><input aria-label="图层横向位置" type="number" min="-100" max="200" value={inspectorLayer.x} onChange={(event) => updateLayer(inspectorLayer.id, { x: Math.max(-100, Math.min(200, Number(event.target.value))) })} /></label><label><span>Y</span><input aria-label="图层纵向位置" type="number" min="-100" max="200" value={inspectorLayer.y} onChange={(event) => updateLayer(inspectorLayer.id, { y: Math.max(-100, Math.min(200, Number(event.target.value))) })} /></label></div></div>
                         <div className="xlInspectorSection"><strong>尺寸</strong><div className="xlInspectorPosition"><label><span>W</span><input aria-label="图层宽度" type="number" min="4" max="200" step="0.1" value={inspectorLayer.width} onChange={(event) => updateLayer(inspectorLayer.id, { width: clampCanvasValue(Number(event.target.value), 4, 200) })} /></label><label><span>H</span><input aria-label="图层高度" type="number" min="3" max="200" step="0.1" value={inspectorLayer.height} onChange={(event) => updateLayer(inspectorLayer.id, { height: clampCanvasValue(Number(event.target.value), 3, 200) })} /></label></div></div>
                         <div className="xlInspectorSection"><label className="xlInspectorField"><strong>旋转</strong><span><input aria-label="图层旋转角度" type="number" min="-180" max="180" value={inspectorLayer.rotation} onChange={(event) => updateLayer(inspectorLayer.id, { rotation: Math.max(-180, Math.min(180, Number(event.target.value))) })} /><em>°</em></span></label></div>
+                        {inspectorLayer.kind === 'host' && <div className="xlInspectorSection xlChromaKeyControl">
+                          <div className="xlChromaKeyHeader"><strong>背景抠除</strong><button className={hostChromaKey.enabled ? 'on' : ''} type="button" role="switch" aria-label="背景抠除开关" aria-checked={hostChromaKey.enabled} onClick={() => updateLayer(inspectorLayer.id, { chromaKeyEnabled: !hostChromaKey.enabled })}><i /></button></div>
+                          {hostChromaKey.enabled && <div className="xlChromaKeyFields">
+                            <div className="xlChromaKeyColor"><label><span>背景色</span><input ref={chromaColorInputRef} aria-label="抠除背景色" type="color" value={hostChromaKey.color} onChange={(event) => updateLayer(inspectorLayer.id, { chromaKeyColor: event.target.value })} /></label><code>{hostChromaKey.color.toUpperCase()}</code><button type="button" aria-label="从屏幕选取背景色" title="从屏幕选取背景色" onClick={() => void pickChromaKeyColor(inspectorLayer)}><Pipette size={15} /></button></div>
+                            <label className="xlChromaKeyRange"><span><strong>容差</strong><em>{hostChromaKey.tolerance}</em></span><input aria-label="背景色容差" type="range" min="0" max="40" step="0.5" value={hostChromaKey.tolerance} onChange={(event) => updateLayer(inspectorLayer.id, { chromaKeyTolerance: Number(event.target.value) })} /></label>
+                            <label className="xlChromaKeyRange"><span><strong>边缘柔化</strong><em>{hostChromaKey.softness}</em></span><input aria-label="抠色边缘柔化" type="range" min="0" max="40" step="0.5" value={hostChromaKey.softness} onChange={(event) => updateLayer(inspectorLayer.id, { chromaKeySoftness: Number(event.target.value) })} /></label>
+                          </div>}
+                        </div>}
                         <div className="xlInspectorSection"><strong>层级</strong><div className="xlInspectorOrder"><button type="button" onClick={() => moveLayer(inspectorLayer.id, 'forward')}>向前</button><button type="button" onClick={() => moveLayer(inspectorLayer.id, 'backward')}>向后</button><button type="button" onClick={() => moveLayer(inspectorLayer.id, 'front')}>最前</button><button type="button" onClick={() => moveLayer(inspectorLayer.id, 'back')}>最后</button></div></div>
                         <div className="xlInspectorSection"><strong>对齐</strong><div className="xlInspectorAlign"><button type="button" aria-label="左对齐" onClick={() => alignLayer(inspectorLayer, 'left')}>左</button><button type="button" aria-label="水平居中" onClick={() => alignLayer(inspectorLayer, 'centerX')}>水平</button><button type="button" aria-label="右对齐" onClick={() => alignLayer(inspectorLayer, 'right')}>右</button><button type="button" aria-label="顶部对齐" onClick={() => alignLayer(inspectorLayer, 'top')}>上</button><button type="button" aria-label="垂直居中" onClick={() => alignLayer(inspectorLayer, 'centerY')}>垂直</button><button type="button" aria-label="底部对齐" onClick={() => alignLayer(inspectorLayer, 'bottom')}>下</button></div></div>
                         {inspectorLayer.kind === 'text' && <div className="xlInspectorSection xlInspectorTextStyle">
