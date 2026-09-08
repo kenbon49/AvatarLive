@@ -189,7 +189,9 @@ services:
     user: "${CLOUDFLARED_UID:-1000}:${CLOUDFLARED_GID:-1000}"
     restart: unless-stopped
     network_mode: "service:web"
-    command: ["tunnel", "run", "--token-file", "/run/secrets/cloudflare_tunnel_token"]
+    # This host has no routable IPv6 edge path; force IPv4 so QUIC does not
+    # bind an IPv6 wildcard socket and repeatedly fail with network unreachable.
+    command: ["tunnel", "--no-autoupdate", "--edge-ip-version", "4", "run", "--token-file", "/run/secrets/cloudflare_tunnel_token"]
     secrets:
       - cloudflare_tunnel_token
     depends_on:

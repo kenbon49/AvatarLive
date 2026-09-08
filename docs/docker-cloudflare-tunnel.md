@@ -13,6 +13,8 @@
 
 `cloudflared` 作为独立 Compose 容器运行，但与 `web` 共享网络命名空间。因此 Cloudflare 远程配置中的 `127.0.0.1:3000` 会访问 Next.js 容器，不需要把 3000 端口发布到宿主机。
 
+Connector 固定使用 IPv4 连接 Cloudflare Edge，并关闭容器内自动更新。镜像版本由 Compose 的 `CLOUDFLARED_VERSION` 统一控制，升级时重新部署容器即可。
+
 ```text
 Cloudflare Edge
   -> cloudflared container
