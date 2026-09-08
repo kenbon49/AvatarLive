@@ -509,7 +509,7 @@ const createDefaultRoomConfig = (): LiveRoomConfig => ({
   qaItems: [],
   selectedTemplateId: 'food',
   layers: createTemplateLayers('food', '中文女'),
-  liveOptions: { qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false },
+  liveOptions: { qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false },
   outputConfig: { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' },
   selectedPlatforms: [],
   selectedPlatformConnectionIds: [],
@@ -747,7 +747,7 @@ export function LiveStudio({
   const [editingScriptId, setEditingScriptId] = useState<number | null>(null);
   const [scriptEditDraft, setScriptEditDraft] = useState<ScriptEditDraft>({ title: '', category: '讲品', text: '' });
   const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>(initialSettingsTab);
-  const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false });
+  const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false });
   const [outputConfig, setOutputConfig] = useState<OutputConfig>(initialOutputConfig ?? { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' });
   const [environmentCheckedAt, setEnvironmentCheckedAt] = useState('尚未检测');
   const [environmentInfo, setEnvironmentInfo] = useState({ browser: '待检测', cpu: '待检测', gpu: '待检测' });
