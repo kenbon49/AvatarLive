@@ -924,6 +924,7 @@ export function LiveStudio({
   }, []);
 
   const stopWindowCapture = useCallback(() => {
+    streamRef.current?.setMonitorMuted(false);
     windowCaptureSessionRef.current?.stop();
     windowCaptureSessionRef.current = null;
     captureCompositorRef.current?.stop();
@@ -977,7 +978,9 @@ export function LiveStudio({
       windowCaptureSessionRef.current = session;
       try {
         await session.start(mediaStream);
+        avatarStream.setMonitorMuted(true);
       } catch (caught) {
+        avatarStream.setMonitorMuted(false);
         session.stop();
         compositor.stop();
         compositor = null;
@@ -986,6 +989,7 @@ export function LiveStudio({
         throw caught;
       }
     } catch (caught) {
+      avatarStream.setMonitorMuted(false);
       if (!popup.closed) popup.close();
       compositor?.stop();
       compositor = null;

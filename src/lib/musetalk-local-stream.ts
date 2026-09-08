@@ -13,6 +13,7 @@ import type {
   MuseTalkTotalResult,
 } from './musetalk-total-stream';
 import { ChromaKeyRenderer } from './chroma-key';
+import { AudioMonitor } from './audio-monitor';
 
 const PROFILE_TO_RENDERER: Partial<Record<MuseTalkAvatarProfile, string>> = {
   chinese: 'suqing',
@@ -59,6 +60,7 @@ export class LocalMuseTalkStream {
   private audio: HTMLAudioElement | null = null;
   private audioContext: AudioContext | null = null;
   private audioCaptureDestination: MediaStreamAudioDestinationNode | null = null;
+  private readonly audioMonitor = new AudioMonitor();
   private audioSource: MediaElementAudioSourceNode | null = null;
   private drawFrameId: number | null = null;
   private drawFrameKind: 'raf' | 'timeout' | null = null;
@@ -212,6 +214,7 @@ export class LocalMuseTalkStream {
     if (!this.audioContext || this.audioContext.state === 'closed') {
       this.audioContext = new AudioContext({ latencyHint: 'interactive' });
       this.audioCaptureDestination = this.audioContext.createMediaStreamDestination();
+      this.audioMonitor.attach(this.audioContext);
     }
     this.connectAudioCapture();
     if (!this.audio) return;
@@ -227,11 +230,15 @@ export class LocalMuseTalkStream {
       ?? (this.audio?.srcObject instanceof MediaStream ? this.audio.srcObject.getAudioTracks()[0] : null);
   }
 
+  setMonitorMuted(muted: boolean): void {
+    this.audioMonitor.setMuted(muted, this.audioContext?.state === 'closed' ? null : this.audioContext);
+  }
+
   private connectAudioCapture() {
     if (!this.audio || !this.audioContext || !this.audioCaptureDestination || this.audioSource) return;
     try {
       this.audioSource = this.audioContext.createMediaElementSource(this.audio);
-      this.audioSource.connect(this.audioContext.destination);
+      this.audioSource.connect(this.audioMonitor.output(this.audioContext));
       this.audioSource.connect(this.audioCaptureDestination);
     } catch {
       // A browser may reject reusing a media element; the direct track remains
@@ -422,6 +429,7 @@ export class LocalMuseTalkStream {
     this.audio?.pause();
     this.audioSource?.disconnect();
     this.audioSource = null;
+    this.audioMonitor.disconnect();
     if (this.video) this.video.srcObject = null;
     if (this.audio) this.audio.srcObject = null;
     this.video = null;

@@ -6,6 +6,7 @@ import {
   selectVideoFramesToDrop,
 } from './musetalk-video-queue';
 import { ChromaKeyRenderer, type ChromaKeySettings } from './chroma-key';
+import { AudioMonitor } from './audio-monitor';
 
 export interface MuseTalkTotalResult {
   answer: string;
@@ -421,6 +422,7 @@ export class ServerTotalStream {
   private closedByUser = false;
   private audioContext: AudioContext | null = null;
   private audioCaptureDestination: MediaStreamAudioDestinationNode | null = null;
+  private readonly audioMonitor = new AudioMonitor();
   private audioWorkletNode: AudioWorkletNode | null = null;
   private audioSources = new Set<AudioBufferSourceNode>();
   private audioScheduledUntil = 0;
@@ -594,7 +596,7 @@ export class ServerTotalStream {
       for (let index = 0; index < samples.length; index += 1) channel[index] = samples[index] / 32768;
       const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
+      source.connect(this.audioMonitor.output(audioContext));
       if (this.audioCaptureDestination) source.connect(this.audioCaptureDestination);
       source.onended = () => this.audioSources.delete(source);
       this.audioSources.add(source);
@@ -765,7 +767,7 @@ export class ServerTotalStream {
     video.playsInline = true;
     video.crossOrigin = 'anonymous';
     const source = audioContext.createMediaElementSource(video);
-    source.connect(audioContext.destination);
+    source.connect(this.audioMonitor.output(audioContext));
     source.connect(this.audioCaptureDestination);
     this.preparedVideo = video;
     this.preparedVideoAudioSource = source;
@@ -991,6 +993,7 @@ export class ServerTotalStream {
     this.preparedVideoAudioSource = null;
     this.preparedVideo = null;
     this.preparedVideoActiveRequest = null;
+    this.audioMonitor.disconnect();
     this.audioWorkletNode?.port.postMessage({ type: 'stop' });
     this.audioWorkletNode?.disconnect();
     this.audioWorkletNode = null;
@@ -1284,6 +1287,7 @@ export class ServerTotalStream {
     if (!this.audioContext || this.audioContext.state === 'closed') {
       this.audioContext = new AudioContext({ latencyHint: 'interactive', sampleRate: 16_000 });
       this.audioCaptureDestination = this.audioContext.createMediaStreamDestination();
+      this.audioMonitor.attach(this.audioContext);
       if (this.audioContext.sampleRate === 16_000 && this.audioContext.audioWorklet) {
         let workletLoadTimeout: number | null = null;
         try {
@@ -1310,7 +1314,7 @@ export class ServerTotalStream {
               this.workletUnderrunBlocks = underrunBlocks;
             }
           };
-          node.connect(this.audioContext.destination);
+          node.connect(this.audioMonitor.output(this.audioContext));
           node.connect(this.audioCaptureDestination);
           this.audioWorkletNode = node;
         } catch (error) {
@@ -1377,6 +1381,10 @@ export class ServerTotalStream {
 
   getOutputAudioTrack(): MediaStreamTrack | null {
     return this.audioCaptureDestination?.stream.getAudioTracks()[0] ?? null;
+  }
+
+  setMonitorMuted(muted: boolean): void {
+    this.audioMonitor.setMuted(muted, this.audioContext?.state === 'closed' ? null : this.audioContext);
   }
 
   async ask(question: string): Promise<MuseTalkTotalResult> {
@@ -1575,7 +1583,7 @@ export class ServerTotalStream {
 
 type MuseTalkStreamImplementation = Pick<
   ServerTotalStream,
-  'startLive' | 'prepareAudio' | 'getOutputAudioTrack' | 'ask' | 'speak' | 'cancel' | 'stopLive'
+  'startLive' | 'prepareAudio' | 'getOutputAudioTrack' | 'setMonitorMuted' | 'ask' | 'speak' | 'cancel' | 'stopLive'
 >;
 
 const LOCAL_AVATAR_IDS = new Set(['suqing', 'guyan']);
@@ -1599,6 +1607,10 @@ export class MuseTalkTotalStream implements MuseTalkStreamImplementation {
 
   getOutputAudioTrack() {
     return this.implementation.getOutputAudioTrack();
+  }
+
+  setMonitorMuted(muted: boolean) {
+    this.implementation.setMonitorMuted(muted);
   }
 
   ask(question: string) {
