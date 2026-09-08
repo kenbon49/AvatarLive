@@ -263,6 +263,22 @@ export async function createCatalogProduct(product: ProductInput): Promise<Produ
   });
 }
 
+export async function deleteCatalogProduct(productId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/v1/products/${encodeURIComponent(productId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const body = await response.json() as { detail?: string };
+      detail = body.detail || detail;
+    } catch {
+      // Keep the HTTP status when the upstream did not return JSON.
+    }
+    throw new LiveRoomApiError(detail, response.status);
+  }
+}
+
 export async function attachLiveRoomProducts(roomId: string, productIds: string[]): Promise<LiveRoomProduct[]> {
   return roomFetch(`/api/v1/live-rooms/${encodeURIComponent(roomId)}/product-selections`, {
     method: 'POST',

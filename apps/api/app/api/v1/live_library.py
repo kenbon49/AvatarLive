@@ -108,6 +108,25 @@ def create_catalog_product(payload: ProductCreate, db: Session = Depends(get_db)
     return product
 
 
+@router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_catalog_product(product_id: str, db: Session = Depends(get_db)):
+    product = require_product(db, product_id)
+    if product.source_type != "self_built":
+        raise HTTPException(status_code=409, detail="only self-built products can be deleted")
+    selected_count = db.scalar(
+        select(func.count(LiveRoomProductSelection.id)).where(
+            LiveRoomProductSelection.product_id == product_id
+        )
+    )
+    if selected_count:
+        raise HTTPException(
+            status_code=409,
+            detail="product is still selected in a live room; remove it from every room first",
+        )
+    db.delete(product)
+    db.commit()
+
+
 @router.get(
     "/live-rooms/{room_id}/products",
     response_model=list[LiveRoomProductResponse],

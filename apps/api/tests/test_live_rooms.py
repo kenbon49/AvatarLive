@@ -283,6 +283,34 @@ class LiveRoomApiTest(unittest.TestCase):
             self.assertEqual(db.query(LiveRoomProductSelection).count(), 1)
             self.assertEqual(db.query(LiveRoomScriptLibrary).count(), 1)
 
+    def test_deletes_only_unselected_self_built_catalog_products(self) -> None:
+        room_response = self.client.post(
+            "/api/v1/live-rooms",
+            json={"name": "商品删除测试", "config": room_config()},
+        )
+        room_id = room_response.json()["id"]
+        product_response = self.client.post(
+            "/api/v1/products",
+            json={"name": "待删除旧商品", "sku": "OLD-001"},
+        )
+        self.assertEqual(product_response.status_code, 201, product_response.text)
+        product_id = product_response.json()["id"]
+
+        attach_response = self.client.post(
+            f"/api/v1/live-rooms/{room_id}/product-selections",
+            json={"productIds": [product_id]},
+        )
+        self.assertEqual(attach_response.status_code, 200, attach_response.text)
+        selected_delete = self.client.delete(f"/api/v1/products/{product_id}")
+        self.assertEqual(selected_delete.status_code, 409, selected_delete.text)
+
+        detach_response = self.client.delete(f"/api/v1/live-rooms/{room_id}/products/{product_id}")
+        self.assertEqual(detach_response.status_code, 204, detach_response.text)
+        delete_response = self.client.delete(f"/api/v1/products/{product_id}")
+        self.assertEqual(delete_response.status_code, 204, delete_response.text)
+        catalog = self.client.get("/api/v1/products").json()
+        self.assertNotIn(product_id, {product["id"] for product in catalog})
+
     def test_platform_event_webhook_verifies_persists_and_deduplicates(self) -> None:
         room_response = self.client.post(
             "/api/v1/live-rooms",

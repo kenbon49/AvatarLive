@@ -82,6 +82,7 @@ import {
   listLiveRoomProducts,
   listProductCatalog,
   createCatalogProduct,
+  deleteCatalogProduct,
   attachLiveRoomProducts,
   reorderLiveRoomProducts,
   detachLiveRoomProduct,
@@ -117,6 +118,7 @@ import { LivePlaybackQueue, type PlaybackQueueStatus } from '@/lib/live-playback
 import { MuseTalkMicrophoneStream } from '@/lib/musetalk-microphone';
 import { buildDynamicScriptPrompt, normalizeGeneratedScript, validateDynamicScript } from '@/lib/live-dynamic-script';
 import { buildProductStarterScripts } from '@/lib/live-product-scripts';
+import { buildProductScriptMessageContent, buildProductScriptPrompt, parseProductScripts, type ProductScriptDraft } from '@/lib/live-product-ai';
 import { layerZIndex } from '@/lib/live-layer-order';
 
 const AVATARS = [
@@ -205,6 +207,8 @@ type AssetItem = {
 
 type QaItem = { id: number; question: string; answer: string };
 type ImportedScriptItem = Omit<ScriptItem, 'id' | 'state'>;
+type ScriptEditDraft = Pick<ScriptItem, 'title' | 'category' | 'text'>;
+type ProductReferenceImage = { id: string; name: string; dataUrl: string };
 type VoiceOption = {
   id: string;
   name: string;
@@ -359,6 +363,33 @@ const FONT_FAMILIES: Record<string, string> = {
 
 const roundCanvasValue = (value: number) => Math.round(value * 10) / 10;
 const clampCanvasValue = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
+
+const fileAsDataUrl = (file: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('图片读取失败'));
+  reader.onerror = () => reject(new Error('图片读取失败'));
+  reader.readAsDataURL(file);
+});
+
+async function prepareProductReferenceImage(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('请选择图片文件');
+  if (file.size > 10 * 1024 * 1024) throw new Error('商品图片不能超过 10 MB');
+  if (typeof createImageBitmap !== 'function') return fileAsDataUrl(file);
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return fileAsDataUrl(file);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.84));
+    return fileAsDataUrl(compressed ?? file);
+  } finally {
+    bitmap.close();
+  }
+}
 
 const formatSavedAt = (value: string) => new Date(value).toLocaleTimeString('zh-CN', {
   hour: '2-digit',
@@ -646,8 +677,19 @@ export function LiveStudio({
   const [productDraft, setProductDraft] = useState<ProductInput>(EMPTY_PRODUCT_DRAFT);
   const [productDraftSellingPoints, setProductDraftSellingPoints] = useState('');
   const [productDraftRiskWords, setProductDraftRiskWords] = useState('');
+  const [productReferenceDocumentName, setProductReferenceDocumentName] = useState('');
+  const [productReferenceText, setProductReferenceText] = useState('');
+  const [productReferenceImages, setProductReferenceImages] = useState<ProductReferenceImage[]>([]);
+  const [productGeneratedScripts, setProductGeneratedScripts] = useState<ProductScriptDraft[]>([]);
+  const [productScriptCount, setProductScriptCount] = useState(3);
+  const [productScriptMaxCharacters, setProductScriptMaxCharacters] = useState(180);
+  const [pendingProductScripts, setPendingProductScripts] = useState<Record<string, ProductScriptDraft[]>>({});
+  const [productDraftGenerating, setProductDraftGenerating] = useState(false);
   const [productDraftSaving, setProductDraftSaving] = useState(false);
   const [productSelectionSaving, setProductSelectionSaving] = useState(false);
+  const [productRemovingId, setProductRemovingId] = useState<string | number | null>(null);
+  const [catalogProductToDelete, setCatalogProductToDelete] = useState<ProductCatalogItem | null>(null);
+  const [catalogProductDeleting, setCatalogProductDeleting] = useState(false);
   const [templateQuery, setTemplateQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState('全部');
   const [templateColor, setTemplateColor] = useState('全部');
@@ -666,6 +708,8 @@ export function LiveStudio({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const productDocumentInputRef = useRef<HTMLInputElement>(null);
+  const productImageInputRef = useRef<HTMLInputElement>(null);
   const chromaColorInputRef = useRef<HTMLInputElement>(null);
   const materialsScrollRef = useRef<HTMLDivElement>(null);
   const layerListRef = useRef<HTMLDivElement>(null);
@@ -683,6 +727,8 @@ export function LiveStudio({
   const [libraryScripts, setLibraryScripts] = useState<LiveRoomLibraryScript[]>([]);
   const [librarySaving, setLibrarySaving] = useState(false);
   const [dynamicGenerating, setDynamicGenerating] = useState(false);
+  const [editingScriptId, setEditingScriptId] = useState<number | null>(null);
+  const [scriptEditDraft, setScriptEditDraft] = useState<ScriptEditDraft>({ title: '', category: '讲品', text: '' });
   const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>(initialSettingsTab);
   const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: true, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false });
   const [outputConfig, setOutputConfig] = useState<OutputConfig>(initialOutputConfig ?? { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' });
@@ -1306,6 +1352,29 @@ export function LiveStudio({
     setDraft('');
     setShowComposer(false);
     setNotice('已添加一条新话术');
+  };
+
+  const openScriptEditor = (script: ScriptItem) => {
+    setEditingScriptId(script.id);
+    setScriptEditDraft({ title: script.title, category: script.category, text: script.text });
+  };
+
+  const saveEditedScript = (event: FormEvent) => {
+    event.preventDefault();
+    const text = scriptEditDraft.text.trim();
+    const title = scriptEditDraft.title.trim();
+    if (editingScriptId === null || !title || !text) return;
+    const seconds = Math.min(59, Math.max(20, Math.round(text.length * 0.45)));
+    setScripts((items) => items.map((item) => item.id === editingScriptId ? {
+      ...item,
+      title,
+      category: scriptEditDraft.category,
+      text,
+      duration: `00:${String(seconds).padStart(2, '0')}`,
+      state: 'ready',
+    } : item));
+    setEditingScriptId(null);
+    setNotice('话术已修改，请保存直播间配置');
   };
 
   const generateDynamicScript = async () => {
@@ -2088,9 +2157,155 @@ export function LiveStudio({
     });
   };
 
+  const loadProductReferenceFiles = async (input?: FileList) => {
+    const files = Array.from(input ?? []);
+    if (!files.length) return;
+    setProductCatalogError('');
+    try {
+      const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+      const documentFiles = files.filter((file) => !file.type.startsWith('image/'));
+      const unsupported = documentFiles.find((file) => !/\.(txt|md|csv|json)$/i.test(file.name));
+      if (unsupported) throw new Error(`不支持“${unsupported.name}”，请选择 TXT、Markdown、CSV、JSON 或图片`);
+      if (documentFiles.some((file) => file.size > 2 * 1024 * 1024)) throw new Error('单个商品资料文档不能超过 2 MB');
+      if (productReferenceImages.length + imageFiles.length > 6) throw new Error('商品参考图最多上传 6 张');
+
+      if (documentFiles.length) {
+        const documents = await Promise.all(documentFiles.map(async (file) => {
+          const text = (await file.text()).trim();
+          if (!text) throw new Error(`“${file.name}”中没有可读取的文字`);
+          return `[${file.name}]\n${text}`;
+        }));
+        setProductReferenceDocumentName(documentFiles.map((file) => file.name).join('、'));
+        setProductReferenceText(documents.join('\n\n').slice(0, 20_000));
+      }
+      if (imageFiles.length) {
+        const prepared = await Promise.all(imageFiles.map(async (file, index) => ({
+          id: `${file.name}-${file.lastModified}-${Date.now()}-${index}`,
+          name: file.name,
+          dataUrl: await prepareProductReferenceImage(file),
+        })));
+        setProductReferenceImages((items) => [...items, ...prepared]);
+      }
+      setProductGeneratedScripts([]);
+    } catch (cause) {
+      setProductCatalogError(cause instanceof Error ? cause.message : '商品资料读取失败');
+    }
+  };
+
+  const loadProductReferenceImages = async (input?: FileList) => {
+    const files = Array.from(input ?? []);
+    if (!files.length) return;
+    setProductCatalogError('');
+    try {
+      if (productReferenceImages.length + files.length > 6) throw new Error('商品参考图最多上传 6 张');
+      const prepared = await Promise.all(files.map(async (file, index) => ({
+        id: `${file.name}-${file.lastModified}-${Date.now()}-${index}`,
+        name: file.name,
+        dataUrl: await prepareProductReferenceImage(file),
+      })));
+      setProductReferenceImages((items) => [...items, ...prepared]);
+      setProductGeneratedScripts([]);
+    } catch (cause) {
+      setProductCatalogError(cause instanceof Error ? cause.message : '商品图片读取失败');
+    }
+  };
+
+  const generateProductDraftScripts = async () => {
+    if ((!productDraft.name.trim() && !productReferenceText && !productReferenceImages.length) || productDraftGenerating) return;
+    setProductDraftGenerating(true);
+    setProductCatalogError('');
+    try {
+      const sellingPoints = productDraftSellingPoints.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
+      const riskWords = productDraftRiskWords.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
+      const prompt = buildProductScriptPrompt({
+        ...productDraft,
+        name: productDraft.name.trim(),
+        sellingPoints,
+        riskWords,
+        referenceText: productReferenceText,
+        referenceImageCount: productReferenceImages.length,
+        scriptCount: productScriptCount,
+        maxCharactersPerScript: productScriptMaxCharacters,
+      });
+      const content = buildProductScriptMessageContent(prompt, productReferenceImages.map((image) => image.dataUrl));
+      const response = await fetch(`${API_BASE}/api/v1/llm/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_id: 'llm-gpt',
+          messages: [{ role: 'user', content }],
+          max_tokens: Math.min(12_000, Math.max(800, Math.ceil(productScriptCount * productScriptMaxCharacters * 1.8))),
+          temperature: 0.7,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as {
+        content?: unknown;
+        detail?: unknown;
+        model?: unknown;
+        latency_ms?: unknown;
+      };
+      if (!response.ok) {
+        throw new Error(typeof payload.detail === 'string' ? payload.detail : `LiteLLM 请求失败（HTTP ${response.status}）`);
+      }
+      const generated = parseProductScripts(payload.content, {
+        count: productScriptCount,
+        maxCharactersPerScript: productScriptMaxCharacters,
+      });
+      const hitRiskWords = riskWords.filter((word) => generated.some((script) => script.text.includes(word)));
+      if (hitRiskWords.length) throw new Error(`生成结果命中风险词：${hitRiskWords.join('、')}`);
+      setProductGeneratedScripts(generated);
+      const model = typeof payload.model === 'string' ? payload.model : 'LiteLLM';
+      const latency = typeof payload.latency_ms === 'number' ? `，${payload.latency_ms} ms` : '';
+      setNotice(`${model} 已生成 ${productScriptCount} 段商品话术${latency}`);
+    } catch (cause) {
+      setProductCatalogError(`AI 生成失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setProductDraftGenerating(false);
+    }
+  };
+
+  const updateProductGeneratedScript = (index: number, values: Partial<ProductScriptDraft>) => {
+    setProductGeneratedScripts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...values } : item));
+  };
+
+  const updateProductDraft = (values: Partial<ProductInput>) => {
+    setProductDraft((draft) => ({ ...draft, ...values }));
+    setProductGeneratedScripts([]);
+  };
+
+  const confirmDeleteCatalogProduct = async () => {
+    const product = catalogProductToDelete;
+    if (!product || catalogProductDeleting) return;
+    setCatalogProductDeleting(true);
+    setProductCatalogError('');
+    try {
+      await deleteCatalogProduct(product.id);
+      setProductCatalog((items) => items.filter((item) => item.id !== product.id));
+      setProductCatalogResultIds((items) => items.filter((id) => id !== product.id));
+      setSelectedCatalogProductIds((items) => items.filter((id) => id !== product.id));
+      setPendingProductScripts((items) => {
+        const next = { ...items };
+        delete next[product.id];
+        return next;
+      });
+      setCatalogProductToDelete(null);
+      setNotice(`已永久删除自建商品“${product.name}”`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : '商品删除失败';
+      setProductCatalogError(message.includes('still selected') ? '该商品仍在直播间中，请先从所有直播间移除后再删除' : message);
+      setCatalogProductToDelete(null);
+    } finally {
+      setCatalogProductDeleting(false);
+    }
+  };
+
   const saveSelfBuiltProduct = async (event: FormEvent) => {
     event.preventDefault();
-    if (!productDraft.name.trim() || productDraftSaving) return;
+    if (!productDraft.name.trim() || productDraftSaving || productDraftGenerating) return;
+    if (!productGeneratedScripts.length) {
+      await generateProductDraftScripts();
+      return;
+    }
     setProductDraftSaving(true);
     setProductCatalogError('');
     try {
@@ -2104,10 +2319,17 @@ export function LiveStudio({
       setProductCatalog((items) => [product, ...items]);
       setProductCatalogResultIds((items) => [product.id, ...items.filter((id) => id !== product.id)]);
       setSelectedCatalogProductIds((items) => items.includes(product.id) ? items : [...items, product.id]);
+      if (productGeneratedScripts.length) {
+        setPendingProductScripts((items) => ({ ...items, [product.id]: productGeneratedScripts }));
+      }
       setProductDraft(EMPTY_PRODUCT_DRAFT);
       setProductDraftSellingPoints('');
       setProductDraftRiskWords('');
-      setNotice('自建商品已保存到商品库，并加入待选商品单');
+      setProductReferenceDocumentName('');
+      setProductReferenceText('');
+      setProductReferenceImages([]);
+      setProductGeneratedScripts([]);
+      setNotice(`自建商品已保存并加入待选商品单${productGeneratedScripts.length ? '，AI 话术将在确认时保存' : ''}`);
     } catch (cause) {
       setProductCatalogError(cause instanceof Error ? cause.message : '自建商品保存失败');
     } finally {
@@ -2135,7 +2357,18 @@ export function LiveStudio({
       const selectedProducts = await reorderLiveRoomProducts(room.id, selectionIds);
       const nextGoods = selectedProducts.map(selectedProductToGoods);
       const savedScriptGroups = await Promise.all(addedIds.map(async (productId) => {
-        const saved = await listProductScripts(productId).catch(() => []);
+        let saved = await listProductScripts(productId).catch(() => []);
+        const generated = pendingProductScripts[productId];
+        if (!saved.length && generated?.length) {
+          saved = await Promise.all(generated.map((script) => createLiveRoomScript(room.id, {
+            productId,
+            title: script.title,
+            category: script.category,
+            duration: script.duration,
+            text: script.text,
+            tags: ['AI生成'],
+          })));
+        }
         return { productId, saved };
       }));
       const nextActiveGoodsId = nextGoods.some((item) => item.id === activeGoodsId)
@@ -2181,12 +2414,56 @@ export function LiveStudio({
       setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
       setSavedConfigSignature(JSON.stringify(savedRoom.config));
       setSavedAt(formatSavedAt(savedRoom.updatedAt));
+      setPendingProductScripts((items) => {
+        const next = { ...items };
+        addedIds.forEach((id) => delete next[id]);
+        return next;
+      });
       setDialog(null);
       setNotice(`直播商品单已更新：${nextGoods.length} 件商品${addedIds.length ? `，新增 ${addedIds.length} 件并生成/恢复关联话术` : ''}`);
     } catch (cause) {
       setProductCatalogError(cause instanceof Error ? cause.message : '直播商品单更新失败');
     } finally {
       setProductSelectionSaving(false);
+    }
+  };
+
+  const removeProductFromRoom = async (product: LiveRoomGoodsItem) => {
+    if (productRemovingId !== null) return;
+    if (onAir) {
+      setNotice('直播进行中不能移除商品');
+      return;
+    }
+    if (goods.length <= 1) {
+      setNotice('直播商品单至少需要保留一个商品');
+      return;
+    }
+    setProductRemovingId(product.id);
+    try {
+      const nextGoods = goods.filter((item) => item.id !== product.id);
+      const nextScripts = scripts.filter((item) => item.productId !== product.id);
+      const nextActiveGoodsId = activeGoodsId === product.id ? nextGoods[0].id : activeGoodsId;
+      if (room && typeof product.id === 'string') await detachLiveRoomProduct(room.id, product.id);
+      if (room) {
+        const savedRoom = await updateLiveRoom(room, {
+          ...buildRoomConfig(),
+          goods: nextGoods,
+          activeGoodsId: nextActiveGoodsId,
+          scripts: nextScripts,
+        });
+        setRoom(savedRoom);
+        setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
+        setSavedConfigSignature(JSON.stringify(savedRoom.config));
+        setSavedAt(formatSavedAt(savedRoom.updatedAt));
+      }
+      setGoods(nextGoods);
+      setScripts(nextScripts);
+      setActiveGoodsId(nextActiveGoodsId);
+      setNotice(`已从当前直播间移除“${product.name}”，商品库数据仍保留`);
+    } catch (cause) {
+      setNotice(`移除商品失败：${cause instanceof Error ? cause.message : '未知错误'}`);
+    } finally {
+      setProductRemovingId(null);
     }
   };
 
@@ -2586,11 +2863,14 @@ export function LiveStudio({
           </div>
           <div className="xlGoodsList">
             {goods.map((item, index) => (
-              <button type="button" className={`xlGoodsCard ${activeGoodsId === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setActiveGoodsId(item.id)}>
-                <span className="xlGoodsIndex">{index + 1}</span>
-                <span className="xlGoodsScene">{item.imageUrl ? <img src={item.imageUrl} alt="" /> : <><img src={previewBackground} alt="" />{hostLayer && !avatarSwitching && <img src={previewHost} alt="" style={{ opacity: hostLayer.opacity / 100 }} />}</>}<em>{item.source}</em></span>
-                <strong>{item.name}</strong>
-              </button>
+              <div className={`xlGoodsCard ${activeGoodsId === item.id ? 'selected' : ''}`} key={item.id}>
+                <button className="xlGoodsSelect" type="button" onClick={() => setActiveGoodsId(item.id)} aria-label={`选择商品${item.name}`}>
+                  <span className="xlGoodsIndex">{index + 1}</span>
+                  <span className="xlGoodsScene">{item.imageUrl ? <img src={item.imageUrl} alt="" /> : <><img src={previewBackground} alt="" />{hostLayer && !avatarSwitching && <img src={previewHost} alt="" style={{ opacity: hostLayer.opacity / 100 }} />}</>}<em>{item.source}</em></span>
+                  <strong>{item.name}</strong>
+                </button>
+                <button className="xlGoodsRemove" type="button" aria-label={`从直播间移除${item.name}`} title={goods.length <= 1 ? '直播商品单至少保留一个商品' : '从当前直播间移除'} disabled={productRemovingId !== null || goods.length <= 1 || onAir} onClick={() => void removeProductFromRoom(item)}>{productRemovingId === item.id ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <X size={13} />}</button>
+              </div>
             ))}
           </div>
         </aside>
@@ -2635,7 +2915,7 @@ export function LiveStudio({
                     return <article className={`xlScriptItem ${item.state} ${selected ? 'selected' : ''}`} key={item.id} onClick={() => { if (batchMode) toggleScriptSelection(item.id); }}>
                       <button className="xlScriptNumber" type="button" aria-label={batchMode ? `${selected ? '取消选择' : '选择'}${item.title}` : `第${index + 1}条话术`} onClick={(event) => { if (batchMode) { event.stopPropagation(); toggleScriptSelection(item.id); } }}>{batchMode ? (selected ? <CheckSquare size={16} /> : <span className="xlEmptyCheck" />) : index + 1}</button>
                       <span className={`xlScriptCategory ${item.category === '促单' ? 'yellow' : item.category === '开场' ? 'pink' : ''}`}>{item.category}</span>
-                      <div className="xlScriptBody"><header><strong>{item.title}</strong><span>00:00 / {item.duration}</span></header><p>{item.text}</p><div className="xlScriptItemActions"><button type="button" onClick={(event) => { event.stopPropagation(); void play(item); }} disabled={playbackBusy || item.state === 'playing'} aria-label={`试听${item.title}`}><Play size={13} fill="currentColor" /></button><button type="button" onClick={(event) => { event.stopPropagation(); setScripts((items) => items.filter((candidate) => candidate.id !== item.id)); setNotice('话术已删除'); }} aria-label={`删除${item.title}`}><Trash2 size={13} /></button></div></div>
+                      <div className="xlScriptBody"><header><strong>{item.title}</strong><span>00:00 / {item.duration}</span></header><p>{item.text}</p><div className="xlScriptItemActions"><button type="button" onClick={(event) => { event.stopPropagation(); void play(item); }} disabled={playbackBusy || item.state === 'playing'} aria-label={`试听${item.title}`}><Play size={13} fill="currentColor" /></button><button type="button" onClick={(event) => { event.stopPropagation(); openScriptEditor(item); }} aria-label={`编辑${item.title}`}><Pencil size={13} /></button><button type="button" onClick={(event) => { event.stopPropagation(); setScripts((items) => items.filter((candidate) => candidate.id !== item.id)); setNotice('话术已删除'); }} aria-label={`删除${item.title}`}><Trash2 size={13} /></button></div></div>
                     </article>;
                   })}
                 </div>
@@ -2685,6 +2965,8 @@ export function LiveStudio({
                 <input ref={imageInputRef} className="xlHiddenInput" type="file" accept="image/*" multiple onChange={(event) => { void importAssets('image', event.currentTarget.files); event.currentTarget.value = ''; }} />
                 <input ref={videoInputRef} className="xlHiddenInput" type="file" accept="video/*" multiple onChange={(event) => { void importAssets('video', event.currentTarget.files); event.currentTarget.value = ''; }} />
                 <input ref={documentInputRef} className="xlHiddenInput" type="file" accept=".ppt,.pptx,.doc,.docx,.xls,.xlsx,.txt,.md" onChange={(event) => { void importDocument(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
+                <input ref={productDocumentInputRef} className="xlHiddenInput" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,image/jpeg,image/png,image/webp,image/gif" multiple onChange={(event) => { void loadProductReferenceFiles(event.currentTarget.files ?? undefined); event.currentTarget.value = ''; }} />
+                <input ref={productImageInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple onChange={(event) => { void loadProductReferenceImages(event.currentTarget.files ?? undefined); event.currentTarget.value = ''; }} />
                 <div className="xlMaterialsWorkspace">
                   <div className="xlMaterialsScroll" ref={materialsScrollRef}>
                   {inspectorLayer ? (
@@ -2758,17 +3040,42 @@ export function LiveStudio({
               {productPickerTab === 'self_built' && <form className="xlProductDraftForm" onSubmit={saveSelfBuiltProduct}>
                 <div className="xlProductDraftTitle"><span><Plus size={15} /><strong>新建自建商品</strong></span><small>保存后进入商品库，可跨直播间重复选择</small></div>
                 <div className="xlProductDraftGrid">
-                  <label><span>商品名称 *</span><input value={productDraft.name} onChange={(event) => setProductDraft((value) => ({ ...value, name: event.target.value }))} placeholder="例如：精品咖啡豆" maxLength={200} /></label>
-                  <label><span>SKU</span><input value={productDraft.sku} onChange={(event) => setProductDraft((value) => ({ ...value, sku: event.target.value }))} placeholder="内部商品编码" maxLength={160} /></label>
-                  <label className="wide"><span>商品图片 URL</span><input value={productDraft.imageUrl ?? ''} onChange={(event) => setProductDraft((value) => ({ ...value, imageUrl: event.target.value || undefined }))} placeholder="https://..." /></label>
-                  <label><span>直播价</span><input type="number" min="0" step="0.01" value={productDraft.price ?? ''} onChange={(event) => setProductDraft((value) => ({ ...value, price: event.target.value ? Number(event.target.value) : undefined }))} placeholder="0.00" /></label>
-                  <label><span>原价</span><input type="number" min="0" step="0.01" value={productDraft.originalPrice ?? ''} onChange={(event) => setProductDraft((value) => ({ ...value, originalPrice: event.target.value ? Number(event.target.value) : undefined }))} placeholder="0.00" /></label>
-                  <label className="wide"><span>商品卖点</span><textarea value={productDraftSellingPoints} onChange={(event) => setProductDraftSellingPoints(event.target.value)} placeholder="每行一个卖点，或使用逗号分隔" rows={2} /></label>
-                  <label><span>库存提示</span><input value={productDraft.stockMessage} onChange={(event) => setProductDraft((value) => ({ ...value, stockMessage: event.target.value }))} placeholder="例如：现货 100 件" /></label>
-                  <label><span>售后说明</span><input value={productDraft.afterSales} onChange={(event) => setProductDraft((value) => ({ ...value, afterSales: event.target.value }))} placeholder="例如：七天无理由" /></label>
-                  <label className="wide"><span>风险词</span><input value={productDraftRiskWords} onChange={(event) => setProductDraftRiskWords(event.target.value)} placeholder="多个风险词用逗号分隔" /></label>
+                  <label><span>商品名称 *</span><input value={productDraft.name} onChange={(event) => updateProductDraft({ name: event.target.value })} placeholder="例如：精品咖啡豆" maxLength={200} /></label>
+                  <label><span>SKU</span><input value={productDraft.sku} onChange={(event) => updateProductDraft({ sku: event.target.value })} placeholder="内部商品编码" maxLength={160} /></label>
+                  <label className="wide"><span>商品图片 URL</span><input value={productDraft.imageUrl ?? ''} onChange={(event) => updateProductDraft({ imageUrl: event.target.value || undefined })} placeholder="https://..." /></label>
+                  <label><span>直播价</span><input type="number" min="0" step="0.01" value={productDraft.price ?? ''} onChange={(event) => updateProductDraft({ price: event.target.value ? Number(event.target.value) : undefined })} placeholder="0.00" /></label>
+                  <label><span>原价</span><input type="number" min="0" step="0.01" value={productDraft.originalPrice ?? ''} onChange={(event) => updateProductDraft({ originalPrice: event.target.value ? Number(event.target.value) : undefined })} placeholder="0.00" /></label>
+                  <label className="wide"><span>商品卖点</span><textarea value={productDraftSellingPoints} onChange={(event) => { setProductDraftSellingPoints(event.target.value); setProductGeneratedScripts([]); }} placeholder="每行一个卖点，或使用逗号分隔" rows={2} /></label>
+                  <label><span>库存提示</span><input value={productDraft.stockMessage} onChange={(event) => updateProductDraft({ stockMessage: event.target.value })} placeholder="例如：现货 100 件" /></label>
+                  <label><span>售后说明</span><input value={productDraft.afterSales} onChange={(event) => updateProductDraft({ afterSales: event.target.value })} placeholder="例如：七天无理由" /></label>
+                  <label className="wide"><span>风险词</span><input value={productDraftRiskWords} onChange={(event) => { setProductDraftRiskWords(event.target.value); setProductGeneratedScripts([]); }} placeholder="多个风险词用逗号分隔" /></label>
                 </div>
-                <div className="xlProductDraftActions"><button type="submit" disabled={!productDraft.name.trim() || productDraftSaving}>{productDraftSaving ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <Save size={14} />}{productDraftSaving ? '保存中' : '保存并加入待选'}</button></div>
+                <section className="xlProductAiSources" aria-label="AI 商品参考资料">
+                  <div className="xlProductAiSourceHeader"><span><Sparkles size={14} /><strong>AI 参考资料</strong></span><small>可单独上传图片，也可同时结合文档与商品信息生成</small></div>
+                  <div className="xlProductGenerationOptions">
+                    <label><span>生成条数</span><input type="number" min="1" max="10" step="1" value={productScriptCount} onChange={(event) => { setProductScriptCount(Math.min(10, Math.max(1, Number(event.target.value) || 1))); setProductGeneratedScripts([]); }} /><small>条</small></label>
+                    <label><span>单条文本上限</span><input type="number" min="40" max="1000" step="10" value={productScriptMaxCharacters} onChange={(event) => { setProductScriptMaxCharacters(Math.min(1000, Math.max(40, Number(event.target.value) || 40))); setProductGeneratedScripts([]); }} /><small>字</small></label>
+                  </div>
+                  <div className="xlProductAiSourceGrid">
+                    <div className="xlProductDocumentSource">
+                      <header><span><FileText size={14} /><strong>商品文档与配图</strong></span><button type="button" onClick={() => productDocumentInputRef.current?.click()}><Upload size={13} />{productReferenceDocumentName || productReferenceImages.length ? '添加资料' : '上传资料'}</button></header>
+                      {productReferenceDocumentName && <div className="xlProductSourceFile"><span title={productReferenceDocumentName}>{productReferenceDocumentName}</span><button type="button" aria-label="移除商品文档" onClick={() => { setProductReferenceDocumentName(''); setProductReferenceText(''); setProductGeneratedScripts([]); }}><X size={12} /></button></div>}
+                      <textarea value={productReferenceText} onChange={(event) => { setProductReferenceText(event.target.value); setProductGeneratedScripts([]); }} placeholder="上传 TXT、MD、CSV、JSON 和配图，或直接粘贴商品规格、材质与使用说明" rows={4} maxLength={20000} />
+                    </div>
+                    <div className="xlProductImageSource">
+                      <header><span><ImageIcon size={14} /><strong>商品参考图（{productReferenceImages.length}/6）</strong></span><button type="button" disabled={productReferenceImages.length >= 6} onClick={() => productImageInputRef.current?.click()}><Upload size={13} />{productReferenceImages.length ? '继续添加' : '多图上传'}</button></header>
+                      {productReferenceImages.length ? <div className="xlProductImagePreviews">{productReferenceImages.map((image) => <div className="xlProductImagePreview" key={image.id}><img src={image.dataUrl} alt="商品 AI 参考预览" /><button type="button" aria-label={`移除参考图${image.name}`} onClick={() => { setProductReferenceImages((items) => items.filter((item) => item.id !== image.id)); setProductGeneratedScripts([]); }}><X size={13} /></button><span title={image.name}>{image.name}</span></div>)}</div> : <button className="xlProductImageDrop" type="button" onClick={() => productImageInputRef.current?.click()}><ImageIcon size={24} /><span>可一次选择多张 JPG、PNG、WebP 或 GIF</span><small>最多 6 张，单张最大 10 MB</small></button>}
+                    </div>
+                  </div>
+                </section>
+                {productGeneratedScripts.length > 0 && <section className="xlProductGeneratedScripts" aria-label="AI 生成话术">
+                  <header><span><WandSparkles size={14} /><strong>生成结果</strong></span><small>保存商品前可直接修改标题、类型和正文</small></header>
+                  <div>{productGeneratedScripts.map((script, index) => <article key={`${script.category}-${index}`}>
+                    <div><input aria-label={`第${index + 1}段话术标题`} value={script.title} onChange={(event) => updateProductGeneratedScript(index, { title: event.target.value })} maxLength={200} /><select aria-label={`第${index + 1}段话术类型`} value={script.category} onChange={(event) => updateProductGeneratedScript(index, { category: event.target.value as ProductScriptDraft['category'] })}><option>开场</option><option>讲品</option><option>促单</option></select></div>
+                    <textarea aria-label={`第${index + 1}段话术内容`} value={script.text} onChange={(event) => updateProductGeneratedScript(index, { text: event.target.value })} rows={5} maxLength={productScriptMaxCharacters} />
+                  </article>)}</div>
+                </section>}
+                <div className="xlProductDraftActions">{productGeneratedScripts.length > 0 && <button className="secondary" type="button" disabled={productDraftGenerating} onClick={() => void generateProductDraftScripts()}><WandSparkles size={14} />重新生成</button>}<button type="submit" disabled={!productDraft.name.trim() || productDraftSaving || productDraftGenerating}>{productDraftGenerating || productDraftSaving ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : productGeneratedScripts.length ? <Save size={14} /> : <WandSparkles size={14} />}{productDraftGenerating ? 'LiteLLM 生成中' : productDraftSaving ? '保存中' : productGeneratedScripts.length ? '确认保存并加入' : '确认并生成话术'}</button></div>
               </form>}
 
               {productCatalogError && <div className="xlProductPickerError">{productCatalogError}</div>}
@@ -2777,7 +3084,7 @@ export function LiveStudio({
               {productPickerTab === 'self_built' && !productCatalogLoading && !visibleCatalogProducts.length && <div className="xlProductCatalogEmpty compact"><PackageOpen size={28} /><strong>还没有自建商品</strong><p>填写上方商品资料后保存，系统不会再创建空白占位商品。</p></div>}
               {productCatalogLoading ? <div className="xlProductCatalogLoading"><LoaderCircle className="xlVoiceSpinner" size={17} />正在加载商品库</div> : visibleCatalogProducts.length > 0 && <div className="xlProductCatalogGrid">{visibleCatalogProducts.map((product) => {
                 const selected = selectedCatalogProductIds.includes(product.id);
-                return <button className={selected ? 'selected' : ''} type="button" role="checkbox" aria-checked={selected} key={product.id} onClick={() => toggleCatalogProduct(product.id)}><span className="xlProductCatalogCheck">{selected && <Check size={13} />}</span><span className="xlProductCatalogImage">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <PackageOpen size={24} />}</span><span className="xlProductCatalogCopy"><strong>{product.name}</strong><small>{product.sku || productSourceLabel(product)}</small>{typeof product.price === 'number' && <b>¥{product.price.toFixed(2)}</b>}</span></button>;
+                return <article className={selected ? 'selected' : ''} key={product.id}><button className="xlProductCatalogSelect" type="button" role="checkbox" aria-checked={selected} onClick={() => toggleCatalogProduct(product.id)}><span className="xlProductCatalogCheck">{selected && <Check size={13} />}</span><span className="xlProductCatalogImage">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <PackageOpen size={24} />}</span><span className="xlProductCatalogCopy"><strong>{product.name}</strong><small>{product.sku || productSourceLabel(product)}</small>{typeof product.price === 'number' && <b>¥{product.price.toFixed(2)}</b>}</span></button>{product.sourceType === 'self_built' && <button className="xlProductCatalogDelete" type="button" title="永久删除自建商品" aria-label={`永久删除${product.name}`} onClick={() => setCatalogProductToDelete(product)}><Trash2 size={13} /></button>}</article>;
               })}</div>}
             </div>
             <aside className="xlSelectedProducts">
@@ -2990,6 +3297,26 @@ export function LiveStudio({
           <div className="xlImportFlow">{importedScripts.map((item, index) => <article key={`${item.title}-${index}`}><span>{String(index + 1).padStart(2, '0')}</span><div><strong>{item.title}</strong><p>{item.text}</p></div><em>{item.category} · {item.duration}</em></article>)}</div>
           <div className="xlImportNote">文本文件会读取实际段落；Office 文件仅展示编排流程，正式内容解析需连接文档解析服务。</div>
           <footer><button type="button" onClick={() => setDialog(null)}>取消</button><button type="button" disabled={!importedScripts.length} onClick={applyImportedScripts}>加入当前脚本</button></footer>
+        </section>
+      </div>}
+
+      {editingScriptId !== null && <div className="xlModalBackdrop" onMouseDown={() => setEditingScriptId(null)}>
+        <form className="xlModal xlScriptEditModal" role="dialog" aria-modal="true" aria-labelledby="script-edit-title" onSubmit={saveEditedScript} onMouseDown={(event) => event.stopPropagation()}>
+          <header><strong id="script-edit-title">编辑直播话术</strong><button type="button" aria-label="关闭话术编辑" onClick={() => setEditingScriptId(null)}><X size={17} /></button></header>
+          <div className="xlScriptEditFields">
+            <label><span>话术标题</span><input value={scriptEditDraft.title} onChange={(event) => setScriptEditDraft((value) => ({ ...value, title: event.target.value }))} maxLength={200} autoFocus /></label>
+            <label><span>话术类型</span><select value={scriptEditDraft.category} onChange={(event) => setScriptEditDraft((value) => ({ ...value, category: event.target.value as ScriptEditDraft['category'] }))}><option>开场</option><option>讲品</option><option>促单</option></select></label>
+            <label className="wide"><span>口播正文</span><textarea value={scriptEditDraft.text} onChange={(event) => setScriptEditDraft((value) => ({ ...value, text: event.target.value }))} rows={9} maxLength={20000} /></label>
+          </div>
+          <footer><span>{scriptEditDraft.text.length} 字</span><div><button type="button" onClick={() => setEditingScriptId(null)}>取消</button><button type="submit" disabled={!scriptEditDraft.title.trim() || !scriptEditDraft.text.trim()}><Save size={13} />保存修改</button></div></footer>
+        </form>
+      </div>}
+
+      {catalogProductToDelete && <div className="xlModalBackdrop xlNestedModalBackdrop" onMouseDown={() => { if (!catalogProductDeleting) setCatalogProductToDelete(null); }}>
+        <section className="xlModal xlConfirmModal" role="alertdialog" aria-modal="true" aria-labelledby="product-delete-title" aria-describedby="product-delete-description" onMouseDown={(event) => event.stopPropagation()}>
+          <header><strong id="product-delete-title">永久删除自建商品</strong><button type="button" disabled={catalogProductDeleting} aria-label="关闭商品删除确认" onClick={() => setCatalogProductToDelete(null)}><X size={17} /></button></header>
+          <p id="product-delete-description">确定永久删除“{catalogProductToDelete.name}”吗？如果它仍被任一直播间使用，服务端会拒绝删除；请先从对应直播商品单移除。</p>
+          <footer><button type="button" disabled={catalogProductDeleting} onClick={() => setCatalogProductToDelete(null)}>取消</button><button className="danger" type="button" disabled={catalogProductDeleting} onClick={() => void confirmDeleteCatalogProduct()}>{catalogProductDeleting ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <Trash2 size={13} />}{catalogProductDeleting ? '删除中' : '永久删除'}</button></footer>
         </section>
       </div>}
 

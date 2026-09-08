@@ -15,6 +15,7 @@
     "test:live-playback-queue": "node --experimental-strip-types --test tests/live-playback-queue.test.mjs",
     "test:live-dynamic-script": "node --experimental-strip-types --test tests/live-dynamic-script.test.mjs",
     "test:live-product-scripts": "node --experimental-strip-types --test tests/live-product-scripts.test.mjs",
+    "test:live-product-ai": "node --experimental-strip-types --test tests/live-product-ai.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

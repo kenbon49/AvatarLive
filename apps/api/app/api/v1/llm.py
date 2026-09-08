@@ -15,6 +15,7 @@ from ...schemas.llm import ChatRequest, ChatResponse
 from ...services.llm import (
     DEFAULT_PERSONA_SYSTEM_PROMPT,
     complete_litellm_chat,
+    get_litellm_config,
     list_litellm_models,
     stream_litellm_chat,
 )
@@ -24,8 +25,10 @@ router = APIRouter(prefix="/llm", tags=["llm"])
 
 @router.get("/models")
 async def list_models() -> dict:
+    api_key, _, _ = get_litellm_config()
     return {
         "default_model_id": settings.llm_default_model_id,
+        "configured": bool(api_key),
         "models": list_litellm_models(),
     }
 
@@ -35,6 +38,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
     model_id = req.model_id or settings.llm_default_model_id
     messages = [m.model_dump() for m in req.messages]
     start = time.perf_counter()
+    logger.info("[LLM] request started: model={} messages={}", model_id, len(messages))
     try:
         # litellm.completion 同步阻塞，丢线程池避免卡事件循环
         result = await asyncio.to_thread(
@@ -46,10 +50,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
             temperature=req.temperature,
         )
     except ValueError as exc:
+        logger.warning("[LLM] request rejected: model={} reason={}", model_id, str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
+        logger.error("[LLM] request failed: model={} reason={}", model_id, str(exc))
         raise HTTPException(status_code=502, detail=str(exc))
     latency_ms = int((time.perf_counter() - start) * 1000)
+    logger.info("[LLM] request completed: model={} latency_ms={}", model_id, latency_ms)
     return ChatResponse(latency_ms=latency_ms, **result)
 
 
