@@ -34,6 +34,7 @@ export type BroadcastSceneLayer = {
 export type BroadcastSceneSnapshot = {
   layers: BroadcastSceneLayer[];
   backgroundUrl: string;
+  loopVideoUrl?: string;
   hostUrl: string;
   mediaActive: boolean;
   productCard?: {
@@ -232,6 +233,7 @@ export function layerChromaKeySettings(
 export class SceneCompositor {
   private readonly canvas = document.createElement('canvas');
   private readonly images = new Map<string, HTMLImageElement>();
+  private readonly videos = new Map<string, HTMLVideoElement>();
   private readonly keyedHostCanvas = document.createElement('canvas');
   private readonly keyedHostRenderer = new ChromaKeyRenderer(this.keyedHostCanvas);
   private frameTimer: number | null = null;
@@ -265,6 +267,12 @@ export class SceneCompositor {
     this.frameTimer = null;
     this.stream?.getVideoTracks().forEach((track) => track.stop());
     this.stream = null;
+    this.videos.forEach((video) => {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    });
+    this.videos.clear();
     this.canvas.remove();
   }
 
@@ -279,6 +287,26 @@ export class SceneCompositor {
     return null;
   }
 
+  private loopVideo(url: string): HTMLVideoElement | null {
+    if (!url) return null;
+    let video = this.videos.get(url);
+    if (!video) {
+      video = document.createElement('video');
+      video.preload = 'auto';
+      video.playsInline = true;
+      video.muted = true;
+      video.loop = true;
+      video.crossOrigin = 'anonymous';
+      video.src = url;
+      this.videos.set(url, video);
+      video.load();
+    }
+    if (video.paused) void video.play().catch(() => undefined);
+    return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight
+      ? video
+      : null;
+  }
+
   private draw() {
     const context = this.canvas.getContext('2d', { alpha: false });
     if (!context) return;
@@ -286,12 +314,18 @@ export class SceneCompositor {
     const scene = this.getScene();
     context.fillStyle = '#7ec9f0';
     context.fillRect(0, 0, width, height);
-    const background = this.image(scene.backgroundUrl);
-    if (background) drawCover(context, background, width, height);
+    const loopVideo = scene.loopVideoUrl ? this.loopVideo(scene.loopVideoUrl) : null;
+    if (loopVideo) {
+      drawCover(context, loopVideo, width, height);
+    } else {
+      const background = this.image(scene.backgroundUrl);
+      if (background) drawCover(context, background, width, height);
+    }
 
     layersBackToFront(scene.layers).forEach((layer) => {
       if (layer.sceneKey === 'templateBackground') return;
       if (layer.sceneKey === 'host') {
+        if (scene.loopVideoUrl) return;
         const liveSource = scene.mediaActive && this.sourceCanvas.width && this.sourceCanvas.height
           ? this.sourceCanvas
           : this.image(scene.hostUrl);

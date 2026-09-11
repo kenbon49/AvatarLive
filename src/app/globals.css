@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
-
 :root {
   --navy: #111a37;
   --navy-soft: #1a2548;
@@ -285,7 +283,7 @@ img, video, canvas { display: block; }
 .liveWindowBar > span i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .78); }
 .liveWindowBar em { padding: 5px 8px; border-radius: 6px; display: flex; align-items: center; gap: 5px; color: var(--blue); background: rgba(255, 255, 255, .9); font-size: 8px; font-style: normal; font-weight: 800; }
 .liveWindowBar b { width: 5px; height: 5px; border-radius: 50%; background: var(--coral); }
-.liveWindow > img { width: 100%; height: 100%; object-fit: cover; object-position: center 26%; }
+.liveWindow > img, .liveWindow > video { width: 100%; height: 100%; object-fit: cover; object-position: center 26%; }
 .liveWindow::after { content: ''; position: absolute; inset: 58% 0 0; background: linear-gradient(transparent, rgba(16, 24, 54, .5)); }
 .liveWindowLower { position: absolute; z-index: 2; left: 22px; bottom: 20px; display: flex; flex-direction: column; color: white; }
 .liveWindowLower strong { font-size: 22px; }
@@ -478,11 +476,24 @@ img, video, canvas { display: block; }
 .xlPreviewHeader > span:first-child button:hover { color: var(--xl-accent); }
 .xlPreviewHeader > span:last-child { color: var(--xl-muted); font-size: 11px; white-space: nowrap; }
 .xlPreviewHeader > span:last-child strong { margin-left: 6px; color: #dfdfdf; font-weight: 400; }
+.xlPreviewHeaderActions { display: flex; align-items: center; gap: 12px; }
+.xlPreviewHeaderActions > button { height: 26px; padding: 0 7px; border: 1px solid transparent; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: var(--xl-muted); background: transparent; font-size: 11px; }
+.xlPreviewHeaderActions > button:hover { color: #f7f7f9; background: #2a2b2c; }
+.xlPreviewHeaderActions > button.active { border-color: rgba(74, 190, 203, .35); color: #7cdae3; background: rgba(44, 166, 177, .12); }
+.xlPreviewHeaderActions > span { color: var(--xl-muted); font-size: 11px; white-space: nowrap; }
+.xlPreviewHeaderActions > span strong { margin-left: 6px; color: #dfdfdf; font-weight: 400; }
 .xlPreviewStage { height: calc(100% - 48px); padding: 14px 0; display: flex; align-items: center; justify-content: center; position: relative; background: #0e0f0f; }
 .xlPreviewHelp { width: 190px; padding: 8px 10px; position: absolute; z-index: 30; left: 10px; top: 10px; border: 1px solid #3a3b3c; border-radius: 6px; color: #c4c4c4; background: rgba(42, 43, 44, .96); font-size: 10px; line-height: 17px; box-shadow: 0 8px 24px rgba(0, 0, 0, .28); }
 .xlPortraitCanvas { width: min(100%, 340px); max-height: 100%; aspect-ratio: 9 / 16; overflow: hidden; position: relative; background: #7ec9f0; }
-.xlPortraitCanvas > img, .xlPortraitCanvas > .xlSceneHost, .xlStreamCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.xlPortraitCanvas > img, .xlPortraitCanvas > video, .xlPortraitCanvas > .xlSceneHost, .xlStreamCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .xlSceneBackground { z-index: 1; object-fit: cover; }
+.xlSceneLoopVideo { z-index: 2; object-fit: cover; background: #101819; }
+.xlLoopVideoControls { position: absolute; z-index: 70; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.xlLoopVideoControls button { width: 38px; height: 38px; padding: 0; border: 1px solid rgba(255, 255, 255, .42); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: rgba(10, 14, 17, .68); box-shadow: 0 5px 16px rgba(0, 0, 0, .3); cursor: pointer; pointer-events: auto; }
+.xlLoopVideoControls button:hover { background: rgba(10, 14, 17, .88); }
+.xlLoopVideoControls button:disabled { opacity: .45; cursor: not-allowed; }
+.xlLoopVideoPlay { opacity: .94; }
+.xlLoopVideoVolume { width: 30px !important; height: 30px !important; position: absolute; right: 10px; bottom: 10px; }
 .xlSceneHost { z-index: 3; object-fit: contain; object-position: center bottom; transform-origin: center; transition: opacity .2s; }
 .xlStreamCanvas { z-index: 4; opacity: 0; object-fit: contain; }
 .xlStreamCanvas.active { opacity: 1; }

@@ -52,6 +52,8 @@ import {
   Upload,
   UserRound,
   Video,
+  Volume2,
+  VolumeX,
   Wifi,
   WandSparkles,
   X,
@@ -63,6 +65,8 @@ import {
   prepareMuseTalkVideos,
   lookupMuseTalkVideos,
 } from '@/lib/musetalk-total-stream';
+import { getPregeneratedLiveVideo } from '@/lib/pre-generated-live-videos';
+import { BAIDU_LIVE_LOOP_VIDEO_URL } from '@/lib/live-loop-video';
 import {
   BrowserLivePublisher,
   layerChromaKeySettings,
@@ -320,34 +324,42 @@ const LIVE_TEMPLATES = [
 const INITIAL_SCRIPTS: ScriptItem[] = [
   {
     id: 1,
-    title: '咖啡豆开场介绍',
+    title: '泡一杯清清淡淡的花茶',
     category: '开场',
-    duration: '00:42',
-    text: '直播间爱喝咖啡的宝子们，有没有对咖啡质感要求特别高的，就喜欢喝那种口感醇厚、风味独特的咖啡？今天这款可千万别错过！它选用高品质咖啡豆，香气饱满、层次丰富，日常提神醒脑或者和朋友一起分享都很合适。库存不多，宝子们先到先得哦！',
+    duration: '00:41',
+    text: '有时候不是想喝很重的味道，就是想在家里、办公室安静泡一杯，闻着舒服一点。这款茉莉花茶做的是茉莉银针，净含量125g，罐装设计，拿在手里就是很清爽的感觉。想找花茶的人，可以先看看这款。',
     state: 'ready',
   },
   {
     id: 2,
-    title: '咖啡豆商品讲解',
+    title: '先把大家最关心的基础信息说清楚',
     category: '讲品',
-    duration: '00:47',
-    text: '刚刚给大家介绍了这是一款高质感咖啡豆。它在烘焙工艺上下足了功夫，经过精心把控时间和温度，让咖啡豆呈现出浓郁香气和丰富风味。忙碌的早晨来上一杯，醇厚口感瞬间唤醒状态；颗颗饱满、色泽均匀，不管自己慢慢品尝还是送给爱喝咖啡的朋友，都是很好的选择。',
+    duration: '00:43',
+    text: '它的品牌是清雷，产地是广西横州，属于国产茶。品种写得很明确，是茉莉银针。配料也比较直接，就是烘青绿茶和横县茉莉鲜花。信息清楚，选的时候心里会更有数，平时自己喝，或者放在茶柜里慢慢喝都很合适。',
     state: 'ready',
   },
   {
     id: 3,
-    title: '咖啡豆商品讲解',
+    title: '这款茶的包装辨识度挺高',
     category: '讲品',
-    duration: '00:50',
-    text: '选咖啡豆不能只看外表，还要了解它的内在。咱们这款咖啡豆风味层次清晰，冲煮时香气释放充分，入口醇厚又不会失去细腻感。无论是手冲、浓缩还是冰咖啡，都能展现出稳定的品质。工作学习需要集中精力，或者周末想在家享受一段悠闲时光，它都能满足你的需求。',
+    duration: '00:45',
+    text: '它是浅蓝绿色的罐身，上面有白色花朵图案，正面大字写着花茶和茉莉，整体看着很干净，很柔和。罐装本身也比较利落，放在桌面上就是这种清清爽爽的视觉感受。你如果平时喜欢简洁一点的茶罐风格，这款外观会比较顺眼。',
     state: 'ready',
   },
   {
     id: 4,
-    title: '咖啡豆引导下单',
+    title: '再说下规格和保存方式',
     category: '促单',
     duration: '00:40',
-    text: '今天这么好的咖啡豆只有一个小缺点，就是库存有限！为了让更多人尝到这份独特风味，直播间给大家争取到了特别划算的价格。现在别犹豫，主播倒数三、二、一，上链接！不管自己喝还是送给亲朋好友都很合适，趁着还有库存一定不要错过。',
+    text: '这一罐是125g，保质期18个月，贮存条件写的是阴凉干燥处。这个信息很实在，你可以按自己的喝茶频率来选，开封后也记得放在合适的环境里，日常自己冲泡、偶尔招待朋友，都比较方便安排。',
+    state: 'ready',
+  },
+  {
+    id: 5,
+    title: '想选花茶，可以直接去看看详情',
+    category: '促单',
+    duration: '00:44',
+    text: '如果你现在想找一款信息清楚、产地和品种都标注明白的茉莉花茶，这款可以放进你的备选里。茉莉银针、125g罐装、清爽花叶风格，特点都比较直观。感兴趣的话就点开商品卡看看详情，按自己的喝茶习惯来选就行。',
     state: 'ready',
   },
 ];
@@ -509,7 +521,7 @@ const createDefaultRoomConfig = (): LiveRoomConfig => ({
   qaItems: [],
   selectedTemplateId: 'food',
   layers: createTemplateLayers('food', '中文女'),
-  liveOptions: { qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false },
+  liveOptions: { qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: true },
   outputConfig: { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' },
   selectedPlatforms: [],
   selectedPlatformConnectionIds: [],
@@ -601,6 +613,9 @@ export function LiveStudio({
   const avatar = AVATARS.find((item) => item.id === avatarId) ?? AVATARS[0];
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLDivElement>(null);
+  const loopVideoRef = useRef<HTMLVideoElement>(null);
+  const loopVideoPlayingRef = useRef(false);
+  const loopVideoAudioEnabledRef = useRef(false);
   const canvasGestureRef = useRef<CanvasGesture | null>(null);
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
   const playbackQueueRef = useRef<LivePlaybackQueue<number> | null>(null);
@@ -675,11 +690,14 @@ export function LiveStudio({
   const [cloneError, setCloneError] = useState('');
   const [playbackMode, setPlaybackMode] = useState<'sequence' | 'random'>('sequence');
   const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
-  const [playbackLoop, setPlaybackLoop] = useState(false);
+  const [playbackLoop, setPlaybackLoop] = useState(true);
+  const [loopVideoEnabled, setLoopVideoEnabled] = useState(true);
   const [playbackQueueStatus, setPlaybackQueueStatus] = useState<PlaybackQueueStatus>('idle');
   const [currentPlaybackScriptId, setCurrentPlaybackScriptId] = useState<number | null>(null);
+  const [loopVideoPlaying, setLoopVideoPlaying] = useState(false);
+  const [loopVideoAudioEnabled, setLoopVideoAudioEnabled] = useState(false);
   const [microphoneState, setMicrophoneState] = useState<'idle' | 'connecting' | 'recording' | 'submitting'>('idle');
-  const [goods, setGoods] = useState<LiveRoomConfig['goods']>([{ id: 1, name: '咖啡豆2026-08-07 10:39:34', source: '商品' }]);
+  const [goods, setGoods] = useState<LiveRoomConfig['goods']>([{ id: 1, name: '清雷茉莉银针茶', source: '商品' }]);
   const [activeGoodsId, setActiveGoodsId] = useState<string | number>(1);
   const [productPickerTab, setProductPickerTab] = useState<ProductPickerTab>('self_built');
   const [productCatalog, setProductCatalog] = useState<ProductCatalogItem[]>([]);
@@ -738,8 +756,8 @@ export function LiveStudio({
   const [previewHelp, setPreviewHelp] = useState(false);
   const [qaItems, setQaItems] = useState<QaItem[]>([]);
   const [qaQuery, setQaQuery] = useState('');
-  const [qaQuestion, setQaQuestion] = useState('这款咖啡豆适合哪种冲泡方式？');
-  const [qaAnswer, setQaAnswer] = useState('手冲、浓缩和冰咖啡都适合，可以按照日常口味调整研磨度。');
+  const [qaQuestion, setQaQuestion] = useState('这款茉莉花茶适合怎么冲泡？');
+  const [qaAnswer, setQaAnswer] = useState('建议用热水冲泡，也可以根据口味调整水温和浸泡时间。');
   const [showQaComposer, setShowQaComposer] = useState(false);
   const [libraryScripts, setLibraryScripts] = useState<LiveRoomLibraryScript[]>([]);
   const [librarySaving, setLibrarySaving] = useState(false);
@@ -747,7 +765,7 @@ export function LiveStudio({
   const [editingScriptId, setEditingScriptId] = useState<number | null>(null);
   const [scriptEditDraft, setScriptEditDraft] = useState<ScriptEditDraft>({ title: '', category: '讲品', text: '' });
   const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>(initialSettingsTab);
-  const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: false });
+  const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: true });
   const [outputConfig, setOutputConfig] = useState<OutputConfig>(initialOutputConfig ?? { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' });
   const [environmentCheckedAt, setEnvironmentCheckedAt] = useState('尚未检测');
   const [environmentInfo, setEnvironmentInfo] = useState({ browser: '待检测', cpu: '待检测', gpu: '待检测' });
@@ -828,6 +846,7 @@ export function LiveStudio({
       fontFamily: FONT_FAMILIES[layer.fontFamily ?? '默认字体'],
     })),
     backgroundUrl: previewBackground,
+    loopVideoUrl: loopVideoEnabled ? BAIDU_LIVE_LOOP_VIDEO_URL : undefined,
     hostUrl: avatar.image,
     mediaActive,
     productCard: visibleProductCard ? {
@@ -895,6 +914,53 @@ export function LiveStudio({
   ));
   const windowCaptureMode = publishMode === 'window_capture';
   const playbackBusy = ['llm_start', 'speak_start', 'tts_start', 'playing'].includes(stage);
+  const setLoopVideoAudio = useCallback((enabled: boolean) => {
+    loopVideoAudioEnabledRef.current = enabled;
+    const video = loopVideoRef.current;
+    if (video) video.muted = !enabled;
+    setLoopVideoAudioEnabled(enabled);
+  }, []);
+  const runScriptSpeech = useCallback(async (speak: () => Promise<unknown>) => {
+    const video = loopVideoRef.current;
+    const restoreAudio = Boolean(video && loopVideoPlayingRef.current && loopVideoAudioEnabledRef.current);
+    if (video) video.muted = true;
+    try {
+      return await speak();
+    } finally {
+      const currentVideo = loopVideoRef.current;
+      if (restoreAudio && currentVideo && !currentVideo.paused) currentVideo.muted = false;
+    }
+  }, []);
+  const toggleLoopVideoPlayback = useCallback(async () => {
+    const video = loopVideoRef.current;
+    if (!video) return;
+    if (!video.paused) {
+      video.pause();
+      return;
+    }
+    setLoopVideoAudio(true);
+    try {
+      await video.play();
+    } catch (cause) {
+      setLoopVideoAudio(false);
+      setError(cause instanceof Error ? cause.message : '直播视频播放失败，请重试');
+    }
+  }, [setLoopVideoAudio]);
+  useEffect(() => {
+    const video = loopVideoRef.current;
+    if (entered && loopVideoEnabled && video) {
+      video.pause();
+      video.currentTime = 0;
+      video.muted = true;
+    }
+    if (!entered || !loopVideoEnabled) {
+      video?.pause();
+      loopVideoPlayingRef.current = false;
+      loopVideoAudioEnabledRef.current = false;
+      setLoopVideoPlaying(false);
+      setLoopVideoAudioEnabled(false);
+    }
+  }, [entered, loopVideoEnabled]);
   const platformPreflightChecks = windowCaptureMode
     ? [
       { label: '节目输出窗口比例已选择', passed: true },
@@ -1170,7 +1236,12 @@ export function LiveStudio({
       return;
     }
     let cancelled = false;
-    setPreparedVideoProgress({ ready: 0, total: warmup.texts.length });
+    const customVideoTexts = warmup.texts.filter((text) => Boolean(getPregeneratedLiveVideo(text)));
+    const fallbackTexts = warmup.texts.filter((text) => !getPregeneratedLiveVideo(text));
+    setPreparedVideoProgress({ ready: customVideoTexts.length, total: warmup.texts.length });
+    if (!fallbackTexts.length) return () => {
+      cancelled = true;
+    };
     const options = {
       profile: warmup.avatarId,
       language: 'ZH' as const,
@@ -1179,16 +1250,16 @@ export function LiveStudio({
       sourceTimeSeconds: 0,
     };
     void (async () => {
-      const speech = await prepareMuseTalkSpeech(warmup.texts, options);
+      const speech = await prepareMuseTalkSpeech(fallbackTexts, options);
       if (speech.failed) console.warn('Some live-script audio units could not be prepared.', speech);
-      let videos = await prepareMuseTalkVideos(warmup.texts, options);
+      let videos = await prepareMuseTalkVideos(fallbackTexts, options);
       while (!cancelled) {
         const ready = videos.filter((item) => item.status === 'ready').length;
-        setPreparedVideoProgress({ ready, total: videos.length });
+        setPreparedVideoProgress({ ready: customVideoTexts.length + ready, total: warmup.texts.length });
         if (ready === videos.length || videos.every((item) => item.status !== 'preparing')) return;
         await new Promise((resolve) => window.setTimeout(resolve, 5_000));
         if (cancelled) return;
-        videos = await lookupMuseTalkVideos(warmup.texts, options);
+        videos = await lookupMuseTalkVideos(fallbackTexts, options);
       }
     })().catch((cause) => {
       // Pre-generation is optional; speak() falls back to live TTS and rendering on a miss.
@@ -1205,7 +1276,7 @@ export function LiveStudio({
       speak: async (item) => {
         const stream = streamRef.current;
         if (!stream) throw new Error('数字人媒体流尚未准备好');
-        await stream.speak(item.text);
+        await runScriptSpeech(() => stream.speak(item.text, { preparedVideoUrl: getPregeneratedLiveVideo(item.text) }));
       },
       cancel: () => streamRef.current?.cancel(),
       retryCount: 1,
@@ -1230,7 +1301,7 @@ export function LiveStudio({
       setPlaybackQueueStatus('idle');
       setCurrentPlaybackScriptId(null);
     };
-  }, [entered]);
+  }, [entered, runScriptSpeech]);
 
   useEffect(() => {
     if (currentPlaybackScriptId === null) return;
@@ -1334,15 +1405,18 @@ export function LiveStudio({
     if (item.productId !== undefined && goods.some((product) => product.id === item.productId)) {
       setActiveGoodsId(item.productId);
     }
+    setCurrentPlaybackScriptId(item.id);
     setScripts((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, state: 'playing' } : candidate));
     try {
-      await streamRef.current.speak(item.text);
+      await runScriptSpeech(() => streamRef.current!.speak(item.text, { preparedVideoUrl: getPregeneratedLiveVideo(item.text) }));
       setScripts((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, state: 'done' } : candidate));
       setNotice(onAir ? '本条话术播报完成' : '话术试听完成');
     } catch (cause) {
       setStage('idle');
       setScripts((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, state: 'ready' } : candidate));
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCurrentPlaybackScriptId((current) => current === item.id ? null : current);
     }
   };
 
@@ -2861,7 +2935,7 @@ export function LiveStudio({
           <section className="liveLandingVisual" aria-label="数字人直播功能预览">
             <div className="liveWindow">
               <div className="liveWindowBar"><span><i /><i /><i /></span><em><b />LIVE</em></div>
-              <img src={AVATARS[0].image} alt="林汐数字人主播" />
+              <img className="liveWindowVideo" src={AVATARS[0].image} alt="林汐数字人主播直播预览" />
               <div className="liveWindowLower"><strong>林汐</strong><span>AI 数字人主播</span></div>
             </div>
             <article className="floatingScript"><span><FileText size={14} />话术编排</span><p>欢迎进入今天的数字人直播间，我们马上开始本期内容。</p></article>
@@ -3000,12 +3074,53 @@ export function LiveStudio({
               </section>
 
               <section className="xlPreviewPanel">
-                <header className="xlPreviewHeader"><span>直播预览 <button type="button" aria-label="查看预览说明" onClick={() => setPreviewHelp((value) => !value)}><HelpCircle size={15} /></button></span><span>预估时间 <strong>{estimatedTime}</strong></span></header>
+                <header className="xlPreviewHeader"><span>直播预览 <button type="button" aria-label="查看预览说明" onClick={() => setPreviewHelp((value) => !value)}><HelpCircle size={15} /></button></span><div className="xlPreviewHeaderActions"><button type="button" className={loopVideoEnabled ? 'active' : ''} aria-label={loopVideoEnabled ? '关闭整场循环视频' : '开启整场循环视频'} aria-pressed={loopVideoEnabled} onClick={() => setLoopVideoEnabled((value) => !value)}><Video size={14} /><span>循环视频</span></button><span>预估时间 <strong>{estimatedTime}</strong></span></div></header>
                 <div className="xlPreviewStage">
                   {previewHelp && <div className="xlPreviewHelp">预览会实时同步模板、主播、文本与图层显隐状态。</div>}
                   <div className={`xlPortraitCanvas ${canvasGestureMode ? `interacting ${canvasGestureMode}` : ''}`} ref={previewCanvasRef} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasGesture} onPointerCancel={finishCanvasGesture} onLostPointerCapture={finishCanvasGesture}>
+                    {loopVideoEnabled && <>
+                      <video
+                        ref={loopVideoRef}
+                        className="xlSceneLoopVideo"
+                        src={BAIDU_LIVE_LOOP_VIDEO_URL}
+                        loop
+                        muted
+                        playsInline
+                        preload="metadata"
+                        aria-label="百度直播循环画面"
+                        onPlay={() => {
+                          loopVideoPlayingRef.current = true;
+                          setLoopVideoPlaying(true);
+                        }}
+                        onPause={() => {
+                          loopVideoPlayingRef.current = false;
+                          setLoopVideoPlaying(false);
+                        }}
+                      />
+                      <div className="xlLoopVideoControls">
+                        <button
+                          type="button"
+                          className="xlLoopVideoPlay"
+                          onClick={() => void toggleLoopVideoPlayback()}
+                          aria-label={loopVideoPlaying ? '暂停直播循环画面' : '播放直播循环画面并开启声音'}
+                          title={loopVideoPlaying ? '暂停直播循环画面' : '播放直播循环画面并开启声音'}
+                        >
+                          {loopVideoPlaying ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}
+                        </button>
+                        {loopVideoPlaying && <button
+                          type="button"
+                          className="xlLoopVideoVolume"
+                          onClick={() => setLoopVideoAudio(!loopVideoAudioEnabledRef.current)}
+                          disabled={playbackBusy || playbackQueueStatus === 'running'}
+                          aria-label={loopVideoAudioEnabled ? '关闭循环画面声音' : '开启循环画面声音'}
+                          title={loopVideoAudioEnabled ? '关闭循环画面声音' : '开启循环画面声音'}
+                        >
+                          {loopVideoAudioEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                        </button>}
+                      </div>
+                    </>}
                     {backgroundLayer && <img className="xlSceneBackground" src={previewBackground} alt={`${selectedTemplate.name}直播模板`} style={{ left: `${backgroundLayer.x}%`, top: `${backgroundLayer.y}%`, right: 'auto', bottom: 'auto', width: `${backgroundLayer.width}%`, height: `${backgroundLayer.height}%`, transform: `translate(-50%, -50%) rotate(${backgroundLayer.rotation}deg)`, opacity: backgroundLayer.opacity / 100 }} />}
-                    {hostLayer && !avatarSwitching && <ChromaKeyHostPreview className="xlSceneHost" src={previewHost} settings={hostChromaKey} label={`${avatar.name}直播预览`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, zIndex: hostLayerZIndex, opacity: mediaActive ? 0 : hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />}
+                    {!loopVideoEnabled && hostLayer && !avatarSwitching && <ChromaKeyHostPreview className="xlSceneHost" src={previewHost} settings={hostChromaKey} label={`${avatar.name}直播预览`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, zIndex: hostLayerZIndex, opacity: mediaActive ? 0 : hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />}
                     <canvas
                       ref={canvasRef}
                       className={mediaActive ? 'xlStreamCanvas active' : 'xlStreamCanvas'}
@@ -3018,7 +3133,7 @@ export function LiveStudio({
                         width: `${hostLayer.width}%`,
                         height: `${hostLayer.height}%`,
                         zIndex: hostLayerZIndex,
-                        opacity: mediaActive ? hostLayer.opacity / 100 : 0,
+                        opacity: loopVideoEnabled ? 0 : mediaActive ? hostLayer.opacity / 100 : 0,
                         transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)`,
                       } : undefined}
                     />

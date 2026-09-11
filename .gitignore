@@ -45,3 +45,5 @@ public/vendor/talkinghead/avatars/*.glb
 
 *.mp4
 !public/assets/musetalk-default/chinese2-cycle-4to7-d0853621.mp4
+!public/assets/live/baidu-xiling-loop.mp4
+artifacts/avatar-product-video/

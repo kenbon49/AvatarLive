@@ -1442,7 +1442,7 @@ export class ServerTotalStream {
     });
   }
 
-  async speak(text: string): Promise<MuseTalkTotalResult> {
+  async speak(text: string, options: { preparedVideoUrl?: string } = {}): Promise<MuseTalkTotalResult> {
     if (this.activeRequest) throw new Error('MuseTalk 正在播放上一段内容');
     const requestGeneration = ++this.requestGeneration;
     const normalizedText = text.trim();
@@ -1457,6 +1457,28 @@ export class ServerTotalStream {
     await this.prepareAudio();
     if (requestGeneration !== this.requestGeneration) {
       throw new PreparedVideoPlaybackCancelled('请求已取消');
+    }
+    if (options.preparedVideoUrl) {
+      try {
+        return await this.playPreparedVideo(
+          normalizedText,
+          {
+            index: 0,
+            key: `custom-${requestGeneration}`,
+            status: 'ready',
+            url: options.preparedVideoUrl,
+            background_removed: false,
+          },
+          sourceTimeSeconds,
+          startedAt,
+        );
+      } catch (cause) {
+        if (cause instanceof PreparedVideoPlaybackCancelled) throw cause;
+        console.warn('Custom prepared video unavailable; falling back to live rendering.', cause);
+        this.preparedVideoActiveRequest = null;
+        this.clearPreparedVideoPlayback();
+        this.setMediaActive(false);
+      }
     }
     try {
       const [prepared] = await lookupMuseTalkVideos([normalizedText], {
@@ -1617,8 +1639,8 @@ export class MuseTalkTotalStream implements MuseTalkStreamImplementation {
     return this.implementation.ask(question);
   }
 
-  speak(text: string) {
-    return this.implementation.speak(text);
+  speak(text: string, options: { preparedVideoUrl?: string } = {}) {
+    return this.implementation.speak(text, options);
   }
 
   cancel() {
