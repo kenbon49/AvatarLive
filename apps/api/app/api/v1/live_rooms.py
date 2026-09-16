@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ...db.session import get_db
@@ -83,3 +83,9 @@ def copy_room(room_id: str, payload: LiveRoomCopy, db: Session = Depends(get_db)
 @router.post("/{room_id}/publish", response_model=LiveRoomResponse, response_model_exclude_none=True)
 def publish_room(room_id: str, db: Session = Depends(get_db)):
     return repository.publish_live_room(db, require_room(db, room_id))
+
+
+@router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_room(room_id: str, db: Session = Depends(get_db)) -> Response:
+    repository.delete_live_room(db, require_room(db, room_id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

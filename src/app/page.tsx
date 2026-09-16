@@ -1,5 +1,5 @@
-import { InteractionConsole } from '@/components/interaction-console';
+import { AvatarLibrary } from '@/components/avatar-library';
 
 export default function HomePage() {
-  return <InteractionConsole />;
+  return <AvatarLibrary />;
 }

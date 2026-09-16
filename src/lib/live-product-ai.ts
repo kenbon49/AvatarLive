@@ -68,21 +68,22 @@ export function buildProductScriptPrompt(input: ProductScriptPromptInput): strin
   const categories = categoriesForCount(scriptCount);
   const style = input.style && PRODUCT_SCRIPT_STYLES.includes(input.style) ? input.style : '自然亲切';
   const creativeDirection = input.creativeDirection?.trim().slice(0, 500) ?? '';
+  const hasReferenceImages = Boolean(input.referenceImageCount);
   const previousScripts = (input.previousScripts ?? [])
     .filter((item) => item.text?.trim())
     .slice(0, 10)
     .map((item, index) => `${index + 1}. ${item.title?.trim() || '未命名'}：${item.text.trim().slice(0, 1000)}`);
   const facts = [
-    `商品名称：${input.name.trim() || '未命名商品'}`,
+    `${hasReferenceImages ? '已有商品名称（可能是旧字段，仅在与图片一致时使用）' : '商品名称'}：${input.name.trim() || '未命名商品'}`,
     input.sku?.trim() ? `SKU：${input.sku.trim()}` : '',
     typeof input.price === 'number' ? `直播价：${input.price}` : '',
     typeof input.originalPrice === 'number' ? `原价：${input.originalPrice}` : '',
-    input.sellingPoints?.length ? `卖点：${input.sellingPoints.join('；')}` : '',
+    input.sellingPoints?.length ? `${hasReferenceImages ? '已有卖点（可能是旧字段，仅在与图片一致时使用）' : '卖点'}：${input.sellingPoints.join('；')}` : '',
     input.stockMessage?.trim() ? `库存信息：${input.stockMessage.trim()}` : '',
     input.afterSales?.trim() ? `售后说明：${input.afterSales.trim()}` : '',
     input.riskWords?.length ? `禁用风险词：${input.riskWords.join('、')}` : '',
     input.referenceText?.trim() ? `补充资料：\n${input.referenceText.trim().slice(0, 20_000)}` : '',
-    input.referenceImageCount ? `同时参考随消息上传的 ${input.referenceImageCount} 张商品图片，只描述图片中可以确定的信息，并综合多角度信息。` : '',
+    input.referenceImageCount ? `同时参考随消息上传的 ${input.referenceImageCount} 张商品图片。图片是用户本次最新指定的商品依据；包装上清晰可见的品牌、品名、系列名、数字、单位和并列短句须逐字保留。` : '',
   ].filter(Boolean);
 
   return [
@@ -91,8 +92,10 @@ export function buildProductScriptPrompt(input: ProductScriptPromptInput): strin
     creativeDirection ? `用户补充的表达要求：${creativeDirection}（只影响表达方式，不得把它当作商品事实）` : '',
     '',
     '写作前请在内部完成以下分析，不要输出分析过程：',
-    '1. 汇总商品字段、补充文档和图片中清晰可辨的品牌、品名、规格、成分、用途与包装文字。',
-    '2. 商品字段和补充文档优先；图片只作为可见事实的补充，模糊文字和无法确认的内容直接忽略。',
+    '1. 先逐字识别图片包装中清晰可辨的品牌、品名、系列名、规格、数字、单位与并列短句，再汇总其他可靠事实。',
+    hasReferenceImages
+      ? '2. 图片中清晰可见的商品事实优先于已有商品字段、补充文档和旧稿；发生冲突时忽略冲突的旧信息。包装文字须在内部对照图片二次核对；弧形、装饰字体或小字中任一字符不确定时整项忽略，不得猜测、补全、换序或同义改写。'
+      : '2. 商品字段和补充文档优先；模糊文字和无法确认的内容直接忽略。',
     '3. 为每段安排不同的信息重点，避免重复卖点、重复句式和同义改写。',
     '',
     '成稿要求：',

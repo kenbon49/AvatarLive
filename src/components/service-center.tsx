@@ -41,7 +41,7 @@ const TICKET_DRAFTS_KEY = 'avatar-live-support-ticket-drafts';
 const LOCAL_DRAFT_MESSAGE = '已保存本地草稿，正式提交待接工单服务';
 
 const SERVICE_ITEMS = [
-  { label: '实时互动', detail: '语音与驱动能力已配置' },
+  { label: '数字人形象库', detail: '公共形象目录与预览资源' },
   { label: '数字人直播', detail: '推流与编排能力已配置' },
 ];
 
@@ -59,7 +59,7 @@ const RESOURCE_ITEMS = [
     label: '培训与文档',
     meta: '12 篇指南',
     summary: '快速上手、直播配置与常见问题',
-    detail: '内容已按实时互动、数字人创建、直播运营分类，可从基础配置开始学习。',
+    detail: '内容已按形象资产、数字人创建、直播运营分类，可从基础配置开始学习。',
     icon: BookOpenText,
   },
   {

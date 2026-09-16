@@ -41,6 +41,11 @@ class LiveRoomGoodsItem(CamelModel):
     risk_words: list[str] = Field(default_factory=list, max_length=100)
 
 
+class LiveRoomScriptAvatarVideo(CamelModel):
+    task_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    input_signature: str = Field(min_length=1, max_length=160)
+
+
 class LiveRoomScriptItem(CamelModel):
     id: int
     product_id: str | int | None = None
@@ -49,6 +54,7 @@ class LiveRoomScriptItem(CamelModel):
     duration: str = Field(max_length=20)
     text: str = Field(min_length=1, max_length=20000)
     state: Literal["ready", "playing", "done"] = "ready"
+    avatar_video: LiveRoomScriptAvatarVideo | None = None
 
 
 class LiveRoomQaItem(CamelModel):
@@ -64,6 +70,11 @@ class LiveRoomAssetItem(CamelModel):
     preview: str | None = None
 
 
+class LiveRoomMaterialImage(CamelModel):
+    name: str = Field(min_length=1, max_length=500)
+    data_url: str = Field(min_length=1)
+
+
 class LiveRoomLayerItem(CamelModel):
     id: str = Field(min_length=1, max_length=160)
     kind: Literal["text", "image", "video", "host"]
@@ -72,6 +83,7 @@ class LiveRoomLayerItem(CamelModel):
         "host",
         "custom",
         "templateBackground",
+        "templateElement",
         "templateTitle",
         "templateTag",
         "templateFooter",
@@ -94,11 +106,16 @@ class LiveRoomLayerItem(CamelModel):
     line_height: float | None = None
     stroke_enabled: bool | None = None
     stroke_color: str | None = Field(default=None, max_length=80)
+    stroke_width: float | None = Field(default=None, ge=0, le=100)
     shadow_enabled: bool | None = None
     shadow_color: str | None = Field(default=None, max_length=80)
     shadow_blur: float | None = None
     shadow_x: float | None = None
     shadow_y: float | None = None
+    background_enabled: bool | None = None
+    background_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    background_opacity: float | None = Field(default=None, ge=0, le=100)
+    background_radius: float | None = Field(default=None, ge=0, le=100)
     chroma_key_enabled: bool | None = None
     chroma_key_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     chroma_key_tolerance: float | None = Field(default=None, ge=0, le=40)
@@ -143,12 +160,14 @@ class LiveRoomConfig(CamelModel):
     scripts: list[LiveRoomScriptItem] = Field(default_factory=list, max_length=5000)
     qa_items: list[LiveRoomQaItem] = Field(default_factory=list, max_length=5000)
     selected_template_id: str = Field(min_length=1, max_length=160)
+    selected_template_page: int = Field(default=0, ge=0, le=20)
     layers: list[LiveRoomLayerItem] = Field(default_factory=list, max_length=1000)
     live_options: LiveRoomOptions
     output_config: LiveRoomOutputConfig
     selected_platforms: list[str] = Field(default_factory=list, max_length=50)
     selected_platform_connection_ids: list[str] = Field(default_factory=list, max_length=50)
     assets: LiveRoomAssets = Field(default_factory=LiveRoomAssets)
+    imported_material_images: list[LiveRoomMaterialImage] = Field(default_factory=list, max_length=20)
 
 
 class LiveRoomCreate(CamelModel):

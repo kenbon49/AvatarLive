@@ -333,7 +333,7 @@ export async function publishAvatarVideoJob(job: AvatarVideoJob) {
   manifest.published_at = new Date().toISOString();
   await writeJsonAtomic(manifestPath, manifest);
   job.status = 'ready';
-  job.progress = '动态形象已应用，可以进入实时互动';
+  job.progress = '动态形象已应用，可以进入互动预览';
   await writeAvatarVideoJob(job);
   return job;
 }

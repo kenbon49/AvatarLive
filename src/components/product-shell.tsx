@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { CircleHelp, MessageSquareText, Radio, Sparkles } from 'lucide-react';
+import { CircleHelp, Images, Radio, Sparkles } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { ServiceCenter } from '@/components/service-center';
@@ -9,6 +9,7 @@ import { ServiceCenter } from '@/components/service-center';
 export function ProductShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const live = pathname.startsWith('/live');
+  const library = pathname === '/';
   const [serviceOpen, setServiceOpen] = useState(false);
 
   return (
@@ -21,9 +22,9 @@ export function ProductShell({ children }: { children: React.ReactNode }) {
 
         <nav className="consoleNav" aria-label="数字人产品">
           <span className="navSectionLabel">数字人产品</span>
-          <Link className={!live ? 'active' : ''} href="/">
-            <MessageSquareText size={18} />
-            <span>实时互动</span>
+          <Link className={library ? 'active' : ''} href="/">
+            <Images size={18} />
+            <span>数字人形象库</span>
           </Link>
           <Link className={live ? 'active' : ''} href="/live">
             <Radio size={18} />

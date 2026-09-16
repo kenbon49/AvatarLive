@@ -58,6 +58,10 @@ export type LiveRoomScriptItem = {
   duration: string;
   text: string;
   state: 'ready' | 'playing' | 'done';
+  avatarVideo?: {
+    taskId: string;
+    inputSignature: string;
+  };
 };
 
 export type LiveRoomQaItem = { id: number; question: string; answer: string };
@@ -69,11 +73,16 @@ export type LiveRoomAssetItem = {
   preview?: string;
 };
 
+export type LiveRoomMaterialImage = {
+  name: string;
+  dataUrl: string;
+};
+
 export type LiveRoomLayerItem = {
   id: string;
   kind: 'text' | 'image' | 'video' | 'host';
   value: string;
-  sceneKey?: 'host' | 'custom' | 'templateBackground' | 'templateTitle' | 'templateTag' | 'templateFooter';
+  sceneKey?: 'host' | 'custom' | 'templateBackground' | 'templateElement' | 'templateTitle' | 'templateTag' | 'templateFooter';
   preview?: string;
   x: number;
   y: number;
@@ -92,11 +101,16 @@ export type LiveRoomLayerItem = {
   lineHeight?: number;
   strokeEnabled?: boolean;
   strokeColor?: string;
+  strokeWidth?: number;
   shadowEnabled?: boolean;
   shadowColor?: string;
   shadowBlur?: number;
   shadowX?: number;
   shadowY?: number;
+  backgroundEnabled?: boolean;
+  backgroundColor?: string;
+  backgroundOpacity?: number;
+  backgroundRadius?: number;
   chromaKeyEnabled?: boolean;
   chromaKeyColor?: string;
   chromaKeyTolerance?: number;
@@ -134,12 +148,14 @@ export type LiveRoomConfig = {
   scripts: LiveRoomScriptItem[];
   qaItems: LiveRoomQaItem[];
   selectedTemplateId: string;
+  selectedTemplatePage?: number;
   layers: LiveRoomLayerItem[];
   liveOptions: LiveRoomOptions;
   outputConfig: LiveRoomOutputConfig;
   selectedPlatforms: string[];
   selectedPlatformConnectionIds: string[];
   assets: Record<'image' | 'video', LiveRoomAssetItem[]>;
+  importedMaterialImages?: LiveRoomMaterialImage[];
 };
 
 export type LiveRoom = {
@@ -211,6 +227,22 @@ export function publishLiveRoom(room: LiveRoom): Promise<LiveRoom> {
   return roomFetch(`/api/v1/live-rooms/${encodeURIComponent(room.id)}/publish`, {
     method: 'POST',
   });
+}
+
+export async function deleteLiveRoom(roomId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/v1/live-rooms/${encodeURIComponent(roomId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const body = await response.json() as { detail?: string };
+      detail = body.detail || detail;
+    } catch {
+      // Keep the HTTP status when the upstream did not return JSON.
+    }
+    throw new LiveRoomApiError(detail, response.status);
+  }
 }
 
 export async function listLiveRoomScripts(roomId: string): Promise<LiveRoomLibraryScript[]> {

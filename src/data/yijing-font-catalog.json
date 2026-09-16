@@ -1,0 +1,260 @@
+[
+  {
+    "value": "Anton",
+    "label": "Anton",
+    "family": "Anton",
+    "path": "/assets/xiling-live/yijing/fonts/Anton.ttf"
+  },
+  {
+    "value": "BaiduNumberPlus_Medium",
+    "label": "BaiduNumberPlus",
+    "family": "BaiduNumberPlus_Medium",
+    "path": "/assets/xiling-live/yijing/fonts/BaiduNumberPlus_Medium.ttf"
+  },
+  {
+    "value": "CangErFeiBaiTi",
+    "label": "仓耳非白体",
+    "family": "CangErFeiBaiTi",
+    "path": "/assets/xiling-live/yijing/fonts/CangErFeiBaiTi.ttf"
+  },
+  {
+    "value": "CangErYuYangTi",
+    "label": "仓耳渔阳体",
+    "family": "CangErYuYangTi",
+    "path": "/assets/xiling-live/yijing/fonts/CangErYuYangTi.ttf"
+  },
+  {
+    "value": "ChuanQiNanAnTi",
+    "label": "传奇南安体",
+    "family": "ChuanQiNanAnTi",
+    "path": "/assets/xiling-live/yijing/fonts/ChuanQiNanAnTi.ttf"
+  },
+  {
+    "value": "ChuangKeTieLiXiaTi",
+    "label": "创客贴立夏体",
+    "family": "ChuangKeTieLiXiaTi",
+    "path": "/assets/xiling-live/yijing/fonts/ChuangKeTieLiXiaTi.ttf"
+  },
+  {
+    "value": "ChuangKeTieShiHei",
+    "label": "创客贴时黑",
+    "family": "ChuangKeTieShiHei",
+    "path": "/assets/xiling-live/yijing/fonts/ChuangKeTieShiHei.ttf"
+  },
+  {
+    "value": "ChuangKeTieXiaZhiTi",
+    "label": "创客贴夏至体",
+    "family": "ChuangKeTieXiaZhiTi",
+    "path": "/assets/xiling-live/yijing/fonts/ChuangKeTieXiaZhiTi.ttf"
+  },
+  {
+    "value": "FZCuYSJ_V2",
+    "label": "方正粗圆宋体",
+    "family": "FZCuYSJ_V2",
+    "path": "/assets/xiling-live/yijing/fonts/FZCuYSJ_V2.ttf"
+  },
+  {
+    "value": "FZDaLTJ_Da",
+    "label": "方正达利体简体",
+    "family": "FZDaLTJ_Da",
+    "path": "/assets/xiling-live/yijing/fonts/FZDaLTJ_Da.ttf"
+  },
+  {
+    "value": "FZFWQingYinTiJWE",
+    "label": "方正FW轻吟体",
+    "family": "FZFWQingYinTiJWE",
+    "path": "/assets/xiling-live/yijing/fonts/FZFWQingYinTiJWE.ttf"
+  },
+  {
+    "value": "FZFeiFTJ_Da",
+    "label": "方正非凡体简体",
+    "family": "FZFeiFTJ_Da",
+    "path": "/assets/xiling-live/yijing/fonts/FZFeiFTJ_Da.ttf"
+  },
+  {
+    "value": "FZFengRSTJW-EB",
+    "label": "方正风入松体 简",
+    "family": "FZFengRSTJW-EB",
+    "path": "/assets/xiling-live/yijing/fonts/FZFengRSTJW-EB.ttf"
+  },
+  {
+    "value": "FZHZGBJW",
+    "label": "方正汉真广标",
+    "family": "FZHZGBJW",
+    "path": "/assets/xiling-live/yijing/fonts/FZHZGBJW.ttf"
+  },
+  {
+    "value": "FZJingYLLTJW",
+    "label": "方正劲颜力量体",
+    "family": "FZJingYLLTJW",
+    "path": "/assets/xiling-live/yijing/fonts/FZJingYLLTJW.ttf"
+  },
+  {
+    "value": "FZKuaiSTJW_Zhun",
+    "label": "方正快速体",
+    "family": "FZKuaiSTJW_Zhun",
+    "path": "/assets/xiling-live/yijing/fonts/FZKuaiSTJW_Zhun.ttf"
+  },
+  {
+    "value": "FZMoDTJW_Da",
+    "label": "方正摩登体",
+    "family": "FZMoDTJW_Da",
+    "path": "/assets/xiling-live/yijing/fonts/FZMoDTJW_Da.ttf"
+  },
+  {
+    "value": "FZPWJW",
+    "label": "方正胖娃简体",
+    "family": "FZPWJW",
+    "path": "/assets/xiling-live/yijing/fonts/FZPWJW.ttf"
+  },
+  {
+    "value": "FZShuYTJW-EB",
+    "label": "方正淑雅体简",
+    "family": "FZShuYTJW-EB",
+    "path": "/assets/xiling-live/yijing/fonts/FZShuYTJW-EB.ttf"
+  },
+  {
+    "value": "FZSuHJW",
+    "label": "方正速黑",
+    "family": "FZSuHJW",
+    "path": "/assets/xiling-live/yijing/fonts/FZSuHJW.ttf"
+  },
+  {
+    "value": "FZYanSJW_Da",
+    "label": "方正颜宋简体_大",
+    "family": "FZYanSJW_Da",
+    "path": "/assets/xiling-live/yijing/fonts/FZYanSJW_Da.ttf"
+  },
+  {
+    "value": "FZZYJW",
+    "label": "方正综艺简体",
+    "family": "FZZYJW",
+    "path": "/assets/xiling-live/yijing/fonts/FZZYJW.ttf"
+  },
+  {
+    "value": "FZZhaoGYJW-EB",
+    "label": "方正朝歌圆",
+    "family": "FZZhaoGYJW-EB",
+    "path": "/assets/xiling-live/yijing/fonts/FZZhaoGYJW-EB.ttf"
+  },
+  {
+    "value": "FZZhengHeiS-DB-GB",
+    "label": "方正正中黑简体",
+    "family": "FZZhengHeiS-DB-GB",
+    "path": "/assets/xiling-live/yijing/fonts/FZZhengHeiS-DB-GB.ttf"
+  },
+  {
+    "value": "FZZiYHJW",
+    "label": "方正字悦黑_简",
+    "family": "FZZiYHJW",
+    "path": "/assets/xiling-live/yijing/fonts/FZZiYHJW.ttf"
+  },
+  {
+    "value": "FangYuanTi",
+    "label": "方圆体",
+    "family": "FangYuanTi",
+    "path": "/assets/xiling-live/yijing/fonts/FangYuanTi.ttf"
+  },
+  {
+    "value": "HouHeiTi",
+    "label": "厚黑体",
+    "family": "HouHeiTi",
+    "path": "/assets/xiling-live/yijing/fonts/HouHeiTi.ttf"
+  },
+  {
+    "value": "JiangXiZhuoKai",
+    "label": "江西拙楷",
+    "family": "JiangXiZhuoKai",
+    "path": "/assets/xiling-live/yijing/fonts/JiangXiZhuoKai.ttf"
+  },
+  {
+    "value": "JinNanBoBoHei",
+    "label": "荆南波波黑",
+    "family": "JinNanBoBoHei",
+    "path": "/assets/xiling-live/yijing/fonts/JinNanBoBoHei.ttf"
+  },
+  {
+    "value": "KdamThmor",
+    "label": "KdamThmor",
+    "family": "KdamThmor",
+    "path": "/assets/xiling-live/yijing/fonts/KdamThmor.ttf"
+  },
+  {
+    "value": "NanShenTi",
+    "label": "男神体",
+    "family": "NanShenTi",
+    "path": "/assets/xiling-live/yijing/fonts/NanShenTi.ttf"
+  },
+  {
+    "value": "SanJiXingKaiJianTi",
+    "label": "三级行楷简体",
+    "family": "SanJiXingKaiJianTi",
+    "path": "/assets/xiling-live/yijing/fonts/SanJiXingKaiJianTi.ttf"
+  },
+  {
+    "value": "SiYuanHeiTi",
+    "label": "思源黑体",
+    "family": "SiYuanHeiTi",
+    "path": "/assets/xiling-live/yijing/fonts/SiYuanHeiTi.ttf"
+  },
+  {
+    "value": "SiYuanSongTi",
+    "label": "思源宋体",
+    "family": "SiYuanSongTi",
+    "path": "/assets/xiling-live/yijing/fonts/SiYuanSongTi.ttf"
+  },
+  {
+    "value": "XiMaiTi",
+    "label": "喜脉体",
+    "family": "XiMaiTi",
+    "path": "/assets/xiling-live/yijing/fonts/XiMaiTi.ttf"
+  },
+  {
+    "value": "XinYiGuanHeiTi",
+    "label": "欣意冠黑体",
+    "family": "XinYiGuanHeiTi",
+    "path": "/assets/xiling-live/yijing/fonts/XinYiGuanHeiTi.ttf"
+  },
+  {
+    "value": "YuMoTi",
+    "label": "YuMoTi",
+    "family": "YuMoTi",
+    "path": null
+  },
+  {
+    "value": "YunFengFeiYunTi",
+    "label": "云峰飞云体",
+    "family": "YunFengFeiYunTi",
+    "path": "/assets/xiling-live/yijing/fonts/YunFengFeiYunTi.ttf"
+  },
+  {
+    "value": "ZhenShuaiTi",
+    "label": "真帅体",
+    "family": "ZhenShuaiTi",
+    "path": "/assets/xiling-live/yijing/fonts/ZhenShuaiTi.ttf"
+  },
+  {
+    "value": "ZhuShiTi",
+    "label": "竹石体",
+    "family": "ZhuShiTi",
+    "path": "/assets/xiling-live/yijing/fonts/ZhuShiTi.ttf"
+  },
+  {
+    "value": "ZiTiQuanXinYiJiXiangSong",
+    "label": "欣意吉祥宋",
+    "family": "ZiTiQuanXinYiJiXiangSong",
+    "path": "/assets/xiling-live/yijing/fonts/ZiTiQuanXinYiJiXiangSong.ttf"
+  },
+  {
+    "value": "alibabapuhuiti-thai",
+    "label": "阿里巴巴普惠体-泰国",
+    "family": "alibabapuhuiti-thai",
+    "path": "/assets/xiling-live/yijing/fonts/alibabapuhuiti-thai.ttf"
+  },
+  {
+    "value": "baidunumber-Medium",
+    "label": "BaiduNumberPlus",
+    "family": "BaiduNumberPlus_Medium",
+    "path": "/assets/xiling-live/yijing/fonts/BaiduNumberPlus_Medium.ttf"
+  }
+]

@@ -14,11 +14,14 @@ __pycache__/
 tsconfig.tsbuildinfo
 
 tmp/
+.cache/
+apps/api/.runtime/
 
 .venv/
 output/
 runtime/avatar-assets/
 runtime/avatar-base-videos/
+runtime/aliyun-avatar-videos/
 secrets/
 
 # 本地缓存 / 训练产物，不入库

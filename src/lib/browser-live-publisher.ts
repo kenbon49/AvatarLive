@@ -23,8 +23,21 @@ export type BroadcastSceneLayer = {
   letterSpacing?: number;
   fontWeight?: 'normal' | 'bold';
   fontStyle?: 'normal' | 'italic';
+  textDecoration?: 'none' | 'underline' | 'line-through';
   textAlign?: 'left' | 'center' | 'right';
   lineHeight?: number;
+  strokeEnabled?: boolean;
+  strokeColor?: string;
+  strokeWidth?: number;
+  shadowEnabled?: boolean;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowX?: number;
+  shadowY?: number;
+  backgroundEnabled?: boolean;
+  backgroundColor?: string;
+  backgroundOpacity?: number;
+  backgroundRadius?: number;
   chromaKeyEnabled?: boolean;
   chromaKeyColor?: string;
   chromaKeyTolerance?: number;
@@ -36,6 +49,7 @@ export type BroadcastSceneSnapshot = {
   backgroundUrl: string;
   loopVideoUrl?: string;
   hostUrl: string;
+  hostVideoElement?: HTMLVideoElement | null;
   mediaActive: boolean;
   productCard?: {
     title: string;
@@ -326,13 +340,22 @@ export class SceneCompositor {
       if (layer.sceneKey === 'templateBackground') return;
       if (layer.sceneKey === 'host') {
         if (scene.loopVideoUrl) return;
-        const liveSource = scene.mediaActive && this.sourceCanvas.width && this.sourceCanvas.height
+        const generatedVideo = scene.hostVideoElement;
+        const generatedVideoReady = Boolean(
+          generatedVideo
+          && generatedVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+          && generatedVideo.videoWidth
+          && generatedVideo.videoHeight,
+        );
+        const liveSource = generatedVideoReady
+          ? generatedVideo
+          : scene.mediaActive && this.sourceCanvas.width && this.sourceCanvas.height
           ? this.sourceCanvas
           : this.image(scene.hostUrl);
         if (!liveSource) return;
         let hostSource = liveSource;
         const chromaKey = layerChromaKeySettings(layer);
-        if (!scene.mediaActive && chromaKey.enabled) {
+        if (!generatedVideoReady && !scene.mediaActive && chromaKey.enabled) {
           const dimensions = sourceDimensions(liveSource);
           this.keyedHostRenderer.render(
             liveSource as HTMLCanvasElement | HTMLImageElement,
@@ -345,7 +368,11 @@ export class SceneCompositor {
         this.drawVisualLayer(context, layer, hostSource, 'contain');
         return;
       }
-      if (layer.kind === 'text') this.drawTextLayer(context, layer);
+      if (layer.kind === 'text') {
+        const renderedText = layer.preview ? this.image(layer.preview) : null;
+        if (renderedText) this.drawVisualLayer(context, layer, renderedText, 'fill');
+        else this.drawTextLayer(context, layer);
+      }
       if (layer.kind === 'image' && layer.preview) {
         const image = this.image(layer.preview);
         if (image) this.drawVisualLayer(context, layer, image, 'contain');
@@ -396,27 +423,52 @@ export class SceneCompositor {
     context: CanvasRenderingContext2D,
     layer: BroadcastSceneLayer,
     image: CanvasImageSource,
-    fit: 'contain' | 'cover',
+    fit: 'contain' | 'cover' | 'fill',
   ) {
     this.withLayer(context, layer, (width, height) => {
       if (fit === 'cover') drawCover(context, image, width, height);
-      else drawContain(context, image, width, height);
+      else if (fit === 'contain') drawContain(context, image, width, height);
+      else context.drawImage(image, -width / 2, -height / 2, width, height);
     });
   }
 
   private drawTextLayer(context: CanvasRenderingContext2D, layer: BroadcastSceneLayer) {
     this.withLayer(context, layer, (width, height) => {
-      const scale = this.canvas.width / 340;
+      const scale = this.canvas.width / (layer.sceneKey === 'templateElement' ? 378 : 340);
       const fontSize = Math.max(20, (layer.fontSize ?? 16) * scale);
       const lineHeight = fontSize * (layer.lineHeight ?? 1.2);
+      if (layer.backgroundEnabled) {
+        const radius = Math.max(0, (layer.backgroundRadius ?? 6) * scale);
+        context.save();
+        context.globalAlpha *= Math.max(0, Math.min(1, (layer.backgroundOpacity ?? 72) / 100));
+        context.fillStyle = layer.backgroundColor || '#111827';
+        context.beginPath();
+        context.roundRect(-width / 2, -height / 2, width, height, Math.min(radius, width / 2, height / 2));
+        context.fill();
+        context.restore();
+      }
       context.font = `${layer.fontStyle ?? 'normal'} ${layer.fontWeight ?? 'normal'} ${fontSize}px ${layer.fontFamily || 'sans-serif'}`;
+      (context as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${(layer.letterSpacing ?? 0) * scale}px`;
       context.fillStyle = layer.color || '#ffffff';
       context.textAlign = layer.textAlign || 'center';
       context.textBaseline = 'middle';
+      context.strokeStyle = layer.strokeColor || '#000000';
+      context.lineWidth = Math.max(1, (layer.strokeWidth ?? 1) * scale);
+      if (layer.shadowEnabled) {
+        context.shadowColor = layer.shadowColor || '#000000';
+        context.shadowBlur = (layer.shadowBlur ?? 8) * scale;
+        context.shadowOffsetX = (layer.shadowX ?? 4) * scale;
+        context.shadowOffsetY = (layer.shadowY ?? 4) * scale;
+      }
       const words = Array.from(layer.value);
       const lines: string[] = [];
       let current = '';
       for (const word of words) {
+        if (word === '\n') {
+          lines.push(current);
+          current = '';
+          continue;
+        }
         if (context.measureText(current + word).width <= width || !current) current += word;
         else {
           lines.push(current);
@@ -427,7 +479,25 @@ export class SceneCompositor {
       const visible = lines.slice(0, Math.max(1, Math.floor(height / lineHeight)));
       const x = context.textAlign === 'left' ? -width / 2 : context.textAlign === 'right' ? width / 2 : 0;
       const startY = -(visible.length - 1) * lineHeight / 2;
-      visible.forEach((line, index) => context.fillText(line, x, startY + index * lineHeight, width));
+      visible.forEach((line, index) => {
+        const y = startY + index * lineHeight;
+        if (layer.strokeEnabled) context.strokeText(line, x, y, width);
+        context.fillText(line, x, y, width);
+        if (layer.textDecoration && layer.textDecoration !== 'none') {
+          const textWidth = Math.min(width, context.measureText(line).width);
+          const startX = context.textAlign === 'left' ? x : context.textAlign === 'right' ? x - textWidth : x - textWidth / 2;
+          const decorationY = layer.textDecoration === 'underline' ? y + fontSize * 0.42 : y;
+          context.save();
+          context.shadowColor = 'transparent';
+          context.strokeStyle = layer.color || '#ffffff';
+          context.lineWidth = Math.max(1, fontSize / 18);
+          context.beginPath();
+          context.moveTo(startX, decorationY);
+          context.lineTo(startX + textWidth, decorationY);
+          context.stroke();
+          context.restore();
+        }
+      });
     });
   }
 }

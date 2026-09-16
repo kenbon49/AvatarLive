@@ -19,6 +19,11 @@ test('includes product documents and image context without inventing missing fie
   assert.match(prompt, /精品咖啡豆/);
   assert.match(prompt, /产地为云南/);
   assert.match(prompt, /3 张商品图片/);
+  assert.match(prompt, /图片是用户本次最新指定的商品依据/);
+  assert.match(prompt, /逐字识别图片包装/);
+  assert.match(prompt, /优先于已有商品字段/);
+  assert.match(prompt, /任一字符不确定时整项忽略/);
+  assert.match(prompt, /不得猜测、补全、换序或同义改写/);
   assert.doesNotMatch(prompt, /直播价：/);
 });
 

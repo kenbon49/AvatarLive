@@ -876,7 +876,7 @@ export function AvatarDesignStudio({
     try {
       const avatar = persistAvatar(await bakeImageFilter(image, imageFilter));
       localStorage.setItem(ACTIVE_AVATAR_STORAGE_KEY, avatar.id);
-      router.push(`/?avatar=${encodeURIComponent(avatar.id)}`);
+      router.push(`/interaction?avatar=${encodeURIComponent(avatar.id)}`);
     } catch (cause) {
       setSaving(false);
       setError(cause instanceof Error ? cause.message : '浏览器存储空间不足，请使用尺寸更小的照片。');

@@ -77,10 +77,15 @@ def room_config() -> dict:
                 "duration": "00:12",
                 "text": "欢迎进入测试直播间。",
                 "state": "ready",
+                "avatarVideo": {
+                    "taskId": "avatar_task_0001",
+                    "inputSignature": "v1-test-signature",
+                },
             }
         ],
         "qaItems": [{"id": 1, "question": "如何使用？", "answer": "请参考商品说明。"}],
         "selectedTemplateId": "food",
+        "selectedTemplatePage": 2,
         "layers": [
             {
                 "id": "host",
@@ -156,10 +161,53 @@ class LiveRoomApiTest(unittest.TestCase):
         created = create_response.json()
         self.assertEqual(created["version"], 1)
         self.assertEqual(created["config"]["avatarId"], "chinese")
+        self.assertEqual(created["config"]["selectedTemplatePage"], 2)
+        self.assertEqual(
+            created["config"]["scripts"][0]["avatarVideo"]["taskId"],
+            "avatar_task_0001",
+        )
 
         room_id = created["id"]
         updated_config = room_config()
         updated_config["scripts"][0]["text"] = "修改后仍应持久化。"
+        updated_config["assets"]["image"] = [
+            {
+                "id": "six-fort-tea",
+                "kind": "image",
+                "name": "六堡茶.png",
+                "preview": "data:image/png;base64,c2l4LWZvcnQtdGVh",
+            }
+        ]
+        updated_config["importedMaterialImages"] = [
+            {
+                "name": "六堡茶参考图.png",
+                "dataUrl": "data:image/png;base64,c2NyaXB0LXRlYS1pbWFnZQ==",
+            }
+        ]
+        updated_config["layers"].insert(
+            0,
+            {
+                "id": "tea-title",
+                "kind": "text",
+                "value": "六堡茶直播专场",
+                "sceneKey": "custom",
+                "x": 50,
+                "y": 15,
+                "width": 70,
+                "height": 10,
+                "rotation": 0,
+                "opacity": 86,
+                "fontSize": 24,
+                "color": "#ffffff",
+                "strokeEnabled": True,
+                "strokeColor": "#000000",
+                "strokeWidth": 2.5,
+                "backgroundEnabled": True,
+                "backgroundColor": "#111827",
+                "backgroundOpacity": 72,
+                "backgroundRadius": 6,
+            },
+        )
         update_payload = {
             "name": "测试直播间",
             "expectedVersion": created["version"],
@@ -169,6 +217,10 @@ class LiveRoomApiTest(unittest.TestCase):
         self.assertEqual(update_response.status_code, 200, update_response.text)
         self.assertEqual(update_response.json()["version"], 2)
         self.assertEqual(update_response.json()["status"], "draft")
+        self.assertEqual(update_response.json()["config"]["assets"]["image"][0]["name"], "六堡茶.png")
+        self.assertEqual(update_response.json()["config"]["importedMaterialImages"][0]["name"], "六堡茶参考图.png")
+        self.assertEqual(update_response.json()["config"]["layers"][0]["strokeWidth"], 2.5)
+        self.assertTrue(update_response.json()["config"]["layers"][0]["backgroundEnabled"])
 
         stale_response = self.client.put(f"/api/v1/live-rooms/{room_id}", json=update_payload)
         self.assertEqual(stale_response.status_code, 409)
@@ -177,6 +229,7 @@ class LiveRoomApiTest(unittest.TestCase):
             persisted = db.get(LiveRoom, room_id)
             self.assertIsNotNone(persisted)
             self.assertEqual(persisted.config["scripts"][0]["text"], "修改后仍应持久化。")
+            self.assertEqual(persisted.config["selectedTemplatePage"], 2)
 
         copy_response = self.client.post(
             f"/api/v1/live-rooms/{room_id}/copy",
@@ -205,6 +258,12 @@ class LiveRoomApiTest(unittest.TestCase):
         list_response = self.client.get("/api/v1/live-rooms")
         self.assertEqual(list_response.status_code, 200, list_response.text)
         self.assertEqual(len(list_response.json()), 2)
+
+        copied_room_id = copy_response.json()["id"]
+        delete_response = self.client.delete(f"/api/v1/live-rooms/{copied_room_id}")
+        self.assertEqual(delete_response.status_code, 204, delete_response.text)
+        self.assertEqual(len(self.client.get("/api/v1/live-rooms").json()), 1)
+        self.assertEqual(self.client.delete(f"/api/v1/live-rooms/{copied_room_id}").status_code, 404)
 
     def test_rejects_invalid_control_console_config(self) -> None:
         invalid = room_config()

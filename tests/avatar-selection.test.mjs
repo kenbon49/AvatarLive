@@ -5,6 +5,12 @@ import {
   avatarIdleVideo,
   avatarUsesSharedMuseTalkCycle,
 } from '../src/lib/avatar-preview-media.ts';
+import {
+  ALIYUN_PUBLIC_AVATARS,
+  LIVE_AVATARS,
+  LOCAL_LIVE_AVATARS,
+  aliyunAvatarForCloudVideo,
+} from '../src/lib/live-avatar-catalog.ts';
 
 function customAvatar(mode) {
   return {
@@ -63,4 +69,38 @@ test('only synchronizes source phase for the unchanged shared Chinese cycle', ()
     ...chinese,
     video: customAvatar('loop').video,
   }), false);
+});
+
+test('exposes the complete synchronized Alibaba Cloud public avatar catalog', () => {
+  assert.equal(ALIYUN_PUBLIC_AVATARS.length, 182);
+  assert.equal(ALIYUN_PUBLIC_AVATARS.filter((avatar) => avatar.gender === '男').length, 61);
+  assert.equal(ALIYUN_PUBLIC_AVATARS.filter((avatar) => avatar.gender === '女').length, 121);
+  assert.equal(ALIYUN_PUBLIC_AVATARS.filter((avatar) => avatar.previewVideo).length, 170);
+  assert.equal(ALIYUN_PUBLIC_AVATARS.filter((avatar) => avatar.transparent).length, 170);
+  assert.ok(ALIYUN_PUBLIC_AVATARS.some((avatar) => avatar.name === '灵锐'));
+  assert.ok(ALIYUN_PUBLIC_AVATARS.every((avatar) => (
+    avatar.scope === 'aliyun'
+    && avatar.providerName === '官方形象库'
+    && avatar.officialId
+    && avatar.image.endsWith(`${avatar.officialId}.webp`)
+    && avatar.rendererProfile === undefined
+  )));
+  assert.equal(new Set(ALIYUN_PUBLIC_AVATARS.map((avatar) => avatar.officialId)).size, 182);
+});
+
+test('keeps local renderable avatars available under My Avatars', () => {
+  assert.equal(LIVE_AVATARS.length, LOCAL_LIVE_AVATARS.length + ALIYUN_PUBLIC_AVATARS.length);
+  assert.ok(LOCAL_LIVE_AVATARS.every((avatar) => avatar.scope === 'mine' && avatar.rendererProfile));
+  assert.ok(LIVE_AVATARS.every((avatar) => avatar.id !== 'chinese' && avatar.name !== '中文女'));
+});
+
+test('uses the selected Alibaba Cloud avatar directly for cloud video synthesis', () => {
+  const lingruo = ALIYUN_PUBLIC_AVATARS.find((avatar) => avatar.name === '灵箬');
+  const liveLingwan = ALIYUN_PUBLIC_AVATARS.find((avatar) => avatar.name === '灵婉' && avatar.businessType === 'LIVE');
+  assert.ok(lingruo);
+  assert.equal(lingruo.businessType, 'LIVE');
+  assert.equal(aliyunAvatarForCloudVideo(lingruo), lingruo);
+  assert.ok(liveLingwan);
+  assert.equal(aliyunAvatarForCloudVideo(liveLingwan), liveLingwan);
+  assert.equal(aliyunAvatarForCloudVideo(LOCAL_LIVE_AVATARS[0]), undefined);
 });

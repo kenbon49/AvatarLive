@@ -2,6 +2,9 @@
 
 import { FormEvent, PointerEvent as ReactPointerEvent, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   ArrowLeft,
   ArrowRight,
   ArrowDown,
@@ -13,18 +16,17 @@ import {
   CircleStop,
   Copy,
   Cpu,
-  Database,
   FileSpreadsheet,
   FileText,
   FileUp,
   HardDrive,
   HelpCircle,
+  GripVertical,
   Eye,
   EyeOff,
   Image as ImageIcon,
   KeyRound,
   Layers3,
-  Library,
   Link2,
   LoaderCircle,
   Mic,
@@ -34,7 +36,6 @@ import {
   Play,
   Plus,
   Pencil,
-  Pipette,
   Radio,
   RotateCcw,
   RefreshCw,
@@ -66,7 +67,7 @@ import {
   lookupMuseTalkVideos,
 } from '@/lib/musetalk-total-stream';
 import { getPregeneratedLiveVideo } from '@/lib/pre-generated-live-videos';
-import { BAIDU_LIVE_LOOP_VIDEO_URL } from '@/lib/live-loop-video';
+import { ALIYUN_PUBLIC_VOICES, type AliyunVoiceLanguage } from '@/lib/aliyun-voice-catalog';
 import {
   BrowserLivePublisher,
   layerChromaKeySettings,
@@ -81,12 +82,13 @@ import {
   type WindowCaptureState,
 } from '@/lib/window-capture-session';
 import { ProductShell } from '@/components/product-shell';
+import { PersonSegmentedImagePreview, type PersonImageSegmentationState } from '@/components/person-segmented-image-preview';
 import { API_BASE } from '@/lib/api';
 import {
   copyLiveRoom,
   createLiveRoom,
+  deleteLiveRoom,
   listLiveRooms,
-  listLiveRoomScripts,
   listProductScripts,
   createLiveRoomScript,
   listLiveRoomProducts,
@@ -101,7 +103,6 @@ import {
   type LiveRoom,
   type LiveRoomConfig,
   type LiveRoomGoodsItem,
-  type LiveRoomLibraryScript,
   type LiveRoomProduct,
   type ProductCatalogItem,
   type ProductInput,
@@ -126,7 +127,8 @@ import {
 } from '@/lib/platform-connection-api';
 import { LivePlaybackQueue, type PlaybackQueueStatus } from '@/lib/live-playback-queue';
 import { MuseTalkMicrophoneStream } from '@/lib/musetalk-microphone';
-import { buildDynamicScriptPrompt, normalizeGeneratedScript, validateDynamicScript } from '@/lib/live-dynamic-script';
+import { buildDynamicScriptPrompt, DYNAMIC_SCRIPT_SYSTEM_PROMPT, dynamicScriptComparisonTexts, normalizeGeneratedScript, validateDynamicScript, type DynamicScriptOperation } from '@/lib/live-dynamic-script';
+import { readLiveAiText } from '@/lib/live-ai-stream';
 import { buildProductStarterScripts } from '@/lib/live-product-scripts';
 import {
   buildProductScriptMessageContent,
@@ -138,20 +140,16 @@ import {
   type ProductScriptStyle,
 } from '@/lib/live-product-ai';
 import { layerZIndex } from '@/lib/live-layer-order';
-
-const AVATARS = [
-  { id: 'chinese', name: '中文女', role: '智能接待顾问', image: '/assets/musetalk-avatars/chinese.jpg', type: '真人', gender: '女', age: '青年' },
-  { id: 'business_male_1', name: '商务男', role: '企业服务顾问', image: '/assets/musetalk-avatars/business-male-1.jpg', type: '真人', gender: '男', age: '青年' },
-  { id: 'chen_yu', name: '陈屿', role: '企业服务顾问', image: '/assets/musetalk-avatars/chen-yu.jpg', type: '真人', gender: '男', age: '青年' },
-] satisfies Array<{
-  id: MuseTalkAvatarProfile;
-  name: string;
-  role: string;
-  image: string;
-  type: string;
-  gender: string;
-  age: string;
-}>;
+import { ALIYUN_PUBLIC_AVATARS, LIVE_AVATARS as AVATARS, aliyunAvatarForCloudVideo } from '@/lib/live-avatar-catalog';
+import { readStudioSetting, writeStudioSetting } from '@/lib/browser-studio-storage';
+import { scriptAvatarVideoInputSignature, scriptAvatarVideoIsBusy } from '@/lib/script-avatar-video';
+import { StoryboardScenePreview } from '@/components/storyboard-scene-preview';
+import { SCRIPT_EDITOR_LIMIT, duplicateStoryboardScript, estimateScriptSeconds, formatScriptDuration, reviseStoryboardScript } from '@/lib/live-script-editor';
+import { loadScriptPreviewAudio } from '@/lib/live-script-preview';
+import { applyTemplateLayersPreservingHost, repairLegacyTemplateBackground } from '@/lib/live-template-layers';
+import { waitForAvatarVideo } from '@/lib/live-video-batch';
+import yijingTemplateCatalog from '@/data/yijing-template-catalog.json';
+import yijingFontCatalog from '@/data/yijing-font-catalog.json';
 
 type ScriptItem = {
   id: number;
@@ -161,13 +159,17 @@ type ScriptItem = {
   duration: string;
   text: string;
   state: 'ready' | 'playing' | 'done';
+  avatarVideo?: {
+    taskId: string;
+    inputSignature: string;
+  };
 };
 
 type LayerItem = {
   id: string;
   kind: 'text' | 'image' | 'video' | 'host';
   value: string;
-  sceneKey?: 'host' | 'custom' | 'templateBackground' | 'templateTitle' | 'templateTag' | 'templateFooter';
+  sceneKey?: 'host' | 'custom' | 'templateBackground' | 'templateElement' | 'templateTitle' | 'templateTag' | 'templateFooter';
   preview?: string;
   x: number;
   y: number;
@@ -186,16 +188,28 @@ type LayerItem = {
   lineHeight?: number;
   strokeEnabled?: boolean;
   strokeColor?: string;
+  strokeWidth?: number;
   shadowEnabled?: boolean;
   shadowColor?: string;
   shadowBlur?: number;
   shadowX?: number;
   shadowY?: number;
+  backgroundEnabled?: boolean;
+  backgroundColor?: string;
+  backgroundOpacity?: number;
+  backgroundRadius?: number;
   chromaKeyEnabled?: boolean;
   chromaKeyColor?: string;
   chromaKeyTolerance?: number;
   chromaKeySoftness?: number;
 };
+
+const TEXT_RENDER_KEYS = new Set<keyof LayerItem>([
+  'value', 'fontSize', 'color', 'fontFamily', 'letterSpacing', 'fontWeight', 'fontStyle',
+  'textDecoration', 'textAlign', 'lineHeight', 'strokeEnabled', 'strokeColor', 'strokeWidth',
+  'shadowEnabled', 'shadowColor', 'shadowBlur', 'shadowX', 'shadowY',
+  'backgroundEnabled', 'backgroundColor', 'backgroundOpacity', 'backgroundRadius',
+]);
 
 type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
 
@@ -225,20 +239,48 @@ type AssetItem = {
 
 type QaItem = { id: number; question: string; answer: string };
 type ImportedScriptItem = Omit<ScriptItem, 'id' | 'state'>;
+type ImportedMaterialImage = { name: string; dataUrl: string };
 type ScriptEditDraft = Pick<ScriptItem, 'title' | 'category' | 'text'>;
 type ProductReferenceImage = { id: string; name: string; dataUrl: string };
 type VoiceOption = {
   id: string;
+  officialId: string;
   name: string;
   gender: '男性' | '女性';
-  age: '18-24岁' | '25-35岁' | '36-50岁';
-  tone: '亲和力强' | '幽默有趣' | '元气活力' | '沉稳冷静' | '权威靠谱';
-  image: string;
+  language: AliyunVoiceLanguage;
+  description: string;
+  supportSsml: boolean;
+  sampleText: string;
   scope: 'public' | 'mine';
   providerName: string;
-  referenceId: string;
   previewAudio: string;
 };
+
+type AliyunVideoResult = {
+  id: string;
+  name: string;
+  status: string;
+  videoUrl: string;
+  coverUrl: string;
+  error?: string;
+};
+
+type ScriptVideoBatch = {
+  scriptIds: number[];
+  submitted: number;
+  total: number;
+  waiting?: boolean;
+};
+
+const ALIYUN_VIDEO_READY_STATES = new Set(['SUCCESS', 'SUCCEEDED', 'COMPLETED']);
+const ALIYUN_VIDEO_FAILED_STATES = new Set(['FAIL', 'FAILED', 'ERROR', 'CANCELED', 'CANCELLED', 'EXPIRED']);
+
+function aliyunVideoState(status: string) {
+  const normalized = status.trim().toUpperCase();
+  if (ALIYUN_VIDEO_READY_STATES.has(normalized)) return 'ready';
+  if (ALIYUN_VIDEO_FAILED_STATES.has(normalized)) return 'failed';
+  return 'processing';
+}
 
 type CloneVoiceDraft = {
   name: string;
@@ -247,8 +289,7 @@ type CloneVoiceDraft = {
   previewAudio: string;
 };
 
-type DialogName = 'settings' | 'voice' | 'livePlatform' | 'productPicker' | 'library' | 'scriptImport' | 'avatarConfirm' | null;
-type WorkspaceMode = 'script' | 'qa';
+type DialogName = 'settings' | 'voice' | 'livePlatform' | 'productPicker' | 'scriptImport' | null;
 type SettingsTab = 'qa' | 'dynamic' | 'ambience' | 'product' | 'output' | 'environment';
 type OutputConfig = { resolution: string; frameRate: string; codec: string; protocol: string };
 type ProductPickerTab = 'platform' | 'script_library' | 'self_built';
@@ -302,67 +343,110 @@ export type LiveStudioInitialState = {
   settingsTab?: SettingsTab;
 };
 
-const MATERIAL_TABS = [
+const STUDIO_WORKSPACES = [
+  { id: 'script', label: '脚本', icon: FileText },
+  { id: 'host', label: '数字人', icon: UserRound },
+  { id: 'decorate', label: '装修', icon: Layers3 },
+] as const;
+
+const DECORATION_TABS = [
   { id: 'template', label: '模板', icon: Layers3 },
-  { id: 'host', label: '主播', icon: UserRound },
   { id: 'image', label: '图片', icon: ImageIcon },
-  { id: 'video', label: '视频', icon: Video },
-  { id: 'text', label: '文本', icon: Type },
+  { id: 'text', label: '文字', icon: Type },
 ] as const;
 
-const LIVE_TEMPLATES = [
-  { id: 'home', name: '家居好物', image: '/assets/xiling-live/template-home.png', category: '家居', color: '暖色', title: '品质生活好物', tag: '居家焕新季', footer: '把舒适生活带回家' },
-  { id: 'sale', name: '福利狂欢', image: '/assets/xiling-live/template-sale.png', category: '通用', color: '亮色', title: '狂欢盛典', tag: '提前加购', footer: '优惠开抢' },
-  { id: 'spring', name: '春节狂欢', image: '/assets/xiling-live/template-spring.png', category: '食品', color: '暖色', title: '新春好礼到家', tag: '年货专场', footer: '欢欢喜喜过大年' },
-  { id: 'food', name: '丰收美味', image: '/assets/xiling-live/template-food.png', category: '食品', color: '清新', title: '品味醇香时刻', tag: '好物享不停', footer: '速来抢购，不容错过' },
-  { id: 'study', name: '学习课堂', image: '/assets/xiling-live/template-study.png', category: '教育', color: '清新', title: '高效学习课堂', tag: '知识充电站', footer: '每天进步一点点' },
-  { id: 'snack', name: '吃货狂欢', image: '/assets/xiling-live/template-snack.png', category: '食品', color: '暖色', title: '吃货快乐星球', tag: '美味开箱', footer: '好吃不贵，快乐加倍' },
-  { id: 'fruit', name: '果蔬乐园', image: '/assets/xiling-live/template-fruit.png', category: '食品', color: '清新', title: '新鲜产地直达', tag: '自然鲜活', footer: '把新鲜带回家' },
-  { id: 'fashion', name: '衣橱焕新', image: '/assets/xiling-live/template-fashion.png', category: '服饰', color: '亮色', title: '今日穿搭灵感', tag: '衣橱焕新', footer: '轻松穿出高级感' },
-] as const;
+type StudioWorkspace = (typeof STUDIO_WORKSPACES)[number]['id'];
+type MaterialTab = (typeof DECORATION_TABS)[number]['id'] | 'host';
 
-const INITIAL_SCRIPTS: ScriptItem[] = [
-  {
-    id: 1,
-    title: '泡一杯清清淡淡的花茶',
-    category: '开场',
-    duration: '00:41',
-    text: '有时候不是想喝很重的味道，就是想在家里、办公室安静泡一杯，闻着舒服一点。这款茉莉花茶做的是茉莉银针，净含量125g，罐装设计，拿在手里就是很清爽的感觉。想找花茶的人，可以先看看这款。',
-    state: 'ready',
-  },
-  {
-    id: 2,
-    title: '先把大家最关心的基础信息说清楚',
-    category: '讲品',
-    duration: '00:43',
-    text: '它的品牌是清雷，产地是广西横州，属于国产茶。品种写得很明确，是茉莉银针。配料也比较直接，就是烘青绿茶和横县茉莉鲜花。信息清楚，选的时候心里会更有数，平时自己喝，或者放在茶柜里慢慢喝都很合适。',
-    state: 'ready',
-  },
-  {
-    id: 3,
-    title: '这款茶的包装辨识度挺高',
-    category: '讲品',
-    duration: '00:45',
-    text: '它是浅蓝绿色的罐身，上面有白色花朵图案，正面大字写着花茶和茉莉，整体看着很干净，很柔和。罐装本身也比较利落，放在桌面上就是这种清清爽爽的视觉感受。你如果平时喜欢简洁一点的茶罐风格，这款外观会比较顺眼。',
-    state: 'ready',
-  },
-  {
-    id: 4,
-    title: '再说下规格和保存方式',
-    category: '促单',
-    duration: '00:40',
-    text: '这一罐是125g，保质期18个月，贮存条件写的是阴凉干燥处。这个信息很实在，你可以按自己的喝茶频率来选，开封后也记得放在合适的环境里，日常自己冲泡、偶尔招待朋友，都比较方便安排。',
-    state: 'ready',
-  },
-  {
-    id: 5,
-    title: '想选花茶，可以直接去看看详情',
-    category: '促单',
-    duration: '00:44',
-    text: '如果你现在想找一款信息清楚、产地和品种都标注明白的茉莉花茶，这款可以放进你的备选里。茉莉银针、125g罐装、清爽花叶风格，特点都比较直观。感兴趣的话就点开商品卡看看详情，按自己的喝茶习惯来选就行。',
-    state: 'ready',
-  },
+type StudioTemplate = {
+  id: string;
+  name: string;
+  image: string;
+  category: string;
+  color: string;
+  title: string;
+  tag: string;
+  footer: string;
+  custom?: boolean;
+  source?: '百度一镜';
+  layers?: LayerItem[];
+  layersUrl?: string;
+  pageCount?: number;
+  categories?: string[];
+  avatarId?: string;
+  voice?: {
+    voiceId: string;
+    speed: number;
+    pitch: number;
+  };
+};
+
+type TemplateLayerDocument = {
+  sourceId: number;
+  pages: Array<{
+    index: number;
+    pageId: string;
+    layers: LayerItem[];
+  }>;
+};
+
+type ProductDemoStage = 'idle' | 'analyzing' | 'rendering' | 'ready' | 'failed';
+
+const yijingPageCache = new Map<string, Promise<LayerItem[][]>>();
+
+async function loadTemplatePages(template: StudioTemplate): Promise<LayerItem[][]> {
+  if (template.layers?.length) return [template.layers];
+  if (!template.layersUrl) return [];
+  const cached = yijingPageCache.get(template.layersUrl);
+  if (cached) return cached;
+  const request = fetch(template.layersUrl).then(async (response) => {
+    if (!response.ok) throw new Error(`模板图层读取失败（HTTP ${response.status}）`);
+    const document = await response.json() as TemplateLayerDocument;
+    if (!Array.isArray(document.pages) || !document.pages.length) throw new Error('模板不包含可用画布');
+    return document.pages.map((page) => page.layers);
+  }).catch((cause) => {
+    yijingPageCache.delete(template.layersUrl!);
+    throw cause;
+  });
+  yijingPageCache.set(template.layersUrl, request);
+  return request;
+}
+
+const LIVE_TEMPLATES: StudioTemplate[] = [
+  ...(yijingTemplateCatalog as Array<{
+    id: string;
+    name: string;
+    image: string;
+    category: string;
+    categories: string[];
+    color: string;
+    pageCount: number;
+    layersUrl: string;
+  }>).map((template) => ({
+    ...template,
+    title: '',
+    tag: '',
+    footer: '',
+    source: '百度一镜' as const,
+  })),
 ];
+
+const DEFAULT_LIVE_TEMPLATE = LIVE_TEMPLATES[0];
+const DEFAULT_LIVE_TEMPLATE_ID = DEFAULT_LIVE_TEMPLATE.id;
+const LEGACY_TEMPLATE_IDS = new Set(['home', 'sale', 'spring', 'food', 'study', 'snack', 'fruit', 'fashion']);
+
+const CUSTOM_TEMPLATE_STORAGE_KEY = 'synlive.customTemplates.v1';
+const ACTIVE_LIVE_ROOM_STORAGE_KEY = 'synlive.activeLiveRoom.v1';
+const YIJING_BLANK_BACKGROUND = '/assets/xiling-live/yijing/blank.png';
+
+const INITIAL_SCRIPTS: ScriptItem[] = [{
+  id: 1,
+  title: '主播口播 1',
+  category: '开场',
+  duration: '00:08',
+  text: '欢迎来到直播间，今天为大家带来精选好物。',
+  state: 'ready',
+}];
 
 const textLayerDefaults = {
   fontFamily: '默认字体',
@@ -381,14 +465,95 @@ const textLayerDefaults = {
   shadowY: 4,
 };
 
-const FONT_FAMILIES: Record<string, string> = {
+type TextMaterialStyle = {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  fontWeight: 'normal' | 'bold';
+  fontStyle: 'normal' | 'italic';
+  textDecoration: 'none' | 'underline' | 'line-through';
+  textAlign: 'left' | 'center' | 'right';
+  opacity: number;
+  backgroundEnabled: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
+};
+
+const DEFAULT_TEXT_MATERIAL_STYLE: TextMaterialStyle = {
+  fontFamily: '默认字体',
+  fontSize: 16,
+  color: '#ffffff',
+  fontWeight: 'normal',
+  fontStyle: 'normal',
+  textDecoration: 'none',
+  textAlign: 'center',
+  opacity: 100,
+  backgroundEnabled: true,
+  backgroundColor: '#111827',
+  backgroundOpacity: 72,
+};
+
+const LEGACY_FONT_FAMILIES: Record<string, string> = {
   '默认字体': "'Noto Sans SC', sans-serif",
-  '思源黑体': "'Noto Sans SC', sans-serif",
+  '思源黑体': "'SiYuanHeiTi', 'Noto Sans SC', sans-serif",
+  '思源宋体': "'SiYuanSongTi', 'Noto Serif SC', serif",
   '站酷快乐体': "'Noto Sans SC', sans-serif",
 };
+const FONT_OPTIONS = [
+  { value: '默认字体', label: '默认字体' },
+  { value: '思源黑体', label: '思源黑体' },
+  { value: '思源宋体', label: '思源宋体' },
+  { value: '站酷快乐体', label: '站酷快乐体' },
+  ...(yijingFontCatalog as Array<{ value: string; label: string; family: string; path: string | null }>),
+];
+const fontFamilyCss = (value = '默认字体') => {
+  const legacy = LEGACY_FONT_FAMILIES[value];
+  if (legacy) return legacy;
+  const imported = (yijingFontCatalog as Array<{ value: string; family: string }>).find(font => font.value === value);
+  const family = imported?.family ?? value;
+  return `'${family.replaceAll("'", "\\'")}', 'Noto Sans SC', sans-serif`;
+};
+const FONT_FAMILIES = Object.fromEntries(FONT_OPTIONS.map(font => [font.value, fontFamilyCss(font.value)]));
+const canvasFontSize = (value = 16) => `${roundCanvasValue(value / 3.78)}cqw`;
 
 const roundCanvasValue = (value: number) => Math.round(value * 10) / 10;
 const clampCanvasValue = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
+
+const colorWithOpacity = (color: string, opacity = 100) => {
+  const normalized = color.replace('#', '');
+  if (!/^[\da-f]{6}$/i.test(normalized)) return color;
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${clampCanvasValue(opacity, 0, 100) / 100})`;
+};
+
+function parseCustomTemplates(value: string | null): StudioTemplate[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is StudioTemplate => {
+      if (!item || typeof item !== 'object') return false;
+      const template = item as Partial<StudioTemplate>;
+      return typeof template.id === 'string'
+        && typeof template.name === 'string'
+        && typeof template.image === 'string'
+        && Array.isArray(template.layers);
+    }).map((template) => ({
+      ...template,
+      category: '自定义',
+      color: '自定义',
+      title: template.title || '',
+      tag: template.tag || '',
+      footer: template.footer || '',
+      custom: true,
+      layers: template.layers?.map((layer) => ({ ...layer })),
+    }));
+  } catch {
+    return [];
+  }
+}
 
 const fileAsDataUrl = (file: Blob): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -397,20 +562,55 @@ const fileAsDataUrl = (file: Blob): Promise<string> => new Promise((resolve, rej
   reader.readAsDataURL(file);
 });
 
+async function imageSourceAsDataUrl(source: string): Promise<string> {
+  if (source.startsWith('data:image/')) return source;
+  const response = await fetch(source);
+  if (!response.ok) throw new Error('当前商品图片读取失败');
+  return fileAsDataUrl(await response.blob());
+}
+
 async function prepareProductReferenceImage(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) throw new Error('请选择图片文件');
   if (file.size > 10 * 1024 * 1024) throw new Error('商品图片不能超过 10 MB');
   if (typeof createImageBitmap !== 'function') return fileAsDataUrl(file);
   const bitmap = await createImageBitmap(file);
   try {
-    const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+    // Preserve readable package text whenever the original already fits the multimodal request limit.
+    if (file.size <= 5.5 * 1024 * 1024 && Math.max(bitmap.width, bitmap.height) <= 2048) {
+      return fileAsDataUrl(file);
+    }
+    const scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     const context = canvas.getContext('2d');
     if (!context) return fileAsDataUrl(file);
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.84));
+    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+    return fileAsDataUrl(compressed ?? file);
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function prepareTemplateBackground(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('请选择图片文件');
+  if (file.size > 15 * 1024 * 1024) throw new Error('模板背景不能超过 15 MB');
+  if (typeof createImageBitmap !== 'function') return fileAsDataUrl(file);
+  const bitmap = await createImageBitmap(file);
+  try {
+    const targetWidth = 540;
+    const targetHeight = 960;
+    const scale = Math.max(targetWidth / bitmap.width, targetHeight / bitmap.height);
+    const drawWidth = bitmap.width * scale;
+    const drawHeight = bitmap.height * scale;
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const context = canvas.getContext('2d');
+    if (!context) return fileAsDataUrl(file);
+    context.drawImage(bitmap, (targetWidth - drawWidth) / 2, (targetHeight - drawHeight) / 2, drawWidth, drawHeight);
+    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
     return fileAsDataUrl(compressed ?? file);
   } finally {
     bitmap.close();
@@ -424,7 +624,7 @@ const formatSavedAt = (value: string) => new Date(value).toLocaleTimeString('zh-
 });
 
 const createTemplateLayers = (templateId: string, avatarName: string): LayerItem[] => {
-  const template = LIVE_TEMPLATES.find((item) => item.id === templateId) ?? LIVE_TEMPLATES[3];
+  const template = LIVE_TEMPLATES.find((item) => item.id === templateId) ?? DEFAULT_LIVE_TEMPLATE;
   return [
     { id: `title-${template.id}`, kind: 'text', value: template.title, sceneKey: 'templateTitle', x: 50, y: 15, width: 76, height: 12, rotation: 0, opacity: 100, fontSize: 26, color: '#ffffff', ...textLayerDefaults, fontWeight: 'bold' },
     { id: `tag-${template.id}`, kind: 'text', value: template.tag, sceneKey: 'templateTag', x: 50, y: 23, width: 56, height: 7, rotation: 0, opacity: 100, fontSize: 13, color: '#ffffff', ...textLayerDefaults },
@@ -445,16 +645,16 @@ const createTemplateLayers = (templateId: string, avatarName: string): LayerItem
       chromaKeyTolerance: 4,
       chromaKeySoftness: 6,
     },
-    { id: `background-${template.id}`, kind: 'image', value: '图片', sceneKey: 'templateBackground', preview: template.image, x: 50, y: 50, width: 100, height: 100, rotation: 0, opacity: 100 },
+    { id: `background-${template.id}`, kind: 'image', value: '场景背景', sceneKey: 'templateBackground', preview: template.source === '百度一镜' ? YIJING_BLANK_BACKGROUND : template.image, x: 50, y: 50, width: 100, height: 100, rotation: 0, opacity: 100 },
   ];
 };
 
-const INITIAL_LAYERS = createTemplateLayers('food', '中文女');
+const INITIAL_LAYERS = createTemplateLayers(DEFAULT_LIVE_TEMPLATE_ID, '灵婉');
 
 const SQUARE_ASSETS: Record<'image' | 'video', AssetItem[]> = {
   image: [
     { id: 'square-image-1', kind: 'image', name: '咖啡氛围图', preview: '/assets/xiling-live/product.jpg' },
-    { id: 'square-image-2', kind: 'image', name: '直播装饰图', preview: '/assets/xiling-live/template-food.png' },
+    { id: 'square-image-2', kind: 'image', name: '直播装饰图', preview: DEFAULT_LIVE_TEMPLATE.image },
     { id: 'square-image-3', kind: 'image', name: '福利贴纸' },
     { id: 'square-image-4', kind: 'image', name: '新品推荐' },
   ],
@@ -486,47 +686,40 @@ const PLATFORMS = [
   { name: '小红书', logo: '/assets/brand-logos/xiaohongshu.svg', color: '#ff2442' },
 ] as const;
 
-const TALK_LIBRARY = [
-  { category: '电商', title: '新品专场欢迎', text: '欢迎来到新品专场，今天会从风味、工艺和冲泡建议三个方面为大家介绍。' },
-  { category: '电商', title: '直播间福利提醒', text: '直播间专属福利正在进行，喜欢的朋友可以先领取优惠，再根据需要选择。' },
-  { category: '教育', title: '课程导学开场', text: '本节课将通过案例拆解核心知识点，建议大家先了解今天的学习目标。' },
-  { category: '教育', title: '学习问题引导', text: '如果对刚才的内容还有疑问，可以发送关键词，我会结合课程资料继续说明。' },
-  { category: '金融', title: '风险提示说明', text: '以下内容仅用于产品信息介绍，具体规则与风险等级请以正式材料为准。' },
-  { category: '通用', title: '品质保障说明', text: '每一批商品都经过筛选与品质把控，具体参数和售后规则以正式商品信息为准。' },
-] as const;
+const FEATURED_LIVE_AVATAR_ID = 'aliyun-M1xuUWr440XEDhA6QPRvRiDQ';
+const FEATURED_LIVE_AVATAR_NAME = '灵婉';
+const DEFAULT_VOICE_ID = 'longbaizhi';
 
-const VOICES: VoiceOption[] = [
-  { id: 'professional', name: '专业知性女声', gender: '女性', age: '25-35岁', tone: '权威靠谱', image: '/assets/digital-humans/linxi.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '603e674b998943e3b664e3b3f5aff006', previewAudio: '/assets/voice-samples/fish-audio/professional-female.mp3' },
-  { id: 'considerate', name: '温柔动听女声', gender: '女性', age: '18-24岁', tone: '亲和力强', image: '/assets/digital-humans/suqing.webp', scope: 'public', providerName: 'Fish Audio', referenceId: 'faccba1a8ac54016bcfc02761285e67f', previewAudio: '/assets/voice-samples/fish-audio/considerate-female.mp3' },
-  { id: 'natural-young', name: '自然亲切女声', gender: '女性', age: '18-24岁', tone: '亲和力强', image: '/assets/digital-humans/tangyue.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '56c3fbbe37bb42e9a0b82e55b5abfca6', previewAudio: '/assets/voice-samples/fish-audio/natural-young-female.mp3' },
-  { id: 'natural-host', name: '带货主播女声', gender: '女性', age: '25-35岁', tone: '元气活力', image: '/assets/digital-humans/zhoulan.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '969b367b71224c45b4c86f0266dc0112', previewAudio: '/assets/voice-samples/fish-audio/commerce-host-female.mp3' },
-  { id: 'gentle-host', name: '清澈柔和女声', gender: '女性', age: '25-35岁', tone: '亲和力强', image: '/assets/digital-humans/linxi.webp', scope: 'public', providerName: 'Fish Audio', referenceId: 'ef0f04de923849ca8836c5c63d23eefa', previewAudio: '/assets/voice-samples/fish-audio/gentle-clear-female.mp3' },
-  { id: 'middle-man', name: '沉稳讲述男声', gender: '男性', age: '36-50岁', tone: '沉稳冷静', image: '/assets/digital-humans/guyan.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '5a0aac1ed36d47dab16cc27ebebd47af', previewAudio: '/assets/voice-samples/fish-audio/steady-story-male.mp3' },
-  { id: 'clear-young', name: '清澈叙述女声', gender: '女性', age: '18-24岁', tone: '亲和力强', image: '/assets/digital-humans/chenyu.webp', scope: 'public', providerName: 'Fish Audio', referenceId: 'd58498107ce14ab5ac9d41d0ec28ead5', previewAudio: '/assets/voice-samples/fish-audio/clear-female.mp3' },
-  { id: 'elegant', name: '知性优雅女声', gender: '女性', age: '25-35岁', tone: '权威靠谱', image: '/assets/digital-humans/liangchuan.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '507a3b05f3a543f49d35de112b9ee3a6', previewAudio: '/assets/voice-samples/fish-audio/elegant-female.mp3' },
-  { id: 'calm-man', name: '专业沉稳男声', gender: '男性', age: '25-35岁', tone: '权威靠谱', image: '/assets/digital-humans/noah.webp', scope: 'public', providerName: 'Fish Audio', referenceId: 'ea6b69b0e12d4bbc999bcf546bf61035', previewAudio: '/assets/voice-samples/fish-audio/professional-steady-male.mp3' },
-  { id: 'clear-man', name: '清澈青年男声', gender: '男性', age: '18-24岁', tone: '亲和力强', image: '/assets/digital-humans/maya.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '83f5551b1a554002971d897259bbea3c', previewAudio: '/assets/voice-samples/fish-audio/clear-young-male.mp3' },
-  { id: 'bright-girl', name: '活力主播女声', gender: '女性', age: '18-24岁', tone: '元气活力', image: '/assets/digital-humans/avery.webp', scope: 'public', providerName: 'Fish Audio', referenceId: '7220de919f3843f89135d149fb4f3d8a', previewAudio: '/assets/voice-samples/fish-audio/energetic-host-female.mp3' },
-  { id: 'sweet-girl', name: '甜美灵动女声', gender: '女性', age: '18-24岁', tone: '元气活力', image: '/assets/digital-humans/avery-transparent.png', scope: 'mine', providerName: 'Fish Audio', referenceId: '510d7514d3f945e3a645706f50d84e8d', previewAudio: '/assets/voice-samples/fish-audio/sweet-female.mp3' },
-];
+const VOICES: VoiceOption[] = ALIYUN_PUBLIC_VOICES.map((voice) => ({
+  ...voice,
+  scope: 'public',
+  providerName: '官方音色',
+}));
 
-const createDefaultRoomConfig = (): LiveRoomConfig => ({
+const createDefaultRoomConfig = (selectedAvatarId = FEATURED_LIVE_AVATAR_ID): LiveRoomConfig => {
+  const selectedAvatar = AVATARS.find((item) => item.id === selectedAvatarId)
+    ?? AVATARS.find((item) => item.id === FEATURED_LIVE_AVATAR_ID)
+    ?? AVATARS[0];
+  return ({
   schemaVersion: 1,
-  avatarId: 'chinese',
-  voice: { voiceId: 'professional', speed: 1.1, pitch: 3 },
+  avatarId: selectedAvatar.id,
+  voice: { voiceId: DEFAULT_VOICE_ID, speed: 1.1, pitch: 3 },
   playbackMode: 'sequence',
   goods: [{ id: 1, name: '未命名商品', source: '自建商品' }],
   activeGoodsId: 1,
   scripts: INITIAL_SCRIPTS.map((item) => ({ ...item, state: 'ready' })),
   qaItems: [],
-  selectedTemplateId: 'food',
-  layers: createTemplateLayers('food', '中文女'),
+  selectedTemplateId: DEFAULT_LIVE_TEMPLATE_ID,
+  selectedTemplatePage: 0,
+  layers: createTemplateLayers(DEFAULT_LIVE_TEMPLATE_ID, selectedAvatar.name),
   liveOptions: { qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: true },
   outputConfig: { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' },
   selectedPlatforms: [],
   selectedPlatformConnectionIds: [],
   assets: { image: [], video: [] },
-});
+  importedMaterialImages: [],
+  });
+};
 
 type RtmpConnectionDraft = {
   name: string;
@@ -581,6 +774,179 @@ function ChromaKeyHostPreview({
   return <canvas ref={canvasRef} className={className} style={style} role="img" aria-label={label} />;
 }
 
+function ChromaKeyVideoPreview({
+  src,
+  poster,
+  settings,
+  autoDetectColor,
+  trimBottom,
+  className,
+  style,
+  label,
+}: {
+  src: string;
+  poster?: string;
+  settings: ChromaKeySettings;
+  autoDetectColor: boolean;
+  trimBottom?: number;
+  className: string;
+  style: CSSProperties;
+  label: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+    const renderer = new ChromaKeyRenderer(canvas);
+    const keyCanvases = Array.from({ length: 4 }, () => document.createElement('canvas'));
+    const keyRenderers = [...keyCanvases.map((item) => new ChromaKeyRenderer(item)), renderer];
+    let cancelled = false;
+    let detectedColors = [settings.color, '#b8bbc8', '#b5b8c5', '#b1b4c1', '#f2f2f4'];
+    let videoFrameHandle: number | null = null;
+    let animationFrameHandle: number | null = null;
+    const timedVideo = video as HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: () => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+
+    const renderSource = (source: HTMLImageElement | HTMLVideoElement, width: number, height: number) => {
+      const scale = Math.min(1, 1920 / Math.max(width, height));
+      const renderWidth = width * scale;
+      const renderHeight = height * scale;
+      if (autoDetectColor) {
+        let inputSource: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement = source;
+        detectedColors.forEach((color, index) => {
+          keyRenderers[index].render(inputSource, renderWidth, renderHeight, {
+            enabled: true,
+            color,
+            tolerance: index === detectedColors.length - 1 ? 6 : 3.5,
+            softness: index === detectedColors.length - 1 ? 5 : 3.5,
+          });
+          if (index < keyCanvases.length) inputSource = keyCanvases[index];
+        });
+        if (trimBottom) {
+          const context = canvas.getContext('2d');
+          if (context) {
+            const cleanupTop = Math.floor(canvas.height * 0.66);
+            const cleanupBottom = Math.ceil(canvas.height * trimBottom);
+            try {
+              const image = context.getImageData(0, cleanupTop, canvas.width, cleanupBottom - cleanupTop);
+              for (let index = 0; index < image.data.length; index += 4) {
+                const red = image.data[index];
+                const green = image.data[index + 1];
+                const blue = image.data[index + 2];
+                const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+                const brightness = (red + green + blue) / 3;
+                if (brightness > 145 && spread < 26) image.data[index + 3] = 0;
+              }
+              context.putImageData(image, 0, cleanupTop);
+            } catch {
+              // Keep the keyed frame when a remote video blocks pixel reads.
+            }
+            context.clearRect(0, canvas.height * trimBottom, canvas.width, canvas.height * (1 - trimBottom));
+          }
+        }
+        return;
+      }
+      renderer.render(source, renderWidth, renderHeight, settings);
+    };
+    const detectBackgroundColors = (source: HTMLImageElement | HTMLVideoElement, width: number, height: number) => {
+      if (!autoDetectColor || !width || !height) return;
+      const sample = document.createElement('canvas');
+      sample.width = 32;
+      sample.height = 2;
+      const context = sample.getContext('2d', { willReadFrequently: true });
+      if (!context) return;
+      try {
+        const sampleStrip = (sourceY: number) => {
+          context.clearRect(0, 0, sample.width, sample.height);
+          const edgeWidth = Math.max(1, width * 0.025);
+          const stripHeight = Math.max(1, height * 0.02);
+          context.drawImage(source, 0, sourceY, edgeWidth, stripHeight, 0, 0, sample.width / 2, sample.height);
+          context.drawImage(source, width - edgeWidth, sourceY, edgeWidth, stripHeight, sample.width / 2, 0, sample.width / 2, sample.height);
+          const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+          let red = 0;
+          let green = 0;
+          let blue = 0;
+          for (let index = 0; index < pixels.length; index += 4) {
+            red += pixels[index];
+            green += pixels[index + 1];
+            blue += pixels[index + 2];
+          }
+          const count = pixels.length / 4;
+          return `#${[red, green, blue].map((value) => Math.round(value / count).toString(16).padStart(2, '0')).join('')}`;
+        };
+        detectedColors = [0.02, 0.24, 0.46, 0.68, 0.97].map((position) => sampleStrip(height * position));
+      } catch {
+        // Cross-origin generated videos fall back to the catalog background color.
+      }
+    };
+    const scheduleFrame = () => {
+      if (cancelled || video.paused || video.ended || videoFrameHandle !== null || animationFrameHandle !== null) return;
+      if (timedVideo.requestVideoFrameCallback) {
+        videoFrameHandle = timedVideo.requestVideoFrameCallback(() => {
+          videoFrameHandle = null;
+          drawFrame();
+        });
+      } else {
+        animationFrameHandle = window.requestAnimationFrame(() => {
+          animationFrameHandle = null;
+          drawFrame();
+        });
+      }
+    };
+    const drawFrame = () => {
+      if (cancelled) return;
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) {
+        renderSource(video, video.videoWidth, video.videoHeight);
+      }
+      scheduleFrame();
+    };
+    const startPlayback = () => {
+      detectBackgroundColors(video, video.videoWidth, video.videoHeight);
+      drawFrame();
+      void video.play().catch(() => undefined);
+    };
+
+    if (poster) {
+      const image = new Image();
+      image.decoding = 'async';
+      image.crossOrigin = 'anonymous';
+      image.onload = () => {
+        if (!cancelled) {
+          detectBackgroundColors(image, image.naturalWidth, image.naturalHeight);
+          renderSource(image, image.naturalWidth, image.naturalHeight);
+        }
+      };
+      image.src = poster;
+    }
+    video.addEventListener('loadeddata', startPlayback);
+    video.addEventListener('play', scheduleFrame);
+    video.src = src;
+    video.load();
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) startPlayback();
+
+    return () => {
+      cancelled = true;
+      video.removeEventListener('loadeddata', startPlayback);
+      video.removeEventListener('play', scheduleFrame);
+      if (videoFrameHandle !== null) timedVideo.cancelVideoFrameCallback?.(videoFrameHandle);
+      if (animationFrameHandle !== null) window.cancelAnimationFrame(animationFrameHandle);
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    };
+  }, [autoDetectColor, poster, settings.color, settings.enabled, settings.softness, settings.tolerance, src, trimBottom]);
+
+  return <>
+    <video ref={videoRef} muted loop playsInline crossOrigin="anonymous" aria-hidden="true" style={{ position: 'fixed', left: '-2px', top: '-2px', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
+    <canvas ref={canvasRef} className={className} style={style} role="img" aria-label={label} />
+  </>;
+}
+
 function validateRtmpDraft(draft: RtmpConnectionDraft, editing: boolean): string | null {
   if (!draft.name.trim()) return '请填写连接名称';
   if (!draft.platformLabel.trim()) return '请填写平台备注';
@@ -609,13 +975,10 @@ export function LiveStudio({
   settingsTab: initialSettingsTab = 'qa',
 }: LiveStudioInitialState = {}) {
   const [entered, setEntered] = useState(initialEntered);
-  const [avatarId, setAvatarId] = useState<MuseTalkAvatarProfile>('chinese');
+  const [avatarId, setAvatarId] = useState(FEATURED_LIVE_AVATAR_ID);
   const avatar = AVATARS.find((item) => item.id === avatarId) ?? AVATARS[0];
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLDivElement>(null);
-  const loopVideoRef = useRef<HTMLVideoElement>(null);
-  const loopVideoPlayingRef = useRef(false);
-  const loopVideoAudioEnabledRef = useRef(false);
   const canvasGestureRef = useRef<CanvasGesture | null>(null);
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
   const playbackQueueRef = useRef<LivePlaybackQueue<number> | null>(null);
@@ -643,6 +1006,11 @@ export function LiveStudio({
   const [windowCaptureMessage, setWindowCaptureMessage] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(''), 4500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   const [room, setRoom] = useState<LiveRoom | null>(null);
   const [roomLoading, setRoomLoading] = useState(false);
   const [roomSaving, setRoomSaving] = useState(false);
@@ -654,6 +1022,8 @@ export function LiveStudio({
   const [newRoomName, setNewRoomName] = useState('');
   const [landingCreateOpen, setLandingCreateOpen] = useState(false);
   const [landingRoomName, setLandingRoomName] = useState('');
+  const [landingAvatarId, setLandingAvatarId] = useState(FEATURED_LIVE_AVATAR_ID);
+  const [landingAvatarQuery, setLandingAvatarQuery] = useState('');
   const [landingRoomCreating, setLandingRoomCreating] = useState(false);
   const [landingRoomError, setLandingRoomError] = useState('');
   const [renameRoomName, setRenameRoomName] = useState('');
@@ -661,21 +1031,21 @@ export function LiveStudio({
   const [savedConfigSignature, setSavedConfigSignature] = useState('');
   const roomInitializationRef = useRef(false);
   const [dialog, setDialog] = useState<DialogName>(initialEntered ? initialDialog : null);
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('script');
-  const [materialTab, setMaterialTab] = useState<(typeof MATERIAL_TABS)[number]['id']>('template');
+  const [studioWorkspace, setStudioWorkspace] = useState<StudioWorkspace>('script');
+  const [materialTab, setMaterialTab] = useState<MaterialTab>('template');
   const [scripts, setScripts] = useState<ScriptItem[]>(INITIAL_SCRIPTS);
-  const [draft, setDraft] = useState('宝子们，今天直播间为大家准备了一款特别值得入手的高品质好物。');
-  const [showComposer, setShowComposer] = useState(false);
-  const [showScriptMenu, setShowScriptMenu] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [storyboardScriptId, setStoryboardScriptId] = useState<number | null>(null);
+  const newScriptDraftRef = useRef('');
   const [batchMode, setBatchMode] = useState(false);
   const [selectedScriptIds, setSelectedScriptIds] = useState<number[]>([]);
-  const [voiceTab, setVoiceTab] = useState<'public' | 'clone'>('public');
+  const [voiceTab, setVoiceTab] = useState<'public' | 'mine'>('public');
   const [voices, setVoices] = useState<VoiceOption[]>(VOICES);
   const [voiceQuery, setVoiceQuery] = useState('');
   const [voiceGender, setVoiceGender] = useState<'全部性别' | VoiceOption['gender']>('全部性别');
-  const [voiceAge, setVoiceAge] = useState<'全部年龄' | VoiceOption['age']>('全部年龄');
-  const [selectedVoiceId, setSelectedVoiceId] = useState('professional');
-  const [pendingVoiceId, setPendingVoiceId] = useState('professional');
+  const [voiceLanguage, setVoiceLanguage] = useState<'全部语言' | AliyunVoiceLanguage>('全部语言');
+  const [selectedVoiceId, setSelectedVoiceId] = useState(DEFAULT_VOICE_ID);
+  const [pendingVoiceId, setPendingVoiceId] = useState(DEFAULT_VOICE_ID);
   const [voiceSpeed, setVoiceSpeed] = useState(1.1);
   const [voicePitch, setVoicePitch] = useState(3);
   const [pendingVoiceSpeed, setPendingVoiceSpeed] = useState(1.1);
@@ -684,6 +1054,20 @@ export function LiveStudio({
   const [previewVoiceLoadingId, setPreviewVoiceLoadingId] = useState<string | null>(null);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewGenerationRef = useRef(0);
+  const generatedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const generatedVideoPlaybackRequestRef = useRef<string | null>(null);
+  const generatedVideoCaptureRef = useRef<MediaStream | null>(null);
+  const [aliyunVideo, setAliyunVideo] = useState<AliyunVideoResult | null>(null);
+  const [aliyunVideoSubmitting, setAliyunVideoSubmitting] = useState(false);
+  const [aliyunVideoError, setAliyunVideoError] = useState('');
+  const [scriptVideoResults, setScriptVideoResults] = useState<Record<number, AliyunVideoResult>>({});
+  const [scriptVideoSubmissionErrors, setScriptVideoSubmissionErrors] = useState<Record<number, string>>({});
+  const [scriptVideoBatch, setScriptVideoBatch] = useState<ScriptVideoBatch | null>(null);
+  const scriptVideoBatchAbortRef = useRef<AbortController | null>(null);
+  const [productDemoStage, setProductDemoStage] = useState<ProductDemoStage>('idle');
+  const [productDemoMessage, setProductDemoMessage] = useState('');
+  const [generatedVideoVisible, setGeneratedVideoVisible] = useState(false);
+  const [generatedVideoPlaying, setGeneratedVideoPlaying] = useState(false);
   const cloneVoiceInputRef = useRef<HTMLInputElement>(null);
   const [cloneVoice, setCloneVoice] = useState<CloneVoiceDraft>({ name: '', transcript: '', file: null, previewAudio: '' });
   const [cloneProgress, setCloneProgress] = useState<'idle' | 'cloning' | 'ready'>('idle');
@@ -691,11 +1075,9 @@ export function LiveStudio({
   const [playbackMode, setPlaybackMode] = useState<'sequence' | 'random'>('sequence');
   const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
   const [playbackLoop, setPlaybackLoop] = useState(true);
-  const [loopVideoEnabled, setLoopVideoEnabled] = useState(true);
+  const [personImageState, setPersonImageState] = useState<PersonImageSegmentationState>('loading');
   const [playbackQueueStatus, setPlaybackQueueStatus] = useState<PlaybackQueueStatus>('idle');
   const [currentPlaybackScriptId, setCurrentPlaybackScriptId] = useState<number | null>(null);
-  const [loopVideoPlaying, setLoopVideoPlaying] = useState(false);
-  const [loopVideoAudioEnabled, setLoopVideoAudioEnabled] = useState(false);
   const [microphoneState, setMicrophoneState] = useState<'idle' | 'connecting' | 'recording' | 'submitting'>('idle');
   const [goods, setGoods] = useState<LiveRoomConfig['goods']>([{ id: 1, name: '清雷茉莉银针茶', source: '商品' }]);
   const [activeGoodsId, setActiveGoodsId] = useState<string | number>(1);
@@ -728,40 +1110,54 @@ export function LiveStudio({
   const [templateQuery, setTemplateQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState('全部');
   const [templateColor, setTemplateColor] = useState('全部');
-  const [selectedTemplateId, setSelectedTemplateId] = useState('food');
-  const [pendingAvatarId, setPendingAvatarId] = useState<MuseTalkAvatarProfile | null>(null);
-  const [avatarSwitching, setAvatarSwitching] = useState(false);
-  const [hostQuery, setHostQuery] = useState('');
-  const [hostScope, setHostScope] = useState<'mine' | 'square' | 'favorite'>('mine');
-  const [showHostFilters, setShowHostFilters] = useState(false);
-  const [hostFilters, setHostFilters] = useState({ type: '全部', gender: '全部', age: '全部' });
+  const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_LIVE_TEMPLATE_ID);
+  const [selectedTemplatePage, setSelectedTemplatePage] = useState(0);
+  const [templateLoadingId, setTemplateLoadingId] = useState('');
+  const [templateLoadError, setTemplateLoadError] = useState('');
+  const [visibleTemplateCount, setVisibleTemplateCount] = useState(80);
+  const templateRequestIdRef = useRef(0);
+  const [customTemplates, setCustomTemplates] = useState<StudioTemplate[]>([]);
+  const [customTemplatesLoaded, setCustomTemplatesLoaded] = useState(false);
+  const [templateDraftMode, setTemplateDraftMode] = useState<'new' | null>(null);
+  const [templateDraftName, setTemplateDraftName] = useState('');
+  const [templateDraftBackground, setTemplateDraftBackground] = useState('');
+  const [templateDraftBusy, setTemplateDraftBusy] = useState(false);
+  const [templateStorageError, setTemplateStorageError] = useState('');
+  const [hostFilters, setHostFilters] = useState({ gender: '全部', scene: '全部场景' });
   const [assetScope, setAssetScope] = useState<'mine' | 'square'>('mine');
   const [assetQuery, setAssetQuery] = useState('');
   const [assets, setAssets] = useState<Record<'image' | 'video', AssetItem[]>>({ image: [], video: [] });
   const [assetBatchMode, setAssetBatchMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
+  const templateInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const productDocumentInputRef = useRef<HTMLInputElement>(null);
   const productImageInputRef = useRef<HTMLInputElement>(null);
-  const chromaColorInputRef = useRef<HTMLInputElement>(null);
   const materialsScrollRef = useRef<HTMLDivElement>(null);
   const layerListRef = useRef<HTMLDivElement>(null);
   const [customText, setCustomText] = useState('直播间专属福利');
+  const [customTextStyle, setCustomTextStyle] = useState<TextMaterialStyle>(DEFAULT_TEXT_MATERIAL_STYLE);
   const [layers, setLayers] = useState<LayerItem[]>(INITIAL_LAYERS);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [inspectorLayerId, setInspectorLayerId] = useState<string | null>(null);
+  const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null);
+  const [layerDropTarget, setLayerDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
   const [canvasGestureMode, setCanvasGestureMode] = useState<CanvasGesture['mode'] | null>(null);
   const [previewHelp, setPreviewHelp] = useState(false);
   const [qaItems, setQaItems] = useState<QaItem[]>([]);
-  const [qaQuery, setQaQuery] = useState('');
-  const [qaQuestion, setQaQuestion] = useState('这款茉莉花茶适合怎么冲泡？');
-  const [qaAnswer, setQaAnswer] = useState('建议用热水冲泡，也可以根据口味调整水温和浸泡时间。');
-  const [showQaComposer, setShowQaComposer] = useState(false);
-  const [libraryScripts, setLibraryScripts] = useState<LiveRoomLibraryScript[]>([]);
-  const [librarySaving, setLibrarySaving] = useState(false);
   const [dynamicGenerating, setDynamicGenerating] = useState(false);
+  const [scriptRewriteMode, setScriptRewriteMode] = useState<DynamicScriptOperation>('expand');
+  const [draftPreviewState, setDraftPreviewState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
+  const draftPreviewing = draftPreviewState !== 'idle';
+  const draftPreviewStateRef = useRef(draftPreviewState);
+  const draftPreviewControlBusyRef = useRef(false);
+  const draftTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftPreviewGenerationRef = useRef(0);
+  const draftPreviewAbortRef = useRef<AbortController | null>(null);
+  const draftAudioContextRef = useRef<AudioContext | null>(null);
+  const draftAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const draftAudioResolveRef = useRef<(() => void) | null>(null);
   const [editingScriptId, setEditingScriptId] = useState<number | null>(null);
   const [scriptEditDraft, setScriptEditDraft] = useState<ScriptEditDraft>({ title: '', category: '讲品', text: '' });
   const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>(initialSettingsTab);
@@ -784,13 +1180,20 @@ export function LiveStudio({
   const [rtmpDraft, setRtmpDraft] = useState<RtmpConnectionDraft>(EMPTY_RTMP_DRAFT);
   const [streamKeyVisible, setStreamKeyVisible] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [libraryQuery, setLibraryQuery] = useState('');
-  const [libraryCategory, setLibraryCategory] = useState('全部');
   const [importedDocumentName, setImportedDocumentName] = useState('');
+  const [importedDocumentText, setImportedDocumentText] = useState('');
+  const [importedMaterialImages, setImportedMaterialImages] = useState<ImportedMaterialImage[]>([]);
   const [importedScripts, setImportedScripts] = useState<ImportedScriptItem[]>([]);
-  const [importedDocumentMode, setImportedDocumentMode] = useState<'text' | 'office-preview'>('text');
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState('00:00:00');
+
+  useEffect(() => {
+    if (storyboardScriptId === null || scripts.some(item => item.id === storyboardScriptId)) return;
+    const next = scripts[0];
+    setStoryboardScriptId(next?.id ?? null);
+    setDraft(next?.text ?? newScriptDraftRef.current);
+    setGeneratedVideoVisible(false);
+  }, [scripts, storyboardScriptId]);
 
   const activeGoods = goods.find((item) => item.id === activeGoodsId) ?? goods[0];
   const activeProductScripts = scripts.filter((item) => item.productId === undefined || item.productId === activeGoods?.id);
@@ -803,35 +1206,97 @@ export function LiveStudio({
     if (catalogProduct) return catalogProduct;
     return goods.find((item) => item.id === id);
   }).filter((product): product is ProductCatalogItem | LiveRoomGoodsItem => Boolean(product));
-  const selectedTemplate = LIVE_TEMPLATES.find((item) => item.id === selectedTemplateId) ?? LIVE_TEMPLATES[3];
-  const filteredTemplates = useMemo(() => LIVE_TEMPLATES.filter((item) => (
+  const allTemplates = useMemo(() => [...LIVE_TEMPLATES, ...customTemplates], [customTemplates]);
+  const selectedTemplate = allTemplates.find((item) => item.id === selectedTemplateId) ?? DEFAULT_LIVE_TEMPLATE;
+  const matchingTemplates = useMemo(() => allTemplates.filter((item) => (
     item.name.includes(templateQuery.trim())
-    && (templateCategory === '全部' || item.category === templateCategory)
+    && (templateCategory === '全部' || item.category === templateCategory || item.categories?.includes(templateCategory))
     && (templateColor === '全部' || item.color === templateColor)
-  )), [templateCategory, templateColor, templateQuery]);
+  )), [allTemplates, templateCategory, templateColor, templateQuery]);
+  const filteredTemplates = matchingTemplates.slice(0, visibleTemplateCount);
+  const templateCategories = useMemo(() => ['全部', ...new Set(['自定义', ...allTemplates.flatMap((item) => item.categories ?? [item.category])])], [allTemplates]);
+  const templateColors = useMemo(() => ['全部', ...new Set(['自定义', ...allTemplates.map((item) => item.color)])], [allTemplates]);
   const selectedVoice = voices.find((item) => item.id === selectedVoiceId) ?? VOICES[0];
+  const cloudVideoAvatar = aliyunAvatarForCloudVideo(avatar);
+  const scriptVideoInputSignatureFor = useCallback((text: string) => scriptAvatarVideoInputSignature({
+    text,
+    avatarId,
+    voiceId: selectedVoiceId,
+    speechRate: voiceSpeed,
+    pitchRate: voicePitch,
+  }), [avatarId, selectedVoiceId, voicePitch, voiceSpeed]);
+  const scriptVideoState = (script: ScriptItem) => {
+    if (!script.avatarVideo) return scriptVideoSubmissionErrors[script.id] ? 'failed' as const : 'missing' as const;
+    if (script.avatarVideo.inputSignature !== scriptVideoInputSignatureFor(script.text)) return 'stale' as const;
+    const result = scriptVideoResults[script.id];
+    if (result?.id === script.avatarVideo.taskId && aliyunVideoState(result.status) === 'ready') return 'ready' as const;
+    if (scriptVideoSubmissionErrors[script.id]) return 'failed' as const;
+    if (!result || result.id !== script.avatarVideo.taskId) return 'processing' as const;
+    return aliyunVideoState(result.status);
+  };
+  const scriptVideosReady = scripts.filter((script) => (
+    !scriptVideoBatch?.scriptIds.includes(script.id)
+    && scriptVideoState(script) === 'ready'
+  )).length;
+  const scriptsNeedingVideo = scripts.filter((script) => ['missing', 'stale', 'failed'].includes(scriptVideoState(script)));
+  const scriptVideosProcessing = scripts.filter((script) => scriptVideoState(script) === 'processing').length;
+  const scriptVideoBatchBusy = scriptVideoBatch !== null;
+  const scriptVideoTaskSignature = useMemo(() => scripts.map((script) => [
+    script.id,
+    script.avatarVideo?.taskId ?? '',
+    script.avatarVideo?.inputSignature ?? '',
+    scriptVideoInputSignatureFor(script.text),
+  ].join(':')).join('|'), [scriptVideoInputSignatureFor, scripts]);
+  const landingAvatar = ALIYUN_PUBLIC_AVATARS.find((item) => item.id === landingAvatarId)
+    ?? ALIYUN_PUBLIC_AVATARS[0];
+  const landingAvatars = useMemo(() => {
+    const query = landingAvatarQuery.trim().toLowerCase();
+    return ALIYUN_PUBLIC_AVATARS.filter((item) => !query || `${item.name}${item.role}`.toLowerCase().includes(query));
+  }, [landingAvatarQuery]);
   const filteredVoices = useMemo(() => voices.filter((item) => (
     item.scope === voiceTab
     && (voiceGender === '全部性别' || item.gender === voiceGender)
-    && (voiceAge === '全部年龄' || item.age === voiceAge)
-    && `${item.name}${item.tone}`.toLowerCase().includes(voiceQuery.trim().toLowerCase())
-  )), [voiceAge, voiceGender, voiceQuery, voiceTab, voices]);
-  const visibleHosts = useMemo(() => AVATARS.filter((item, index) => {
-    const inScope = hostScope === 'square' || (hostScope === 'mine' && index === 0) || (hostScope === 'favorite' && index === 0);
-    const matchesFilters = (hostFilters.type === '全部' || item.type === hostFilters.type)
-      && (hostFilters.gender === '全部' || item.gender === hostFilters.gender)
-      && (hostFilters.age === '全部' || item.age === hostFilters.age);
-    return inScope && matchesFilters && `${item.name}${item.role}`.toLowerCase().includes(hostQuery.trim().toLowerCase());
-  }), [hostFilters, hostQuery, hostScope]);
-  const filteredQaItems = useMemo(() => qaItems.filter((item) => `${item.question}${item.answer}`.includes(qaQuery.trim())), [qaItems, qaQuery]);
-  const filteredLibrary = useMemo(() => [...TALK_LIBRARY, ...libraryScripts].filter((item) => (
-    (libraryCategory === '全部' || item.category === libraryCategory)
-    && `${item.title}${item.text}`.includes(libraryQuery.trim())
-  )), [libraryCategory, libraryQuery, libraryScripts]);
-  const inspectorLayer = layers.find((item) => item.id === inspectorLayerId) ?? null;
+    && (voiceLanguage === '全部语言' || item.language === voiceLanguage)
+    && `${item.name}${item.description}${item.language}`.toLowerCase().includes(voiceQuery.trim().toLowerCase())
+  )), [voiceGender, voiceLanguage, voiceQuery, voiceTab, voices]);
+  const visibleHosts = useMemo(() => AVATARS.filter((item) => {
+    const matchesGender = hostFilters.gender === '全部' || item.gender === hostFilters.gender;
+    const matchesScene = hostFilters.scene === '全部场景'
+      || (hostFilters.scene === '播报' && (item.businessType === 'BROADCAST' || item.businessType === 'BROADCAST_CHAT'))
+      || (hostFilters.scene === '对话' && (item.businessType === 'CHAT' || item.businessType === 'BROADCAST_CHAT'))
+      || (hostFilters.scene === '直播' && item.businessType === 'LIVE');
+    const matchesFilters = matchesGender && matchesScene;
+    return matchesFilters;
+  }), [hostFilters]);
+  const selectedLayer = layers.find((item) => item.id === selectedLayerId) ?? null;
+  const selectedTextLayer = selectedLayer?.kind === 'text' ? selectedLayer : null;
+  const canvasProductImage = layers.find((item) => item.kind === 'image' && item.sceneKey === 'custom' && Boolean(item.preview));
+  const productDemoImage = importedMaterialImages[0]
+    ?? (canvasProductImage?.preview ? { name: canvasProductImage.value, dataUrl: canvasProductImage.preview } : null);
+  const productDemoBusy = productDemoStage === 'analyzing' || productDemoStage === 'rendering';
+  const textMaterialValue = selectedTextLayer?.value ?? customText;
+  const textMaterialStyle: TextMaterialStyle = selectedTextLayer ? {
+    fontFamily: selectedTextLayer.fontFamily ?? '默认字体',
+    fontSize: selectedTextLayer.fontSize ?? 16,
+    color: selectedTextLayer.color ?? '#ffffff',
+    fontWeight: selectedTextLayer.fontWeight ?? 'normal',
+    fontStyle: selectedTextLayer.fontStyle ?? 'normal',
+    textDecoration: selectedTextLayer.textDecoration ?? 'none',
+    textAlign: selectedTextLayer.textAlign ?? 'center',
+    opacity: selectedTextLayer.opacity,
+    backgroundEnabled: Boolean(selectedTextLayer.backgroundEnabled),
+    backgroundColor: selectedTextLayer.backgroundColor ?? '#111827',
+    backgroundOpacity: selectedTextLayer.backgroundOpacity ?? 72,
+  } : customTextStyle;
+  const inspectedLayerCandidate = layers.find((item) => item.id === inspectorLayerId) ?? null;
+  const inspectorLayer = inspectedLayerCandidate?.kind === 'host' ? null : inspectedLayerCandidate;
   const hostLayer = layers.find((item) => item.sceneKey === 'host') ?? null;
   const hostLayerZIndex = hostLayer ? layerZIndex(layers, hostLayer.id) : undefined;
   const hostChromaKey = layerChromaKeySettings(hostLayer);
+  const automaticPublicChromaKey = avatar.scope === 'aliyun' && avatar.transparent === true && !hostChromaKey.enabled;
+  const previewHostChromaKey: ChromaKeySettings = automaticPublicChromaKey
+    ? { enabled: true, color: '#b9bcc9', tolerance: 9, softness: 10 }
+    : hostChromaKey;
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
   const previewBackground = backgroundLayer?.preview ?? selectedTemplate.image;
   const speakingScript = scripts.find((item) => item.id === currentPlaybackScriptId)
@@ -843,11 +1308,15 @@ export function LiveStudio({
   broadcastSceneRef.current = {
     layers: layers.map((layer) => ({
       ...layer,
-      fontFamily: FONT_FAMILIES[layer.fontFamily ?? '默认字体'],
+      fontFamily: fontFamilyCss(layer.fontFamily),
     })),
     backgroundUrl: previewBackground,
-    loopVideoUrl: loopVideoEnabled ? BAIDU_LIVE_LOOP_VIDEO_URL : undefined,
     hostUrl: avatar.image,
+    hostVideoElement: generatedVideoVisible
+      && aliyunVideo?.videoUrl
+      && aliyunVideoState(aliyunVideo.status) === 'ready'
+      ? generatedVideoRef.current
+      : null,
     mediaActive,
     productCard: visibleProductCard ? {
       title: visibleProductCard.name,
@@ -856,10 +1325,51 @@ export function LiveStudio({
       sellingPoints: visibleProductCard.sellingPoints,
     } : undefined,
   };
-  const estimatedTime = '02:59';
-  const currentAssets = materialTab === 'image' || materialTab === 'video'
-    ? (assetScope === 'mine' ? assets[materialTab] : SQUARE_ASSETS[materialTab]).filter((item) => item.name.includes(assetQuery.trim()))
+  const estimatedTime = formatScriptDuration(scripts.reduce((total, item) => total + estimateScriptSeconds(item.text, voiceSpeed), 0));
+  const draftEstimatedDuration = formatScriptDuration(estimateScriptSeconds(draft, voiceSpeed));
+  const currentAssets = materialTab === 'image'
+    ? (assetScope === 'mine' ? assets.image : SQUARE_ASSETS.image).filter((item) => item.name.includes(assetQuery.trim()))
     : [];
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTemplates = async () => {
+      const legacyTemplates = window.localStorage.getItem(CUSTOM_TEMPLATE_STORAGE_KEY);
+      try {
+        const storedTemplates = await readStudioSetting(CUSTOM_TEMPLATE_STORAGE_KEY);
+        if (cancelled) return;
+        setCustomTemplates(parseCustomTemplates(storedTemplates ?? legacyTemplates));
+        if (!storedTemplates && legacyTemplates) {
+          await writeStudioSetting(CUSTOM_TEMPLATE_STORAGE_KEY, legacyTemplates);
+        }
+        window.localStorage.removeItem(CUSTOM_TEMPLATE_STORAGE_KEY);
+        setTemplateStorageError('');
+      } catch (cause) {
+        if (!cancelled) {
+          setCustomTemplates(parseCustomTemplates(legacyTemplates));
+          setTemplateStorageError(cause instanceof Error ? cause.message : '自定义模板读取失败');
+        }
+      } finally {
+        if (!cancelled) setCustomTemplatesLoaded(true);
+      }
+    };
+    void loadTemplates();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!customTemplatesLoaded) return;
+    void writeStudioSetting(CUSTOM_TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplates))
+      .then(() => {
+        window.localStorage.removeItem(CUSTOM_TEMPLATE_STORAGE_KEY);
+        setTemplateStorageError('');
+      })
+      .catch((cause: unknown) => {
+        setTemplateStorageError(cause instanceof Error ? cause.message : '自定义模板保存失败');
+      });
+  }, [customTemplates, customTemplatesLoaded]);
 
   const buildRoomConfig = useCallback((): LiveRoomConfig => ({
     schemaVersion: 1,
@@ -875,15 +1385,18 @@ export function LiveStudio({
     scripts: scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item),
     qaItems,
     selectedTemplateId,
+    selectedTemplatePage,
     layers,
     liveOptions: { ...liveOptions, loopPlayback: playbackLoop },
     outputConfig,
     selectedPlatforms,
     selectedPlatformConnectionIds,
     assets,
+    importedMaterialImages,
   }), [
     activeGoodsId,
     assets,
+    importedMaterialImages,
     avatarId,
     goods,
     layers,
@@ -896,71 +1409,35 @@ export function LiveStudio({
     selectedPlatformConnectionIds,
     selectedPlatforms,
     selectedTemplateId,
+    selectedTemplatePage,
     selectedVoiceId,
     voicePitch,
     voiceSpeed,
   ]);
 
   const roomConfigSignature = useMemo(() => JSON.stringify(buildRoomConfig()), [buildRoomConfig]);
+  useEffect(() => {
+    const templateFonts = new Set(layers.flatMap((layer) => layer.kind === 'text' && layer.fontFamily
+      ? [`${layer.fontStyle ?? 'normal'} ${layer.fontWeight ?? 'normal'} ${layer.fontSize ?? 16}px ${fontFamilyCss(layer.fontFamily)}`]
+      : []));
+    for (const font of templateFonts) void document.fonts.load(font).catch(() => undefined);
+  }, [layers]);
   const speechWarmupSignature = useMemo(() => JSON.stringify({
-    texts: scripts.map((item) => item.text.trim()).filter(Boolean),
-    avatarId,
+    texts: avatar.rendererProfile ? scripts.map((item) => item.text.trim()).filter(Boolean) : [],
+    rendererProfile: avatar.rendererProfile,
     voiceId: selectedVoiceId,
     speed: voiceSpeed,
-  }), [avatarId, scripts, selectedVoiceId, voiceSpeed]);
-  const roomDirty = Boolean(room && savedConfigSignature && roomConfigSignature !== savedConfigSignature);
+  }), [avatar.rendererProfile, scripts, selectedVoiceId, voiceSpeed]);
+  const roomDirty = Boolean(room && savedConfigSignature && (roomConfigSignature !== savedConfigSignature || (storyboardScriptId === null && draft.trim())));
   const selectedPlatformConnections = platformConnections.filter((connection) => (
     selectedPlatformConnectionIds.includes(connection.id)
   ));
   const windowCaptureMode = publishMode === 'window_capture';
-  const playbackBusy = ['llm_start', 'speak_start', 'tts_start', 'playing'].includes(stage);
-  const setLoopVideoAudio = useCallback((enabled: boolean) => {
-    loopVideoAudioEnabledRef.current = enabled;
-    const video = loopVideoRef.current;
-    if (video) video.muted = !enabled;
-    setLoopVideoAudioEnabled(enabled);
-  }, []);
-  const runScriptSpeech = useCallback(async (speak: () => Promise<unknown>) => {
-    const video = loopVideoRef.current;
-    const restoreAudio = Boolean(video && loopVideoPlayingRef.current && loopVideoAudioEnabledRef.current);
-    if (video) video.muted = true;
-    try {
-      return await speak();
-    } finally {
-      const currentVideo = loopVideoRef.current;
-      if (restoreAudio && currentVideo && !currentVideo.paused) currentVideo.muted = false;
-    }
-  }, []);
-  const toggleLoopVideoPlayback = useCallback(async () => {
-    const video = loopVideoRef.current;
-    if (!video) return;
-    if (!video.paused) {
-      video.pause();
-      return;
-    }
-    setLoopVideoAudio(true);
-    try {
-      await video.play();
-    } catch (cause) {
-      setLoopVideoAudio(false);
-      setError(cause instanceof Error ? cause.message : '直播视频播放失败，请重试');
-    }
-  }, [setLoopVideoAudio]);
+  const playbackBusy = draftPreviewing || ['llm_start', 'speak_start', 'tts_start', 'playing'].includes(stage);
   useEffect(() => {
-    const video = loopVideoRef.current;
-    if (entered && loopVideoEnabled && video) {
-      video.pause();
-      video.currentTime = 0;
-      video.muted = true;
-    }
-    if (!entered || !loopVideoEnabled) {
-      video?.pause();
-      loopVideoPlayingRef.current = false;
-      loopVideoAudioEnabledRef.current = false;
-      setLoopVideoPlaying(false);
-      setLoopVideoAudioEnabled(false);
-    }
-  }, [entered, loopVideoEnabled]);
+    if (!entered) scriptVideoBatchAbortRef.current?.abort();
+    return () => scriptVideoBatchAbortRef.current?.abort();
+  }, [entered]);
   const platformPreflightChecks = windowCaptureMode
     ? [
       { label: '节目输出窗口比例已选择', passed: true },
@@ -1100,11 +1577,13 @@ export function LiveStudio({
 
   const applyRoom = useCallback((loadedRoom: LiveRoom) => {
     const config = loadedRoom.config;
-    if (AVATARS.some((item) => item.id === config.avatarId)) {
-      setAvatarId(config.avatarId as MuseTalkAvatarProfile);
-    }
-    setSelectedVoiceId(config.voice.voiceId);
-    setPendingVoiceId(config.voice.voiceId);
+    const restoredAvatar = AVATARS.find((item) => item.id === config.avatarId)
+      ?? AVATARS.find((item) => item.id === FEATURED_LIVE_AVATAR_ID)
+      ?? AVATARS[0];
+    setAvatarId(restoredAvatar.id);
+    const restoredVoiceId = VOICES.some((voice) => voice.id === config.voice.voiceId) ? config.voice.voiceId : DEFAULT_VOICE_ID;
+    setSelectedVoiceId(restoredVoiceId);
+    setPendingVoiceId(restoredVoiceId);
     setVoiceSpeed(config.voice.speed);
     setVoicePitch(config.voice.pitch);
     setPendingVoiceSpeed(config.voice.speed);
@@ -1114,21 +1593,81 @@ export function LiveStudio({
     setGoods(config.goods);
     setActiveGoodsId(config.goods.some((item) => item.id === config.activeGoodsId) ? config.activeGoodsId : config.goods[0].id);
     setScripts(config.scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
+    setStoryboardScriptId(config.scripts[0]?.id ?? null);
+    setDraft(config.scripts[0]?.text ?? '');
+    newScriptDraftRef.current = '';
+    setScriptVideoResults({});
+    setScriptVideoSubmissionErrors({});
+    setScriptVideoBatch(null);
+    setAliyunVideo(null);
+    setGeneratedVideoVisible(false);
     setQaItems(config.qaItems);
-    setSelectedTemplateId(config.selectedTemplateId);
-    setLayers(config.layers);
+    const templateRequestId = ++templateRequestIdRef.current;
+    setTemplateLoadingId('');
+    setTemplateLoadError('');
+    const migratingLegacyTemplate = LEGACY_TEMPLATE_IDS.has(config.selectedTemplateId);
+    const restoredTemplateId = migratingLegacyTemplate ? DEFAULT_LIVE_TEMPLATE_ID : config.selectedTemplateId;
+    const restoredTemplatePage = migratingLegacyTemplate ? 0 : config.selectedTemplatePage ?? 0;
+    setSelectedTemplateId(restoredTemplateId);
+    setSelectedTemplatePage(restoredTemplatePage);
+    const builtInTemplate = LIVE_TEMPLATES.find((template) => template.id === restoredTemplateId);
+    const restoredBackground = config.layers.find((layer) => layer.sceneKey === 'templateBackground');
+    const shouldUpgradeFlattenedTemplate = Boolean(
+      builtInTemplate?.source === '百度一镜'
+      && builtInTemplate.layersUrl
+      && (migratingLegacyTemplate || !config.layers.some((layer) => layer.sceneKey === 'templateElement')),
+    );
+    const shouldRepairLegacyBackground = Boolean(
+      builtInTemplate?.source === '百度一镜'
+      && builtInTemplate.layersUrl
+      && restoredBackground?.preview
+      && [YIJING_BLANK_BACKGROUND, builtInTemplate.image].includes(restoredBackground.preview),
+    );
+    const restoredLayers = config.layers.map((layer) => layer.sceneKey === 'host'
+      ? { ...layer, value: restoredAvatar.name }
+      : layer);
+    setLayers(restoredLayers);
+    if ((shouldUpgradeFlattenedTemplate || shouldRepairLegacyBackground) && builtInTemplate) {
+      setTemplateLoadingId(builtInTemplate.id);
+      setTemplateLoadError('');
+      void loadTemplatePages(builtInTemplate).then((pages) => {
+        if (templateRequestIdRef.current !== templateRequestId) return;
+        const pageIndex = Math.min(restoredTemplatePage, pages.length - 1);
+        const templateLayers = pages[pageIndex].map((layer) => ({ ...layer }));
+        setSelectedTemplatePage(pageIndex);
+        setLayers(shouldUpgradeFlattenedTemplate
+          ? applyTemplateLayersPreservingHost(templateLayers, restoredLayers, restoredAvatar.name)
+          : repairLegacyTemplateBackground(
+            templateLayers,
+            restoredLayers,
+            [YIJING_BLANK_BACKGROUND, builtInTemplate.image],
+          ));
+      }).catch((cause: unknown) => {
+        if (templateRequestIdRef.current === templateRequestId) {
+          setTemplateLoadError(cause instanceof Error ? cause.message : '模板图层读取失败');
+        }
+      }).finally(() => {
+        if (templateRequestIdRef.current === templateRequestId) setTemplateLoadingId('');
+      });
+    }
     setLiveOptions(config.liveOptions);
     setOutputConfig(config.outputConfig);
     setSelectedPlatforms(config.selectedPlatforms);
     setSelectedPlatformConnectionIds(config.selectedPlatformConnectionIds ?? []);
     setAssets(config.assets);
+    const restoredMaterialImages = config.importedMaterialImages ?? [];
+    setImportedMaterialImages(restoredMaterialImages);
+    setImportedDocumentName(restoredMaterialImages[0]?.name ?? '');
+    setImportedDocumentText('');
+    setImportedScripts([]);
     setRoom(loadedRoom);
     setLiveRun(null);
     setLiveRunPreflight(null);
     setRenameRoomName(loadedRoom.name);
     setSavedAt(formatSavedAt(loadedRoom.updatedAt));
-    setSavedConfigSignature(JSON.stringify(config));
+    setSavedConfigSignature(JSON.stringify({ ...config, selectedTemplatePage: config.selectedTemplatePage ?? 0 }));
     setRoomError('');
+    window.localStorage.setItem(ACTIVE_LIVE_ROOM_STORAGE_KEY, loadedRoom.id);
   }, []);
 
   useEffect(() => {
@@ -1139,7 +1678,10 @@ export function LiveStudio({
     const initializeRoom = async () => {
       try {
         const existingRooms = await listLiveRooms();
-        const loadedRoom = existingRooms[0] ?? await createLiveRoom(
+        const activeRoomId = window.localStorage.getItem(ACTIVE_LIVE_ROOM_STORAGE_KEY);
+        const loadedRoom = existingRooms.find((item) => item.id === activeRoomId)
+          ?? existingRooms[0]
+          ?? await createLiveRoom(
           `直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
           buildRoomConfig(),
         );
@@ -1197,13 +1739,14 @@ export function LiveStudio({
   useEffect(() => {
     // Keep the media source alive while editing Q&A or other controls; both
     // workspace views keep the source canvas mounted for window capture.
-    if (!entered || !canvasRef.current) {
+    const rendererProfile = avatar.rendererProfile;
+    if (!entered || !canvasRef.current || !rendererProfile) {
       setStreamReady(false);
       return;
     }
     const stream = new MuseTalkTotalStream(canvasRef.current, {
-      avatarId,
-      profile: avatarId,
+      avatarId: rendererProfile,
+      profile: rendererProfile,
       language: 'ZH',
       voice: selectedVoiceId,
       speed: voiceSpeed,
@@ -1221,17 +1764,17 @@ export function LiveStudio({
       void stream.stopLive();
       if (streamRef.current === stream) streamRef.current = null;
     };
-  }, [avatarId, entered, selectedVoiceId, voiceSpeed]);
+  }, [avatar.rendererProfile, entered, selectedVoiceId, voiceSpeed]);
 
   useEffect(() => {
     if (!entered || !room) return;
     const warmup = JSON.parse(speechWarmupSignature) as {
       texts: string[];
-      avatarId: MuseTalkAvatarProfile;
+      rendererProfile?: MuseTalkAvatarProfile;
       voiceId: string;
       speed: number;
     };
-    if (!warmup.texts.length) {
+    if (!warmup.texts.length || !warmup.rendererProfile) {
       setPreparedVideoProgress(null);
       return;
     }
@@ -1243,7 +1786,7 @@ export function LiveStudio({
       cancelled = true;
     };
     const options = {
-      profile: warmup.avatarId,
+      profile: warmup.rendererProfile,
       language: 'ZH' as const,
       voiceId: warmup.voiceId,
       speed: warmup.speed,
@@ -1276,7 +1819,7 @@ export function LiveStudio({
       speak: async (item) => {
         const stream = streamRef.current;
         if (!stream) throw new Error('数字人媒体流尚未准备好');
-        await runScriptSpeech(() => stream.speak(item.text, { preparedVideoUrl: getPregeneratedLiveVideo(item.text) }));
+        await stream.speak(item.text, { preparedVideoUrl: getPregeneratedLiveVideo(item.text) });
       },
       cancel: () => streamRef.current?.cancel(),
       retryCount: 1,
@@ -1301,7 +1844,7 @@ export function LiveStudio({
       setPlaybackQueueStatus('idle');
       setCurrentPlaybackScriptId(null);
     };
-  }, [entered, runScriptSpeech]);
+  }, [entered]);
 
   useEffect(() => {
     if (currentPlaybackScriptId === null) return;
@@ -1352,12 +1895,6 @@ export function LiveStudio({
     setLayers((items) => items.map((item) => item.sceneKey === 'host' ? { ...item, value: avatar.name } : item));
   }, [avatar.name]);
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(''), 2200);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
-
   const stopVoicePreview = useCallback((updateState = true) => {
     voicePreviewGenerationRef.current += 1;
     if (voiceAudioRef.current) {
@@ -1372,6 +1909,28 @@ export function LiveStudio({
   }, []);
 
   useEffect(() => () => stopVoicePreview(false), [stopVoicePreview]);
+
+  const stopDraftPreview = useCallback((updateState = true) => {
+    draftPreviewGenerationRef.current += 1;
+    draftPreviewAbortRef.current?.abort();
+    draftPreviewAbortRef.current = null;
+    try {
+      draftAudioSourceRef.current?.stop();
+    } catch {
+      // The source may already have completed naturally.
+    }
+    draftAudioSourceRef.current = null;
+    draftAudioResolveRef.current?.();
+    draftAudioResolveRef.current = null;
+    const context = draftAudioContextRef.current;
+    draftAudioContextRef.current = null;
+    if (context && context.state !== 'closed') void context.close();
+    draftPreviewStateRef.current = 'idle';
+    draftPreviewControlBusyRef.current = false;
+    if (updateState) setDraftPreviewState('idle');
+  }, []);
+
+  useEffect(() => () => stopDraftPreview(false), [stopDraftPreview]);
 
   useEffect(() => {
     materialsScrollRef.current?.scrollTo({ top: 0 });
@@ -1400,6 +1959,10 @@ export function LiveStudio({
   }, [startedAt]);
 
   const play = async (item: ScriptItem) => {
+    if (!avatar.rendererProfile) {
+      setNotice(`已选择“${avatar.name}”；绑定播报模板后可合成话术视频`);
+      return;
+    }
     if (playbackBusy || playbackQueueStatus !== 'idle' || !streamRef.current || item.state === 'playing') return;
     setError('');
     if (item.productId !== undefined && goods.some((product) => product.id === item.productId)) {
@@ -1408,7 +1971,7 @@ export function LiveStudio({
     setCurrentPlaybackScriptId(item.id);
     setScripts((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, state: 'playing' } : candidate));
     try {
-      await runScriptSpeech(() => streamRef.current!.speak(item.text, { preparedVideoUrl: getPregeneratedLiveVideo(item.text) }));
+      await streamRef.current!.speak(item.text, { preparedVideoUrl: getPregeneratedLiveVideo(item.text) });
       setScripts((items) => items.map((candidate) => candidate.id === item.id ? { ...candidate, state: 'done' } : candidate));
       setNotice(onAir ? '本条话术播报完成' : '话术试听完成');
     } catch (cause) {
@@ -1420,7 +1983,85 @@ export function LiveStudio({
     }
   };
 
+  const previewDraftSpeech = async () => {
+    if (draftPreviewStateRef.current === 'loading' || draftPreviewControlBusyRef.current) return;
+    if (draftPreviewStateRef.current !== 'idle') {
+      const context = draftAudioContextRef.current;
+      if (!context) return;
+      const generation = draftPreviewGenerationRef.current;
+      const nextState = draftPreviewStateRef.current === 'playing' ? 'paused' : 'playing';
+      draftPreviewControlBusyRef.current = true;
+      try {
+        if (nextState === 'paused') await context.suspend();
+        else await context.resume();
+        if (draftPreviewGenerationRef.current !== generation) return;
+        draftPreviewStateRef.current = nextState;
+        setDraftPreviewState(nextState);
+      } catch (cause) {
+        if (draftPreviewGenerationRef.current === generation) {
+          stopDraftPreview();
+          setError(cause instanceof Error ? cause.message : '试听播放控制失败');
+        }
+      } finally {
+        if (draftPreviewGenerationRef.current === generation) draftPreviewControlBusyRef.current = false;
+      }
+      return;
+    }
+    const text = draft.trim();
+    if (!text || playbackBusy || playbackQueueStatus !== 'idle') return;
+
+    const generation = draftPreviewGenerationRef.current + 1;
+    draftPreviewGenerationRef.current = generation;
+    const controller = new AbortController();
+    draftPreviewAbortRef.current = controller;
+    draftPreviewStateRef.current = 'loading';
+    setDraftPreviewState('loading');
+    stopVoicePreview();
+    generatedVideoRef.current?.pause();
+    setGeneratedVideoVisible(false);
+    setError('');
+    try {
+      const audioContext = new AudioContext();
+      draftAudioContextRef.current = audioContext;
+      await audioContext.resume();
+      const buffers = await loadScriptPreviewAudio({
+        text, voiceId: selectedVoice.id, speed: voiceSpeed, signal: controller.signal,
+        decode: bytes => audioContext.decodeAudioData(bytes),
+      });
+      for (const buffer of buffers) {
+        if (draftPreviewGenerationRef.current !== generation) return;
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.playbackRate.value = voiceSpeed;
+        source.connect(audioContext.destination);
+        draftAudioSourceRef.current = source;
+        await new Promise<void>((resolve) => {
+          draftAudioResolveRef.current = resolve;
+          source.onended = () => resolve();
+          source.start();
+          if (draftPreviewStateRef.current === 'loading') {
+            draftPreviewStateRef.current = 'playing';
+            setDraftPreviewState('playing');
+          }
+        });
+        draftAudioResolveRef.current = null;
+        if (draftAudioSourceRef.current === source) draftAudioSourceRef.current = null;
+      }
+      if (draftPreviewGenerationRef.current === generation) setNotice(`已用“${selectedVoice.name}”完成当前文本试听`);
+    } catch (cause) {
+      if (draftPreviewGenerationRef.current === generation && !(cause instanceof DOMException && cause.name === 'AbortError')) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    } finally {
+      if (draftPreviewGenerationRef.current === generation) stopDraftPreview();
+    }
+  };
+
   const startScriptQueue = () => {
+    if (!avatar.rendererProfile) {
+      setNotice(`已选择“${avatar.name}”；绑定播报模板后可合成话术视频`);
+      return;
+    }
     if (playbackBusy || playbackQueueStatus !== 'idle' || !scripts.length) return;
     const queue = playbackQueueRef.current;
     if (!queue) {
@@ -1491,13 +2132,353 @@ export function LiveStudio({
     }
   };
 
-  const addScript = (event: FormEvent) => {
-    event.preventDefault();
-    if (!draft.trim()) return;
-    setScripts((items) => [...items, { id: Date.now(), productId: activeGoods?.id, title: '自定义直播话术', category: '讲品', duration: '00:30', text: draft.trim(), state: 'ready' }]);
-    setDraft('');
-    setShowComposer(false);
-    setNotice('已添加一条新话术');
+  const requestAliyunVideo = async (text: string, name: string) => {
+    if (text.length < 8) {
+      throw new Error('口播至少需要 3 秒，请输入不少于 8 个字符的完整文案');
+    }
+    if (text.length > 1000) {
+      throw new Error('云端数字人口播单条脚本不能超过 1000 个字符');
+    }
+    if (selectedVoice.scope !== 'public') {
+      throw new Error('云端成片只能使用已接入的公共音色');
+    }
+    if (!cloudVideoAvatar?.officialId) {
+      throw new Error('云端成片需要使用阿里云公共数字人形象');
+    }
+
+    const response = await fetch('/aliyun-avatar-video-api/videos', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        text,
+        voiceKey: selectedVoice.id,
+        avatarOfficialId: cloudVideoAvatar.officialId,
+        aspectRatio: cloudVideoAvatar.aspectRatio,
+        speechRate: voiceSpeed,
+        pitchRate: voicePitch,
+      }),
+    });
+    const payload = await response.json() as { video?: AliyunVideoResult; message?: string };
+    if (!response.ok || !payload.video) throw new Error(payload.message || '数字人口播提交失败');
+    return payload.video;
+  };
+
+  const submitAliyunVideo = async (text: string) => {
+    if (aliyunVideoSubmitting) return;
+    setAliyunVideo(null);
+    setAliyunVideoError('');
+    setGeneratedVideoVisible(false);
+    void restoreAvatarOutputAudio().catch(() => undefined);
+    setAliyunVideoSubmitting(true);
+    try {
+      const video = await requestAliyunVideo(
+        text,
+        `${avatar.name}-${selectedVoice.name}-${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+      );
+      const payload = { video };
+      setAliyunVideo(payload.video);
+      const state = aliyunVideoState(payload.video.status);
+      if (state === 'ready') {
+        setAliyunVideoSubmitting(false);
+      } else if (state === 'failed') {
+        setAliyunVideoSubmitting(false);
+        throw new Error('数字人口播生成失败，请检查形象、音色和应用配置');
+      }
+      return payload.video;
+    } catch (cause) {
+      setAliyunVideoSubmitting(false);
+      const message = cause instanceof Error ? cause.message : '数字人口播提交失败';
+      setAliyunVideoError(message);
+      throw new Error(message);
+    }
+  };
+
+  const synthesizeScriptVideos = async (targets: ScriptItem[]) => {
+    if (scriptVideoBatchAbortRef.current || scriptVideoBatchBusy || roomSaving || roomLoading || playbackBusy || onAir || !targets.length) return;
+    if (selectedVoice.scope !== 'public') {
+      setError('批量合成只能使用已接入的公共音色');
+      return;
+    }
+    if (!cloudVideoAvatar?.officialId) {
+      setError('云端成片需要使用阿里云公共数字人形象');
+      return;
+    }
+
+    const targetIds = new Set(targets.map((item) => item.id));
+    const controller = new AbortController();
+    scriptVideoBatchAbortRef.current = controller;
+    setScriptVideoSubmissionErrors((items) => Object.fromEntries(
+      Object.entries(items).filter(([id]) => !targetIds.has(Number(id))),
+    ));
+    setScriptVideoBatch({ scriptIds: [...targetIds], submitted: 0, total: targets.length });
+    setError('');
+    setNotice(`正在提交 ${targets.length} 条透明数字人口播任务`);
+    let nextScripts = scripts;
+    let activeRoom = room;
+    let succeeded = 0;
+    let failed = 0;
+    try {
+      for (const [index, script] of targets.entries()) {
+        if (controller.signal.aborted) break;
+        setScriptVideoBatch(batch => batch ? { ...batch, waiting: false } : batch);
+        try {
+          const video = await requestAliyunVideo(script.text.trim(), `${script.title}-${avatar.name}-${index + 1}`);
+          const avatarVideo = {
+            taskId: video.id,
+            inputSignature: scriptVideoInputSignatureFor(script.text),
+          };
+          nextScripts = nextScripts.map((item) => item.id === script.id ? { ...item, avatarVideo } : item);
+          setScripts(nextScripts);
+          setScriptVideoResults((items) => ({ ...items, [script.id]: video }));
+          succeeded += 1;
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : '数字人口播提交失败';
+          setScriptVideoSubmissionErrors((items) => ({ ...items, [script.id]: message }));
+          failed += 1;
+        } finally {
+          setScriptVideoBatch((batch) => batch ? { ...batch, submitted: index + 1 } : batch);
+        }
+        if (succeeded && activeRoom) {
+          setRoomSaving(true);
+          setRoomError('');
+          try {
+            const config = {
+              ...buildRoomConfig(),
+              scripts: nextScripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' as const } : item),
+            };
+            const savedRoom = await updateLiveRoom(activeRoom, config);
+            activeRoom = savedRoom;
+            setRoom(savedRoom);
+            setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
+            setSavedConfigSignature(JSON.stringify(savedRoom.config));
+            setSavedAt(formatSavedAt(savedRoom.updatedAt));
+          } catch (cause) {
+            const message = cause instanceof Error ? cause.message : '视频任务关联保存失败';
+            setRoomError(message);
+            setNotice(`合成任务已提交，但直播间保存失败：${message}`);
+            return;
+          } finally {
+            setRoomSaving(false);
+          }
+        }
+        if (controller.signal.aborted) break;
+        if (failed) break;
+        if (targets.length > 1 && index < targets.length - 1) {
+          setScriptVideoBatch(batch => batch ? { ...batch, waiting: true } : batch);
+          try {
+            await waitForAvatarVideo(nextScripts.find(item => item.id === script.id)!.avatarVideo!.taskId, { signal: controller.signal });
+          } catch (cause) {
+            if (!controller.signal.aborted) {
+              setError(cause instanceof Error ? cause.message : '当前分镜合成异常，已停止后续合成');
+              failed += 1;
+            }
+            break;
+          }
+        }
+      }
+      if (controller.signal.aborted) {
+        setNotice(`已停止后续合成，保留已提交的 ${succeeded} 条任务；已提交任务会继续完成`);
+        return;
+      }
+      setNotice(failed
+        ? `已提交 ${succeeded} 条，合成或提交异常，已停止后续分镜；可查看状态中的原因`
+        : `已提交 ${succeeded} 条透明数字人口播，生成完成后可逐条预览`);
+    } finally {
+      if (scriptVideoBatchAbortRef.current === controller) scriptVideoBatchAbortRef.current = null;
+      setScriptVideoBatch(null);
+    }
+  };
+
+  const stopRemainingScriptVideos = () => {
+    scriptVideoBatchAbortRef.current?.abort();
+    setNotice('已停止后续合成；已提交的数字人任务会继续完成');
+  };
+
+  useEffect(() => {
+    if (!entered || !scriptVideoTaskSignature) return;
+    const tasks = scripts.filter((script) => (
+      script.avatarVideo
+      && script.avatarVideo.inputSignature === scriptVideoInputSignatureFor(script.text)
+    )).map((script) => ({ scriptId: script.id, taskId: script.avatarVideo!.taskId }));
+    if (!tasks.length) return;
+
+    let cancelled = false;
+    let timer: number | null = null;
+    const refresh = async () => {
+      let shouldRetry = false;
+      const updates = await Promise.all(tasks.map(async (task) => {
+        try {
+          const response = await fetch(`/aliyun-avatar-video-api/videos/${encodeURIComponent(task.taskId)}`, { cache: 'no-store' });
+          const payload = await response.json().catch(() => ({})) as { video?: AliyunVideoResult; message?: unknown };
+          if (!response.ok || !payload.video) {
+            throw new Error(typeof payload.message === 'string' ? payload.message : '数字人口播状态读取失败');
+          }
+          if (aliyunVideoState(payload.video.status) === 'processing') shouldRetry = true;
+          return { ...task, video: payload.video };
+        } catch {
+          shouldRetry = true;
+          return null;
+        }
+      }));
+      if (cancelled) return;
+      const completedUpdates = updates.filter((item): item is NonNullable<typeof item> => Boolean(item));
+      if (completedUpdates.length) {
+        setScriptVideoResults((items) => {
+          const next = { ...items };
+          completedUpdates.forEach((item) => {
+            next[item.scriptId] = item.video;
+          });
+          return next;
+        });
+        setAliyunVideo((current) => {
+          const update = completedUpdates.find((item) => item.video.id === current?.id);
+          return update?.video ?? current;
+        });
+      }
+      if (shouldRetry) timer = window.setTimeout(() => void refresh(), 4_000);
+    };
+    void refresh();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [entered, scriptVideoInputSignatureFor, scriptVideoTaskSignature]);
+
+  useEffect(() => {
+    if (!aliyunVideo?.id || aliyunVideoState(aliyunVideo.status) !== 'processing') return;
+    let cancelled = false;
+    let timer: number | null = null;
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/aliyun-avatar-video-api/videos/${encodeURIComponent(aliyunVideo.id)}`, { cache: 'no-store' });
+        const payload = await response.json().catch(() => ({})) as { video?: AliyunVideoResult; message?: unknown };
+        if (!response.ok || !payload.video) throw new Error(typeof payload.message === 'string' ? payload.message : '数字人口播状态读取失败');
+        if (cancelled) return;
+        setAliyunVideo(payload.video);
+        const state = aliyunVideoState(payload.video.status);
+        if (state === 'ready') {
+          setAliyunVideoSubmitting(false);
+          setProductDemoStage('ready');
+          setProductDemoMessage(`已用“${avatar.name}”和“${selectedVoice.name}”生成数字人口播，可手动预览`);
+          setNotice('数字人口播成片已生成，可手动预览');
+        } else if (state === 'failed') {
+          setAliyunVideoSubmitting(false);
+          const message = payload.video.error || '数字人口播生成失败，请检查形象、音色和应用配置';
+          setAliyunVideoError(message);
+          setProductDemoStage('failed');
+          setProductDemoMessage(message);
+        } else {
+          timer = window.setTimeout(() => void refresh(), 4_000);
+        }
+      } catch (cause) {
+      if (!cancelled) {
+          setAliyunVideoError(cause instanceof Error ? cause.message : '数字人口播状态读取失败');
+          setProductDemoMessage('数字人口播仍在生成，状态暂时无法读取，正在重试');
+          timer = window.setTimeout(() => void refresh(), 6_000);
+        }
+      }
+    };
+    timer = window.setTimeout(() => void refresh(), 4_000);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [aliyunVideo?.id, aliyunVideo?.status]);
+
+  const restoreAvatarOutputAudio = async () => {
+    generatedVideoCaptureRef.current?.getTracks().forEach((track) => track.stop());
+    generatedVideoCaptureRef.current = null;
+    const avatarTrack = streamRef.current?.getOutputAudioTrack();
+    if ((browserPublisherRef.current || windowCaptureSessionRef.current) && avatarTrack?.readyState === 'live') {
+      await replaceOutputAudio(avatarTrack);
+    }
+  };
+
+  const useGeneratedVideoOutputAudio = async (video: HTMLVideoElement) => {
+    if (!browserPublisherRef.current && !windowCaptureSessionRef.current) return;
+    const capturable = video as HTMLVideoElement & {
+      captureStream?: () => MediaStream;
+      mozCaptureStream?: () => MediaStream;
+    };
+    const capture = capturable.captureStream?.() ?? capturable.mozCaptureStream?.();
+    const track = capture?.getAudioTracks()[0];
+    if (!capture || !track) return;
+    generatedVideoCaptureRef.current?.getTracks().forEach((candidate) => candidate.stop());
+    generatedVideoCaptureRef.current = capture;
+    await replaceOutputAudio(track);
+  };
+
+  const playRequestedGeneratedVideo = (video: HTMLVideoElement) => {
+    if (generatedVideoPlaybackRequestRef.current !== video.getAttribute('src')) return;
+    // Consume only explicit preview clicks, never restored tasks or polling updates.
+    generatedVideoPlaybackRequestRef.current = null;
+    video.currentTime = 0;
+    void video.play().catch((cause) => {
+      if (cause instanceof Error && cause.name === 'AbortError') return;
+      setError(cause instanceof Error ? cause.message : '成片播放失败');
+    });
+  };
+
+  const toggleGeneratedVideoPreview = async () => {
+    if (generatedVideoVisible) {
+      generatedVideoPlaybackRequestRef.current = null;
+      generatedVideoRef.current?.pause();
+      setGeneratedVideoVisible(false);
+      await restoreAvatarOutputAudio().catch(() => undefined);
+      return;
+    }
+    generatedVideoPlaybackRequestRef.current = aliyunVideo?.videoUrl || null;
+    setGeneratedVideoPlaying(false);
+    setGeneratedVideoVisible(true);
+    if (generatedVideoRef.current) playRequestedGeneratedVideo(generatedVideoRef.current);
+  };
+
+  const previewScriptAvatarVideo = (script: ScriptItem) => {
+    const video = scriptVideoResults[script.id];
+    if (!video || scriptVideoState(script) !== 'ready') return;
+    selectStoryboardScript(script);
+    generatedVideoPlaybackRequestRef.current = video.videoUrl;
+    setAliyunVideo(video);
+    setAliyunVideoError('');
+    setProductDemoStage('idle');
+    setGeneratedVideoVisible(true);
+    setGeneratedVideoPlaying(false);
+    setNotice(`正在预览“${script.title}”的透明数字人口播`);
+    if (generatedVideoRef.current) playRequestedGeneratedVideo(generatedVideoRef.current);
+    requestAnimationFrame(() => previewCanvasRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+  };
+
+  const selectStoryboardScript = (script: ScriptItem) => {
+    generatedVideoPlaybackRequestRef.current = null;
+    stopDraftPreview();
+    if (storyboardScriptId === null) newScriptDraftRef.current = draft;
+    setStoryboardScriptId(script.id);
+    setDraft(script.text);
+    setProductDemoStage('idle');
+    generatedVideoRef.current?.pause();
+    setGeneratedVideoVisible(false);
+    void restoreAvatarOutputAudio().catch(() => undefined);
+  };
+
+  const startNewScriptDraft = () => {
+    stopDraftPreview();
+    setStoryboardScriptId(null);
+    setDraft(newScriptDraftRef.current);
+    setGeneratedVideoVisible(false);
+    setProductDemoStage('idle');
+    requestAnimationFrame(() => draftTextareaRef.current?.focus());
+  };
+
+  const updateScriptDraft = (text: string) => {
+    const value = text.slice(0, SCRIPT_EDITOR_LIMIT);
+    setDraft(value);
+    if (storyboardScriptId === null) newScriptDraftRef.current = value;
+    else {
+      setScripts(items => items.map(item => item.id === storyboardScriptId ? reviseStoryboardScript(item, value, voiceSpeed) : item));
+      setGeneratedVideoVisible(false);
+      setProductDemoStage('idle');
+    }
   };
 
   const openScriptEditor = (script: ScriptItem) => {
@@ -1510,86 +2491,278 @@ export function LiveStudio({
     const text = scriptEditDraft.text.trim();
     const title = scriptEditDraft.title.trim();
     if (editingScriptId === null || !title || !text) return;
-    const seconds = Math.min(59, Math.max(20, Math.round(text.length * 0.45)));
+    const textChanged = scripts.find((item) => item.id === editingScriptId)?.text !== text;
+    const seconds = estimateScriptSeconds(text, voiceSpeed);
     setScripts((items) => items.map((item) => item.id === editingScriptId ? {
       ...item,
       title,
       category: scriptEditDraft.category,
       text,
-      duration: `00:${String(seconds).padStart(2, '0')}`,
+      duration: formatScriptDuration(seconds),
       state: 'ready',
+      avatarVideo: textChanged ? undefined : item.avatarVideo,
     } : item));
+    if (editingScriptId === storyboardScriptId) setDraft(text);
+    if (textChanged) {
+      setScriptVideoResults((items) => Object.fromEntries(Object.entries(items).filter(([id]) => Number(id) !== editingScriptId)));
+      setScriptVideoSubmissionErrors((items) => Object.fromEntries(Object.entries(items).filter(([id]) => Number(id) !== editingScriptId)));
+    }
     setEditingScriptId(null);
     setNotice('话术已修改，请保存直播间配置');
   };
 
-  const generateDynamicScript = async () => {
+  const addDraftToScripts = () => {
+    const text = draft.trim();
+    if (!text) return;
+    const seconds = estimateScriptSeconds(text, voiceSpeed);
+    const scriptId = Date.now();
+    setScripts((items) => [...items, {
+      id: scriptId,
+      productId: activeGoods?.id,
+      title: `主播口播 ${items.length + 1}`,
+      category: '讲品',
+      duration: formatScriptDuration(seconds),
+      text,
+      state: 'ready',
+    }]);
+    setStoryboardScriptId(scriptId);
+    newScriptDraftRef.current = '';
+    setDraft(text);
+    setNotice('已加入直播脚本，请保存直播间配置');
+  };
+
+  const deleteScript = (scriptId: number) => {
+    setSelectedScriptIds((ids) => ids.filter(id => id !== scriptId));
+    setScripts((items) => items.filter((candidate) => candidate.id !== scriptId));
+    setScriptVideoResults((items) => Object.fromEntries(Object.entries(items).filter(([id]) => Number(id) !== scriptId)));
+    setScriptVideoSubmissionErrors((items) => Object.fromEntries(Object.entries(items).filter(([id]) => Number(id) !== scriptId)));
+    if (storyboardScriptId === scriptId) {
+      const next = scripts.find(item => item.id !== scriptId);
+      if (next) selectStoryboardScript(next);
+      else startNewScriptDraft();
+    }
+    setNotice('话术已删除');
+  };
+
+  const duplicateScript = (script: ScriptItem) => {
+    const id = Math.max(Date.now(), ...scripts.map(item => item.id + 1));
+    const copied = duplicateStoryboardScript(script, id);
+    setScripts(items => items.flatMap(item => item.id === script.id ? [item, copied] : [item]));
+    if (scriptVideoResults[script.id]) setScriptVideoResults(items => ({ ...items, [id]: items[script.id] }));
+    selectStoryboardScript(copied);
+    setNotice('分镜已复制，请保存直播间');
+  };
+
+  const generateDynamicScript = async (mode: DynamicScriptOperation = 'expand') => {
     if (dynamicGenerating) return;
+    const originalDraft = draft;
+    const draftText = draft.trim();
+    const comparisonTexts = dynamicScriptComparisonTexts(activeProductScripts, storyboardScriptId);
+    const uploadedMaterials = importedDocumentText.trim()
+      ? [{ name: importedDocumentName || '上传文档', content: importedDocumentText }]
+      : [];
+    const uploadedImages = importedMaterialImages.map((image) => image.name);
+    if (!draftText && !uploadedMaterials.length && !uploadedImages.length) {
+      setError('请先输入需要扩写的内容，或上传文档、图片素材');
+      return;
+    }
+    if ((mode === 'condense' || mode === 'polish') && !draftText) {
+      setError(mode === 'condense' ? '请先输入需要精简的脚本' : '请先输入需要润色的脚本');
+      return;
+    }
+    setScriptRewriteMode(mode);
+    const actionLabel = mode === 'condense' ? '精简' : mode === 'polish' ? '润色' : '扩写';
     setDynamicGenerating(true);
     setError('');
     try {
-      const response = await fetch(`${API_BASE}/api/v1/llm/chat`, {
+      const imageDataUrls = await Promise.all(
+        importedMaterialImages.map((image) => imageSourceAsDataUrl(image.dataUrl)),
+      );
+      const response = await fetch('/live-ai-api/expand', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', content: buildDynamicScriptPrompt({
+          prompt: buildDynamicScriptPrompt({
+            operation: mode,
             productName: activeGoods?.name || '未命名商品',
             productSellingPoints: activeGoods?.sellingPoints,
-            currentScripts: activeProductScripts.map((item) => item.text),
-          }) }],
-          max_tokens: 360,
-          temperature: 0.7,
+            currentScripts: comparisonTexts,
+            draftText,
+            uploadedMaterials,
+            uploadedImages,
+          }),
+          systemPrompt: DYNAMIC_SCRIPT_SYSTEM_PROMPT,
+          imageDataUrls,
+          maxTokens: mode === 'expand' ? 8_000 : mode === 'condense' ? 800 : 2_000,
+          stream: true,
         }),
       });
-      const payload = await response.json().catch(() => ({})) as { content?: unknown; detail?: unknown };
-      if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : `LLM 请求失败（HTTP ${response.status}）`);
-      const text = normalizeGeneratedScript(payload.content);
+      const streamedText = await readLiveAiText(response, {
+        onText: (text) => {
+          setDraft(text.slice(0, SCRIPT_EDITOR_LIMIT));
+          requestAnimationFrame(() => {
+            const textarea = draftTextareaRef.current;
+            if (textarea) textarea.scrollTop = textarea.scrollHeight;
+          });
+        },
+      });
+      const text = normalizeGeneratedScript(streamedText);
       if (!text) throw new Error('LLM 未返回有效话术');
-      const validation = validateDynamicScript(text, activeProductScripts.map((item) => item.text), activeGoods?.riskWords);
+      const validation = validateDynamicScript(text, comparisonTexts, activeGoods?.riskWords);
       if (!validation.ok) {
         if (validation.riskWords.length) throw new Error(`命中风险词：${validation.riskWords.join('、')}`);
-        throw new Error('与最近话术过于相似，请调整商品信息后重试');
       }
+      updateScriptDraft(text);
+      setNotice(validation.duplicate
+        ? `AI 已完成${actionLabel}，内容与已有分镜较接近，请确认后使用`
+        : `AI 已根据当前输入${uploadedMaterials.length || uploadedImages.length ? '和上传素材' : ''}完成${actionLabel}`);
+    } catch (cause) {
+      setDraft(originalDraft);
+      setError(`AI 话术${actionLabel}失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setDynamicGenerating(false);
+    }
+  };
+
+  const generateProductDemo = async () => {
+    if (!productDemoImage || productDemoBusy || playbackBusy || playbackQueueStatus !== 'idle') return;
+    setProductDemoStage('analyzing');
+    setProductDemoMessage(`正在识别“${productDemoImage.name}”并生成直播卖货脚本`);
+    setAliyunVideo(null);
+    setAliyunVideoError('');
+    setGeneratedVideoVisible(false);
+    setError('');
+    try {
+      const imageDataUrl = await imageSourceAsDataUrl(productDemoImage.dataUrl);
+      const prompt = [
+        PRODUCT_SCRIPT_SYSTEM_PROMPT,
+        buildProductScriptPrompt({
+          name: '请从商品图片中识别准确品名',
+          referenceImageCount: 1,
+          scriptCount: 1,
+          maxCharactersPerScript: 180,
+          style: '自然亲切',
+          creativeDirection: '生成一段约 15 至 25 秒、可直接用于测试数字人口播的卖货话术。优先读出包装上清晰可见的品名与规格，不虚构价格、功效、产地或优惠。',
+        }),
+      ].join('\n\n');
+      const response = await fetch('/live-ai-api/expand', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, imageDataUrls: [imageDataUrl], maxTokens: 700 }),
+      });
+      const payload = await response.json().catch(() => ({})) as { content?: unknown; message?: unknown };
+      if (!response.ok) throw new Error(typeof payload.message === 'string' ? payload.message : `商品图片识别失败（HTTP ${response.status}）`);
+      const [generated] = parseProductScripts(payload.content, { count: 1, maxCharactersPerScript: 180 });
+      setStoryboardScriptId(null);
+      newScriptDraftRef.current = generated.text;
+      setDraft(generated.text);
       setScripts((items) => [...items, {
         id: Date.now(),
         productId: activeGoods?.id,
-        title: 'AI 动态话术',
+        title: generated.title || '商品图片试播',
         category: '讲品',
-        duration: `00:${String(Math.min(59, Math.max(20, Math.round(text.length * 0.45)))).padStart(2, '0')}`,
-        text,
+        duration: generated.duration,
+        text: generated.text,
         state: 'ready',
       }]);
-      setNotice('AI 已根据当前商品和已播内容生成话术');
+      setProductDemoStage('rendering');
+      setProductDemoMessage(`脚本已生成，正在用“${selectedVoice.name}”合成语音并驱动“${avatar.name}”`);
+
+      if (avatar.rendererProfile) {
+        const stream = streamRef.current;
+        if (!stream) throw new Error('当前数字人实时渲染服务尚未准备好');
+        await stream.speak(generated.text, { preparedVideoUrl: getPregeneratedLiveVideo(generated.text) });
+        setProductDemoStage('ready');
+        setProductDemoMessage(`试播完成：已用“${avatar.name}”和“${selectedVoice.name}”在当前画面中完成口播`);
+        setNotice('商品图片脚本与数字人试播已完成');
+        return;
+      }
+
+      const video = await submitAliyunVideo(generated.text);
+      if (!video) throw new Error('数字人口播任务未能提交');
+      if (aliyunVideoState(video.status) === 'ready') {
+        setProductDemoStage('ready');
+        setProductDemoMessage(`已用“${avatar.name}”和“${selectedVoice.name}”生成数字人口播，可手动预览`);
+        setNotice('商品图片脚本与数字人口播成片已生成');
+      } else {
+        setProductDemoMessage('脚本和语音配置已提交，云端正在合成数字人口播成片');
+        setNotice('已生成商品脚本，正在合成数字人口播成片');
+      }
     } catch (cause) {
-      setError(`AI 动态话术生成失败：${cause instanceof Error ? cause.message : String(cause)}`);
-    } finally {
-      setDynamicGenerating(false);
-      setShowScriptMenu(false);
+      const message = cause instanceof Error ? cause.message : '商品图片试播生成失败';
+      setProductDemoStage('failed');
+      setProductDemoMessage(message);
+      setError(`商品图片试播未完成：${message}`);
     }
   };
 
   const importDocument = async (file?: File) => {
     if (!file) return;
-    const isPlainText = /\.(txt|md)$/i.test(file.name);
-    const plainText = isPlainText ? await file.text() : '';
-    const sections = plainText
-      ? plainText.split(/\n{2,}|(?<=[。！？])\s+/).map((item) => item.trim()).filter(Boolean).slice(0, 4)
-      : [
-          '开场欢迎与本场主题介绍',
-          '核心卖点、参数和使用场景讲解',
-          '限时权益提醒与下单引导',
-        ];
-    const next = sections.map<ImportedScriptItem>((text, index) => ({
-      title: index === 0 ? '文档开场' : index === sections.length - 1 ? '文档收尾' : `内容节点 ${index + 1}`,
-      category: index === 0 ? '开场' : index === sections.length - 1 ? '促单' : '讲品',
-      duration: `00:${String(Math.min(58, Math.max(20, Math.round(text.length * 0.45)))).padStart(2, '0')}`,
-      text,
-    }));
-    setImportedDocumentName(file.name);
-    setImportedScripts(next);
-    setImportedDocumentMode(isPlainText ? 'text' : 'office-preview');
-    setShowScriptMenu(false);
-    setDialog('scriptImport');
+    if (file.size > 20 * 1024 * 1024) {
+      setError('上传素材不能超过 20 MB');
+      return;
+    }
+    setError('');
+    try {
+      if (file.type.startsWith('image/')) {
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+          throw new Error('图片仅支持 JPG、PNG、WebP 或 GIF');
+        }
+        const dataUrl = await prepareProductReferenceImage(file);
+        setImportedDocumentName(file.name);
+        setImportedDocumentText('');
+        setImportedMaterialImages([{ name: file.name, dataUrl }]);
+        setImportedScripts([]);
+        setNotice(`已上传图片“${file.name}”，AI 扩写时会读取画面和文字`);
+        return;
+      }
+      let plainText = '';
+      if (/\.(txt|md|csv|json)$/i.test(file.name)) {
+        plainText = await file.text();
+      } else {
+        const form = new FormData();
+        form.append('file', file, file.name);
+        const response = await fetch('/live-ai-api/extract', { method: 'POST', body: form });
+        const payload = await response.json().catch(() => ({})) as { text?: unknown; filename?: unknown; message?: unknown };
+        if (!response.ok || typeof payload.text !== 'string') {
+          throw new Error(typeof payload.message === 'string' ? payload.message : '文件内容提取失败');
+        }
+        plainText = payload.text;
+      }
+      plainText = plainText.trim().slice(0, 8_000);
+      if (!plainText) throw new Error('上传素材中没有可读取的文本');
+      const sections = plainText.split(/\n{2,}|(?<=[。！？])\s+/).map((item) => item.trim()).filter(Boolean).slice(0, 4);
+      const next = sections.map<ImportedScriptItem>((text, index) => ({
+        title: index === 0 ? '文档开场' : index === sections.length - 1 ? '文档收尾' : `内容节点 ${index + 1}`,
+        category: index === 0 ? '开场' : index === sections.length - 1 ? '促单' : '讲品',
+        duration: `00:${String(Math.min(58, Math.max(20, Math.round(text.length * 0.45)))).padStart(2, '0')}`,
+        text,
+      }));
+      setImportedDocumentName(file.name);
+      setImportedDocumentText(plainText);
+      setImportedMaterialImages([]);
+      setImportedScripts(next);
+      setDialog('scriptImport');
+    } catch (cause) {
+      setError(`素材读取失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  };
+
+  const clearImportedMaterial = () => {
+    setImportedDocumentName('');
+    setImportedDocumentText('');
+    setImportedMaterialImages([]);
+    setImportedScripts([]);
+  };
+
+  const removeImportedMaterialImage = (index: number) => {
+    const nextImages = importedMaterialImages.filter((_, imageIndex) => imageIndex !== index);
+    setImportedMaterialImages(nextImages);
+    setImportedDocumentName(nextImages[0]?.name ?? '');
+    if (!nextImages.length) {
+      setImportedDocumentText('');
+      setImportedScripts([]);
+    }
   };
 
   const applyImportedScripts = () => {
@@ -1637,20 +2810,6 @@ export function LiveStudio({
     if (dialog !== 'livePlatform') return;
     void loadPlatformConnectionOptions();
   }, [dialog, loadPlatformConnectionOptions]);
-
-  useEffect(() => {
-    if (!room?.id) {
-      setLibraryScripts([]);
-      return;
-    }
-    let cancelled = false;
-    void listLiveRoomScripts(room.id).then((items) => {
-      if (!cancelled) setLibraryScripts(items);
-    }).catch(() => {
-      if (!cancelled) setLibraryScripts([]);
-    });
-    return () => { cancelled = true; };
-  }, [room?.id]);
 
   useEffect(() => {
     if (!room?.id) return;
@@ -1814,17 +2973,8 @@ export function LiveStudio({
       : [...items, connection.id]);
   };
 
-  const addQa = (event: FormEvent) => {
-    event.preventDefault();
-    if (!qaQuestion.trim() || !qaAnswer.trim()) return;
-    setQaItems((items) => [...items, { id: Date.now(), question: qaQuestion.trim(), answer: qaAnswer.trim() }]);
-    setQaQuestion('');
-    setQaAnswer('');
-    setShowQaComposer(false);
-    setNotice('问答组添加成功');
-  };
-
   const openVoiceDialog = () => {
+    stopDraftPreview();
     stopVoicePreview();
     setPendingVoiceId(selectedVoiceId);
     setPendingVoiceSpeed(voiceSpeed);
@@ -1925,23 +3075,24 @@ export function LiveStudio({
     if (cloneProgress !== 'ready' || !cloneVoice.previewAudio) return;
     const clonedVoice: VoiceOption = {
       id: `clone-${Date.now()}`,
+      officialId: `local-${Date.now().toString(36)}`,
       name: cloneVoice.name.trim(),
       gender: '女性',
-      age: '25-35岁',
-      tone: '亲和力强',
-      image: avatar.image,
-      scope: 'public',
+      language: '中英文',
+      description: '本地克隆声音',
+      supportSsml: false,
+      sampleText: cloneVoice.transcript.trim(),
+      scope: 'mine',
       providerName: '克隆语音',
-      referenceId: `local-${Date.now().toString(36)}`,
       previewAudio: cloneVoice.previewAudio,
     };
     setVoices((items) => [clonedVoice, ...items]);
     setPendingVoiceId(clonedVoice.id);
-    setVoiceTab('public');
+    setVoiceTab('mine');
     setVoiceQuery('');
     setCloneVoice({ name: '', transcript: '', file: null, previewAudio: '' });
     setCloneProgress('idle');
-    setNotice(`“${clonedVoice.name}”已保存到可用语音，请选中后点击应用`);
+    setNotice(`“${clonedVoice.name}”已保存到克隆语音，请选中后点击应用`);
   };
 
   const applyVoice = (scope: 'current' | 'all') => {
@@ -1952,7 +3103,7 @@ export function LiveStudio({
     setVoicePitch(pendingVoicePitch);
     setDialog(null);
     const target = scope === 'all' ? '全部商品' : activeGoods.name;
-    setNotice(`已保存“${nextVoice.name}”到${target}的试听预设，正式播报参数待接入`);
+    setNotice(`已将“${nextVoice.name}”应用到${target}`);
   };
 
   const stopLive = async () => {
@@ -2053,11 +3204,16 @@ export function LiveStudio({
   };
 
   const saveLiveRoom = async () => {
-    if (roomSaving || roomLoading) return;
+    if (roomSaving || roomLoading || scriptVideoBatchBusy) return;
     setRoomSaving(true);
     setRoomError('');
     try {
       const config = buildRoomConfig();
+      if (config.scripts.some(item => !item.text.trim())) throw new Error('分镜正文不能为空，请填写内容或删除空分镜');
+      if (storyboardScriptId === null && draft.trim()) {
+        const item: ScriptItem = { id: Date.now(), title: `主播口播 ${scripts.length + 1}`, category: '讲品', text: draft.trim(), duration: draftEstimatedDuration, state: 'ready', productId: activeGoods?.id };
+        config.scripts = [...config.scripts, item];
+      }
       let activeRoom = room;
       if (!activeRoom) {
         const existingRooms = await listLiveRooms(1);
@@ -2070,6 +3226,11 @@ export function LiveStudio({
             config,
           );
       setRoom(savedRoom);
+      if (storyboardScriptId === null && draft.trim()) {
+        setScripts(savedRoom.config.scripts);
+        setStoryboardScriptId(savedRoom.config.scripts.at(-1)?.id ?? null);
+        newScriptDraftRef.current = '';
+      }
       setRooms((items) => items.some((item) => item.id === savedRoom.id)
         ? items.map((item) => item.id === savedRoom.id ? savedRoom : item)
         : [...items, savedRoom]);
@@ -2090,6 +3251,10 @@ export function LiveStudio({
   const selectLiveRoom = (nextRoom: LiveRoom) => {
     if (nextRoom.id === room?.id) {
       setRoomMenuOpen(false);
+      return;
+    }
+    if (scriptVideoBatchAbortRef.current) {
+      setNotice('请先停止后续合成，再切换直播间');
       return;
     }
     if (onAir) {
@@ -2121,7 +3286,7 @@ export function LiveStudio({
     }
     setRoomActionBusy(true);
     try {
-      const createdRoom = await createLiveRoom(name, createDefaultRoomConfig());
+      const createdRoom = await createLiveRoom(name, createDefaultRoomConfig(avatarId));
       setRooms((items) => [...items, createdRoom]);
       applyRoom(createdRoom);
       setNewRoomName('');
@@ -2141,7 +3306,7 @@ export function LiveStudio({
     setLandingRoomCreating(true);
     setLandingRoomError('');
     try {
-      const createdRoom = await createLiveRoom(name, createDefaultRoomConfig());
+      const createdRoom = await createLiveRoom(name, createDefaultRoomConfig(landingAvatar.id));
       let existingRooms: LiveRoom[] = [];
       try {
         existingRooms = await listLiveRooms();
@@ -2182,6 +3347,34 @@ export function LiveStudio({
       setNotice(`已复制为“${copiedRoom.name}”`);
     } catch (caught) {
       setNotice(`复制直播间失败：${caught instanceof Error ? caught.message : '未知错误'}`);
+    } finally {
+      setRoomActionBusy(false);
+    }
+  };
+
+  const deleteCurrentLiveRoom = async () => {
+    if (!room || roomActionBusy || roomSaving || roomLoading) return;
+    if (onAir) {
+      setNotice('直播进行中不能删除直播间，请先结束直播');
+      return;
+    }
+    setRoomActionBusy(true);
+    try {
+      await deleteLiveRoom(room.id);
+      const remainingRooms = rooms.filter((item) => item.id !== room.id);
+      const nextRoom = remainingRooms[0] ?? await createLiveRoom(
+        `直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+        createDefaultRoomConfig(),
+      );
+      const nextRooms = remainingRooms.length ? remainingRooms : [nextRoom];
+      setRooms(nextRooms);
+      stopVoicePreview();
+      applyRoom(nextRoom);
+      setRoomMenuOpen(false);
+      setEditingRoomName(false);
+      setNotice(`已删除“${room.name}”`);
+    } catch (caught) {
+      setNotice(`删除直播间失败：${caught instanceof Error ? caught.message : '未知错误'}`);
     } finally {
       setRoomActionBusy(false);
     }
@@ -2234,43 +3427,6 @@ export function LiveStudio({
       setNotice(`发布失败：${caught instanceof Error ? caught.message : '未知错误'}`);
     } finally {
       setRoomActionBusy(false);
-    }
-  };
-
-  const saveToLibrary = async () => {
-    const activeProductId = typeof activeGoods?.id === 'string' ? activeGoods.id : undefined;
-    const productScripts = scripts.filter((item) => item.productId === undefined || item.productId === activeGoods?.id);
-    if (!room?.id || librarySaving || !productScripts.length) {
-      if (!room?.id) setNotice('请先保存直播间，再保存到脚本库');
-      return;
-    }
-    const existingKeys = new Set(libraryScripts.map((item) => `${item.productId ?? ''}\u0000${item.title}\u0000${item.text}`));
-    const pendingScripts = productScripts.filter((item) => !existingKeys.has(`${activeProductId ?? ''}\u0000${item.title}\u0000${item.text}`));
-    if (!pendingScripts.length) {
-      setNotice('当前话术已全部存在于脚本库');
-      return;
-    }
-    setLibrarySaving(true);
-    try {
-      const saved = await Promise.all(pendingScripts.map((item) => createLiveRoomScript(room.id, {
-        productId: activeProductId,
-        title: item.title,
-        category: item.category,
-        duration: item.duration,
-        text: item.text,
-        tags: [],
-      })));
-      if (activeProductId) {
-        setScripts((items) => items.map((item) => pendingScripts.some((candidate) => candidate.id === item.id)
-          ? { ...item, productId: activeProductId }
-          : item));
-      }
-      setLibraryScripts((items) => [...items, ...saved]);
-      setNotice(`已将 ${saved.length} 条话术保存到脚本库`);
-    } catch (caught) {
-      setNotice(`脚本库保存失败：${caught instanceof Error ? caught.message : '未知错误'}`);
-    } finally {
-      setLibrarySaving(false);
     }
   };
 
@@ -2642,15 +3798,39 @@ export function LiveStudio({
 
   const deleteSelectedScripts = () => {
     if (!selectedScriptIds.length) return;
-    setScripts((items) => items.filter((item) => !selectedScriptIds.includes(item.id)));
+    const selectedIds = new Set(selectedScriptIds);
+    setScripts((items) => items.filter((item) => !selectedIds.has(item.id)));
+    if (storyboardScriptId !== null && selectedIds.has(storyboardScriptId)) {
+      const next = scripts.find(item => !selectedIds.has(item.id));
+      if (next) selectStoryboardScript(next);
+      else startNewScriptDraft();
+    }
+    setScriptVideoResults((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !selectedIds.has(Number(id)))));
+    setScriptVideoSubmissionErrors((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !selectedIds.has(Number(id)))));
     setNotice(`已删除 ${selectedScriptIds.length} 条话术`);
     setSelectedScriptIds([]);
     setBatchMode(false);
   };
 
   const openLayerInspector = (id: string) => {
+    const layer = layers.find((item) => item.id === id);
+    if (!layer) return;
     setSelectedLayerId(id);
+    if (layer.kind === 'host') {
+      setInspectorLayerId(null);
+      setStudioWorkspace('host');
+      setMaterialTab('host');
+      return;
+    }
     setInspectorLayerId(id);
+    setStudioWorkspace('decorate');
+    if (layer.kind === 'text') setMaterialTab('text');
+    if (layer.kind === 'image' && layer.sceneKey !== 'templateBackground') setMaterialTab('image');
+    if (layer.sceneKey === 'templateBackground') setMaterialTab('template');
+  };
+
+  const selectCanvasLayer = (layer: LayerItem) => {
+    openLayerInspector(layer.id);
   };
 
   const closeLayerInspector = () => {
@@ -2658,37 +3838,39 @@ export function LiveStudio({
     setInspectorLayerId(null);
   };
 
-  const updateLayer = (id: string, values: Partial<LayerItem>) => {
-    setLayers((items) => items.map((item) => item.id === id ? { ...item, ...values } : item));
+  const openStudioWorkspace = (workspace: StudioWorkspace) => {
+    setStudioWorkspace(workspace);
+    closeLayerInspector();
+    setAssetQuery('');
+    setAssetBatchMode(false);
+    setSelectedAssetIds([]);
+    if (workspace === 'host') setMaterialTab('host');
+    if (workspace === 'decorate' && materialTab === 'host') setMaterialTab('template');
   };
 
-  const pickChromaKeyColor = async (layer: LayerItem) => {
-    const EyeDropper = (window as typeof window & {
-      EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> };
-    }).EyeDropper;
-    if (!EyeDropper) {
-      chromaColorInputRef.current?.click();
-      return;
-    }
-    try {
-      const result = await new EyeDropper().open();
-      updateLayer(layer.id, {
-        chromaKeyEnabled: true,
-        chromaKeyColor: result.sRGBHex,
-      });
-      setNotice(`已选取背景色 ${result.sRGBHex.toUpperCase()}`);
-    } catch (caught) {
-      if (!(caught instanceof DOMException) || caught.name !== 'AbortError') {
-        setNotice('取色失败，请使用颜色色块选择');
-      }
-    }
+  const updateLayer = (id: string, values: Partial<LayerItem>) => {
+    setGeneratedVideoVisible(false);
+    const changesTextRendering = Object.keys(values).some((key) => TEXT_RENDER_KEYS.has(key as keyof LayerItem));
+    setLayers((items) => items.map((item) => item.id === id
+      ? { ...item, ...values, ...(item.kind === 'text' && changesTextRendering ? { preview: undefined } : {}) }
+      : item));
+  };
+
+  const updateTextMaterialValue = (value: string) => {
+    if (selectedTextLayer) updateLayer(selectedTextLayer.id, { value });
+    else setCustomText(value);
+  };
+
+  const updateTextMaterialStyle = (values: Partial<TextMaterialStyle>) => {
+    if (selectedTextLayer) updateLayer(selectedTextLayer.id, values);
+    else setCustomTextStyle((style) => ({ ...style, ...values }));
   };
 
   const beginCanvasGesture = (event: ReactPointerEvent<HTMLElement>, layer: LayerItem, mode: CanvasGesture['mode'], handle?: ResizeHandle) => {
     if (event.button !== 0 || !previewCanvasRef.current) return;
     event.preventDefault();
     event.stopPropagation();
-    openLayerInspector(layer.id);
+    selectCanvasLayer(layer);
     const canvasBounds = previewCanvasRef.current.getBoundingClientRect();
     const centerClientX = canvasBounds.left + (layer.x / 100) * canvasBounds.width;
     const centerClientY = canvasBounds.top + (layer.y / 100) * canvasBounds.height;
@@ -2785,6 +3967,16 @@ export function LiveStudio({
   };
 
   const addAssetToCanvas = (asset: AssetItem) => {
+    const replaceableLayer = selectedLayer?.kind === asset.kind
+      && selectedLayer.sceneKey !== 'templateBackground'
+      && selectedLayer.sceneKey !== 'host'
+      ? selectedLayer
+      : null;
+    if (replaceableLayer) {
+      updateLayer(replaceableLayer.id, { value: asset.name, preview: asset.preview });
+      setNotice(`${asset.kind === 'image' ? '图片' : '视频'}图层已替换`);
+      return;
+    }
     const id = `${asset.kind}-${Date.now()}`;
     const layer: LayerItem = {
       id,
@@ -2800,29 +3992,44 @@ export function LiveStudio({
       opacity: 100,
     };
     setLayers((items) => [layer, ...items]);
-    openLayerInspector(id);
+    setGeneratedVideoVisible(false);
+    setSelectedLayerId(id);
+    setInspectorLayerId(null);
+    setMaterialTab('image');
     setNotice(`${asset.kind === 'image' ? '图片' : '视频'}素材已添加到画面`);
   };
 
   const addTextToCanvas = () => {
-    if (!customText.trim()) return;
+    if (!textMaterialValue.trim() || selectedTextLayer) return;
     const id = `text-${Date.now()}`;
     setLayers((items) => [{
       id,
       kind: 'text',
-      value: customText.trim(),
+      value: textMaterialValue.trim(),
       sceneKey: 'custom',
       x: 50,
       y: 70,
       width: 52,
       height: 8,
-      fontSize: 16,
-      color: '#ffffff',
+      fontSize: textMaterialStyle.fontSize,
+      color: textMaterialStyle.color,
       ...textLayerDefaults,
+      fontFamily: textMaterialStyle.fontFamily,
+      fontWeight: textMaterialStyle.fontWeight,
+      fontStyle: textMaterialStyle.fontStyle,
+      textDecoration: textMaterialStyle.textDecoration,
+      textAlign: textMaterialStyle.textAlign,
+      backgroundEnabled: textMaterialStyle.backgroundEnabled,
+      backgroundColor: textMaterialStyle.backgroundColor,
+      backgroundOpacity: textMaterialStyle.backgroundOpacity,
+      backgroundRadius: 6,
       rotation: 0,
-      opacity: 100,
+      opacity: textMaterialStyle.opacity,
     }, ...items]);
-    openLayerInspector(id);
+    setGeneratedVideoVisible(false);
+    setSelectedLayerId(id);
+    setInspectorLayerId(null);
+    setMaterialTab('text');
     setNotice('文本素材已添加到画面');
   };
 
@@ -2840,6 +4047,11 @@ export function LiveStudio({
     })));
     setAssets((items) => ({ ...items, [kind]: [...imported, ...items[kind]] }));
     setAssetScope('mine');
+    if (kind === 'image' && selectedLayer?.kind === 'image' && imported[0]?.preview) {
+      updateLayer(selectedLayer.id, { value: imported[0].name, preview: imported[0].preview });
+      setNotice(`已替换“${selectedLayer.value}”图片图层`);
+      return;
+    }
     setNotice(`已导入 ${imported.length} 个${kind === 'image' ? '图片' : '视频'}素材，点击素材可添加到画面`);
   };
 
@@ -2848,24 +4060,53 @@ export function LiveStudio({
   };
 
   const deleteSelectedAssets = () => {
-    if (!selectedAssetIds.length || (materialTab !== 'image' && materialTab !== 'video')) return;
-    setAssets((items) => ({ ...items, [materialTab]: items[materialTab].filter((item) => !selectedAssetIds.includes(item.id)) }));
+    if (!selectedAssetIds.length || materialTab !== 'image') return;
+    setAssets((items) => ({ ...items, image: items.image.filter((item) => !selectedAssetIds.includes(item.id)) }));
     setNotice(`已删除 ${selectedAssetIds.length} 个素材`);
     setSelectedAssetIds([]);
     setAssetBatchMode(false);
   };
 
+  const deleteAsset = (id: string) => {
+    const asset = assets.image.find((item) => item.id === id);
+    if (!asset) return;
+    setAssets((items) => ({ ...items, image: items.image.filter((item) => item.id !== id) }));
+    setSelectedAssetIds((ids) => ids.filter((item) => item !== id));
+    setNotice(`已删除图片“${asset.name}”`);
+  };
+
   const moveLayer = (id: string, action: 'forward' | 'backward' | 'front' | 'back') => {
     setLayers((items) => {
       const currentIndex = items.findIndex((item) => item.id === id);
-      if (currentIndex < 0) return items;
-      const targetIndex = action === 'front' ? 0 : action === 'back' ? items.length - 1 : action === 'forward' ? Math.max(0, currentIndex - 1) : Math.min(items.length - 1, currentIndex + 1);
+      if (currentIndex < 0 || items[currentIndex].sceneKey === 'templateBackground') return items;
+      const backgroundIndex = items.findIndex((item) => item.sceneKey === 'templateBackground');
+      const lastMovableIndex = backgroundIndex < 0 ? items.length - 1 : Math.max(0, backgroundIndex - 1);
+      const targetIndex = action === 'front' ? 0 : action === 'back' ? lastMovableIndex : action === 'forward' ? Math.max(0, currentIndex - 1) : Math.min(lastMovableIndex, currentIndex + 1);
       if (targetIndex === currentIndex) return items;
       const next = [...items];
       const [current] = next.splice(currentIndex, 1);
       next.splice(targetIndex, 0, current);
       return next;
     });
+  };
+
+  const reorderLayer = (draggedId: string, targetId: string, position: 'before' | 'after') => {
+    if (draggedId === targetId) return;
+    setLayers((items) => {
+      const dragged = items.find((item) => item.id === draggedId);
+      const target = items.find((item) => item.id === targetId);
+      if (!dragged || !target || dragged.sceneKey === 'templateBackground') return items;
+      const withoutDragged = items.filter((item) => item.id !== draggedId);
+      let targetIndex = withoutDragged.findIndex((item) => item.id === targetId);
+      if (targetIndex < 0) return items;
+      if (target.sceneKey === 'templateBackground' || position === 'before') {
+        withoutDragged.splice(targetIndex, 0, dragged);
+      } else {
+        withoutDragged.splice(targetIndex + 1, 0, dragged);
+      }
+      return withoutDragged;
+    });
+    setNotice('图层顺序已更新');
   };
 
   const deleteLayer = (id: string) => {
@@ -2875,38 +4116,135 @@ export function LiveStudio({
     setNotice('图层已删除');
   };
 
-  const applyTemplate = (templateId: string) => {
-    const template = LIVE_TEMPLATES.find((item) => item.id === templateId);
-    if (!template) return;
-    const currentHost = layers.find((item) => item.sceneKey === 'host');
-    const templateLayers = createTemplateLayers(template.id, avatar.name);
-    setSelectedTemplateId(template.id);
-    setLayers(templateLayers.map((item) => item.sceneKey === 'host' && currentHost ? currentHost : item));
-    closeLayerInspector();
-    setNotice(`已应用“${template.name}”模板`);
+  const templateLayersWithBackground = (background: string) => {
+    const snapshot = layers.map((layer) => ({ ...layer }));
+    const backgroundIndex = snapshot.findIndex((layer) => layer.sceneKey === 'templateBackground');
+    const backgroundLayer: LayerItem = backgroundIndex >= 0
+      ? { ...snapshot[backgroundIndex], value: '模板背景', preview: background }
+      : { id: `background-custom-${Date.now()}`, kind: 'image', value: '模板背景', sceneKey: 'templateBackground', preview: background, x: 50, y: 50, width: 100, height: 100, rotation: 0, opacity: 100 };
+    if (backgroundIndex >= 0) snapshot[backgroundIndex] = backgroundLayer;
+    else snapshot.push(backgroundLayer);
+    return snapshot;
   };
 
-  const applyPendingAvatar = () => {
-    const nextAvatar = AVATARS.find((item) => item.id === pendingAvatarId);
+  const openTemplateDraft = () => {
+    setTemplateDraftMode('new');
+    setTemplateDraftName(`自定义模板 ${customTemplates.length + 1}`);
+    setTemplateDraftBackground('');
+    setTemplateStorageError('');
+  };
+
+  const chooseTemplateBackground = async (file?: File) => {
+    if (!file) return;
+    setTemplateDraftBusy(true);
+    setTemplateStorageError('');
+    try {
+      setTemplateDraftBackground(await prepareTemplateBackground(file));
+    } catch (cause) {
+      setTemplateStorageError(cause instanceof Error ? cause.message : '模板背景读取失败');
+    } finally {
+      setTemplateDraftBusy(false);
+    }
+  };
+
+  const saveCustomTemplate = () => {
+    const name = templateDraftName.trim();
+    const background = templateDraftBackground;
+    if (!name || !background) return;
+    const id = `custom-template-${Date.now()}`;
+    const template: StudioTemplate = {
+      id,
+      name,
+      image: background,
+      category: '自定义',
+      color: '自定义',
+      title: '',
+      tag: '',
+      footer: '',
+      custom: true,
+      layers: templateLayersWithBackground(background),
+      avatarId,
+      voice: { voiceId: selectedVoiceId, speed: voiceSpeed, pitch: voicePitch },
+    };
+    templateRequestIdRef.current += 1;
+    setTemplateLoadingId('');
+    setTemplateLoadError('');
+    setCustomTemplates((items) => [...items, template]);
+    setSelectedTemplateId(id);
+    setSelectedTemplatePage(0);
+    setLayers(template.layers!.map((layer) => ({ ...layer })));
+    setTemplateDraftMode(null);
+    setTemplateDraftBackground('');
+    setNotice(`已保存并应用“${name}”`);
+  };
+
+  const updateSelectedCustomTemplate = () => {
+    const template = customTemplates.find((item) => item.id === selectedTemplateId);
+    if (!template) return;
+    const next = {
+      ...template,
+      image: previewBackground,
+      layers: templateLayersWithBackground(previewBackground),
+      avatarId,
+      voice: { voiceId: selectedVoiceId, speed: voiceSpeed, pitch: voicePitch },
+    };
+    setCustomTemplates((items) => items.map((item) => item.id === template.id ? next : item));
+    setNotice(`已更新“${template.name}”`);
+  };
+
+  const deleteSelectedCustomTemplate = () => {
+    const template = customTemplates.find((item) => item.id === selectedTemplateId);
+    if (!template) return;
+    setCustomTemplates((items) => items.filter((item) => item.id !== template.id));
+    void applyTemplate(DEFAULT_LIVE_TEMPLATE_ID);
+    setNotice(`已删除“${template.name}”`);
+  };
+
+  const applyTemplate = async (templateId: string, requestedPage = 0) => {
+    if (roomLoading) return;
+    const template = allTemplates.find((item) => item.id === templateId);
+    if (!template) return;
+    const requestId = ++templateRequestIdRef.current;
+    setTemplateLoadingId(template.id);
+    setTemplateLoadError('');
+    try {
+      const pages = await loadTemplatePages(template);
+      if (templateRequestIdRef.current !== requestId) return;
+      const pageIndex = pages.length ? clampCanvasValue(Math.floor(requestedPage), 0, pages.length - 1) : 0;
+      const templateLayers = pages[pageIndex]?.map((item) => ({ ...item })) ?? createTemplateLayers(template.id, avatar.name);
+      setSelectedTemplateId(template.id);
+      setSelectedTemplatePage(pageIndex);
+      setLayers((currentLayers) => applyTemplateLayersPreservingHost(templateLayers, currentLayers, avatar.name));
+      setGeneratedVideoVisible(false);
+      void restoreAvatarOutputAudio().catch(() => undefined);
+      closeLayerInspector();
+      const pageLabel = pages.length > 1 ? `第 ${pageIndex + 1} 页` : '';
+      setNotice(template.custom ? `已恢复“${template.name}”场景` : `已应用“${template.name}”模板${pageLabel}`);
+    } catch (cause) {
+      if (templateRequestIdRef.current !== requestId) return;
+      const message = cause instanceof Error ? cause.message : '模板图层读取失败';
+      setTemplateLoadError(message);
+      setNotice(`模板应用失败：${message}`);
+    } finally {
+      if (templateRequestIdRef.current === requestId) setTemplateLoadingId('');
+    }
+  };
+
+  const applyAvatar = (nextAvatarId: string) => {
+    const nextAvatar = AVATARS.find((item) => item.id === nextAvatarId);
     if (!nextAvatar) return;
-    setAvatarSwitching(true);
     setAvatarId(nextAvatar.id);
-    const nextDurations = ['00:42', '00:47', '00:50', '00:40'];
-    setScripts((items) => items.map((item, index) => ({ ...item, duration: nextDurations[index] ?? item.duration })));
+    setGeneratedVideoVisible(false);
+    setAliyunVideo(null);
+    setAliyunVideoError('');
+    void restoreAvatarOutputAudio().catch(() => undefined);
     setLayers((items) => items.map((item) => item.sceneKey === 'host' ? {
       ...item,
       value: nextAvatar.name,
-        width: 76,
-        height: 70,
-        y: 64,
     } : item));
-    setPendingAvatarId(null);
-    setDialog(null);
-    setNotice('声音已应用到全部商品');
-    window.setTimeout(() => setNotice('主播形象已更换'), 450);
-    window.setTimeout(() => {
-      setAvatarSwitching(false);
-    }, 900);
+    setNotice(nextAvatar.scope === 'aliyun'
+      ? `已选择公共形象“${nextAvatar.name}”`
+      : '主播形象已更换');
   };
 
   if (!entered) {
@@ -2919,41 +4257,79 @@ export function LiveStudio({
             <p>选择数字人主播、编排直播话术并配置推流目标，在原有工作台中完成直播准备与实时驱动预览。</p>
             <div className="liveLandingActions">
               <button className="primaryAction" type="button" onClick={() => { setLandingCreateOpen(false); setEntered(true); }}><Sparkles size={17} />进入直播控制台</button>
-              <button className="secondaryAction" type="button" onClick={() => { setLandingCreateOpen(true); setLandingRoomError(''); }}><FileText size={17} />新建直播间<ArrowRight size={16} /></button>
+              <button className="secondaryAction" type="button" onClick={() => { setLandingCreateOpen(true); setLandingRoomError(''); setLandingAvatarQuery(''); }}><FileText size={17} />新建直播间<ArrowRight size={16} /></button>
             </div>
-            {landingCreateOpen && <form className="liveLandingCreate" onSubmit={createLandingLiveRoom}>
-              <div className="liveLandingCreateCopy"><strong>新建直播间</strong><span>输入名称后立即进入控制台配置</span></div>
-              <div className="liveLandingCreateFields">
-                <input value={landingRoomName} onChange={(event) => setLandingRoomName(event.target.value)} placeholder="例如：秋季新品专场" maxLength={120} aria-label="新直播间名称" autoFocus />
-                <button type="submit" disabled={!landingRoomName.trim() || landingRoomCreating}>{landingRoomCreating ? <LoaderCircle className="landingSpinner" size={15} /> : <Plus size={15} />}{landingRoomCreating ? '正在创建' : '创建并进入'}</button>
-              </div>
-              {landingRoomError && <p className="liveLandingCreateError">{landingRoomError}</p>}
-            </form>}
-            <div className="liveLandingMeta"><span><strong>{AVATARS.length}</strong> 个内置形象</span><i /><span><strong>实时</strong> 话术播报</span><i /><span><strong>RTMP</strong> 输出预设</span></div>
+            <div className="liveLandingMeta"><span><strong>{ALIYUN_PUBLIC_AVATARS.length}</strong> 个公共形象</span><i /><span><strong>实时</strong> 话术播报</span><i /><span><strong>RTMP</strong> 输出预设</span></div>
           </section>
 
           <section className="liveLandingVisual" aria-label="数字人直播功能预览">
             <div className="liveWindow">
               <div className="liveWindowBar"><span><i /><i /><i /></span><em><b />LIVE</em></div>
-              <img className="liveWindowVideo" src={AVATARS[0].image} alt="林汐数字人主播直播预览" />
-              <div className="liveWindowLower"><strong>林汐</strong><span>AI 数字人主播</span></div>
+              <video className="liveWindowVideo" src={ALIYUN_PUBLIC_AVATARS.find((item) => item.id === FEATURED_LIVE_AVATAR_ID)?.previewVideo} poster={ALIYUN_PUBLIC_AVATARS.find((item) => item.id === FEATURED_LIVE_AVATAR_ID)?.image} autoPlay muted loop playsInline aria-label="数字人主播静音演示" />
+              <div className="liveWindowLower"><strong>{FEATURED_LIVE_AVATAR_NAME}</strong><span>官方公共数字人</span></div>
             </div>
             <article className="floatingScript"><span><FileText size={14} />话术编排</span><p>欢迎进入今天的数字人直播间，我们马上开始本期内容。</p></article>
             <article className="floatingScenes"><span><Video size={14} />直播画面</span><div><i /><i /><i /></div></article>
             <div className="landingGlow" />
           </section>
+
+          {landingCreateOpen && <div className="liveCreateBackdrop" onMouseDown={() => !landingRoomCreating && setLandingCreateOpen(false)}>
+            <form className="liveCreateWizard" role="dialog" aria-modal="true" aria-labelledby="live-create-title" onSubmit={createLandingLiveRoom} onMouseDown={(event) => event.stopPropagation()}>
+              <header>
+                <div><span className="liveCreateStep">1</span><span><strong id="live-create-title">选择数字人</strong><small>新直播间将使用所选公共形象</small></span></div>
+                <button type="button" aria-label="关闭创建直播间" disabled={landingRoomCreating} onClick={() => setLandingCreateOpen(false)}><X size={18} /></button>
+              </header>
+              <label className="liveCreateSearch"><Search size={16} /><input value={landingAvatarQuery} onChange={(event) => setLandingAvatarQuery(event.target.value)} placeholder="搜索数字人名称" autoFocus /></label>
+              <div className="liveCreateAvatarGrid" role="radiogroup" aria-label="选择公共数字人">
+                {landingAvatars.map((item) => <button className={item.id === landingAvatar.id ? 'selected' : ''} type="button" role="radio" aria-checked={item.id === landingAvatar.id} key={item.id} onClick={() => setLandingAvatarId(item.id)}>
+                  <span><img src={item.image} alt="" /></span>
+                  <strong>{item.name}</strong>
+                  {item.id === landingAvatar.id && <i><Check size={13} /></i>}
+                </button>)}
+                {!landingAvatars.length && <div className="liveCreateNoResult">没有找到匹配的数字人</div>}
+              </div>
+              <footer>
+                <div className="liveCreateSelected"><img src={landingAvatar.image} alt="" /><span><small>已选数字人</small><strong>{landingAvatar.name}</strong></span></div>
+                <label><span>直播间名称</span><input value={landingRoomName} onChange={(event) => setLandingRoomName(event.target.value)} placeholder="例如：秋季新品专场" maxLength={120} aria-label="新直播间名称" /></label>
+                <button type="submit" disabled={!landingRoomName.trim() || landingRoomCreating}>{landingRoomCreating ? <LoaderCircle className="landingSpinner" size={15} /> : <ArrowRight size={15} />}{landingRoomCreating ? '正在创建' : '创建并进入'}</button>
+              </footer>
+              {landingRoomError && <p className="liveLandingCreateError">{landingRoomError}</p>}
+            </form>
+          </div>}
         </main>
       </ProductShell>
     );
   }
 
   const previewHost = avatar.image;
+  const selectedStoryboardScript = scripts.find(item => item.id === storyboardScriptId);
+  const selectedStoryboardVideoState = selectedStoryboardScript
+    ? scriptVideoState(selectedStoryboardScript)
+    : 'missing';
+  const selectedStoryboardSubmitting = Boolean(
+    selectedStoryboardScript
+    && scriptVideoBatch?.scriptIds.includes(selectedStoryboardScript.id),
+  );
+  const selectedStoryboardVideoBusy = scriptAvatarVideoIsBusy(
+    selectedStoryboardVideoState,
+    selectedStoryboardSubmitting,
+  );
+  const scriptVideoProgressTotal = scripts.length;
+  const generatedVideoReady = Boolean(
+    generatedVideoVisible
+    && aliyunVideo?.videoUrl
+    && aliyunVideoState(aliyunVideo.status) === 'ready',
+  );
+  const showStaticHost = !mediaActive
+    && !generatedVideoReady
+    && Boolean(hostLayer);
 
   return (
-    <main className="xilingLive">
+    <main className={`xilingLive xlYijingStudio workspace-${studioWorkspace}`}>
       <header className="xlTopbar">
         <div className="xlTitleGroup">
           <button type="button" className="xlBack" onClick={() => { void stopLive(); setEntered(false); }} aria-label="返回直播首页"><ArrowLeft size={17} /></button>
+          <div className="xlLiveBrand" aria-label="灵境数字人直播"><span><Sparkles size={15} /></span><strong>灵境数字人</strong></div>
           <div className="xlRoomHeader">
             <div className="xlRoomPickerAnchor">
               <button
@@ -2982,6 +4358,7 @@ export function LiveStudio({
                   <button type="button" onClick={() => { setRenameRoomName(room.name); setEditingRoomName((value) => !value); }} disabled={roomActionBusy || roomSaving || roomLoading || onAir}><Pencil size={13} />重命名</button>
                   <button type="button" onClick={() => void copyCurrentLiveRoom()} disabled={roomActionBusy || roomSaving || roomLoading || onAir}><Copy size={13} />复制</button>
                   <button type="button" onClick={() => void publishCurrentLiveRoom()} disabled={roomActionBusy || roomSaving || roomLoading || onAir || roomDirty || room.status === 'published'}><Check size={13} />发布</button>
+                  <button className="danger" type="button" title="删除当前直播间" aria-label="删除当前直播间" onClick={() => void deleteCurrentLiveRoom()} disabled={roomActionBusy || roomSaving || roomLoading || onAir}><Trash2 size={13} /></button>
                 </div>}
                 {editingRoomName && room && <form className="xlRoomRenameForm" onSubmit={renameCurrentLiveRoom}>
                   <input value={renameRoomName} onChange={(event) => setRenameRoomName(event.target.value)} maxLength={120} aria-label="直播间名称" autoFocus />
@@ -2993,7 +4370,7 @@ export function LiveStudio({
           </div>
         </div>
         <div className="xlTopActions">
-          <button type="button" className="xlDarkButton" disabled={roomLoading || roomSaving} onClick={() => void saveLiveRoom()}>{roomSaving || roomLoading ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : <Save size={15} />}{roomSaving ? '正在保存' : roomLoading ? '正在加载' : '保存直播间'}</button>
+          <button type="button" className="xlDarkButton" title="保存直播间设置、全部分镜及数字人成片关联" aria-label="保存直播间" disabled={roomLoading || roomSaving || scriptVideoBatchBusy} onClick={() => void saveLiveRoom()}>{roomSaving || roomLoading ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : <Save size={15} />}{roomSaving ? '正在保存' : roomLoading ? '正在加载' : '保存直播间'}</button>
           <button type="button" className="xlDarkButton" onClick={() => setDialog('settings')}><Settings2 size={15} />直播设置</button>
           {onAir || (liveRun && ['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) ? (
             <button className="xlLiveButton danger" type="button" disabled={liveRun?.status === 'stopping'} onClick={() => void stopLive()}><CircleStop size={16} />{liveRun?.status === 'stopping' ? '正在结束' : onAir ? '结束直播' : '取消开播'} {onAir && <span>{elapsed}</span>}</button>
@@ -3004,123 +4381,65 @@ export function LiveStudio({
       </header>
 
       <div className="xlProgram">
-        <aside className="xlGoodsRail">
-          <h2>直播商品单</h2>
-          <div className="xlGoodsTools">
-            <div className="xlMenuAnchor">
-              <button type="button" aria-expanded={showPlaybackMenu} onClick={() => setShowPlaybackMenu((value) => !value)}>{playbackMode === 'sequence' ? '顺序播放' : '随机播放'} <ChevronDown size={13} /></button>
-              {showPlaybackMenu && <div className="xlPopMenu compact"><button className={playbackMode === 'sequence' ? 'active' : ''} type="button" onClick={() => { setPlaybackMode('sequence'); setShowPlaybackMenu(false); }}>顺序播放</button><button className={playbackMode === 'random' ? 'active' : ''} type="button" onClick={() => { setPlaybackMode('random'); setShowPlaybackMenu(false); }}>随机播放</button></div>}
-            </div>
-            <button type="button" aria-label="打开直播商品选择" onClick={() => { setShowPlaybackMenu(false); openProductPicker(); }}><Plus size={16} /></button>
-          </div>
-          <div className="xlGoodsList">
-            {goods.map((item, index) => (
-              <div className={`xlGoodsCard ${activeGoodsId === item.id ? 'selected' : ''}`} key={item.id}>
-                <button className="xlGoodsSelect" type="button" onClick={() => setActiveGoodsId(item.id)} aria-label={`选择商品${item.name}`}>
-                  <span className="xlGoodsIndex">{index + 1}</span>
-                  <span className="xlGoodsScene">{item.imageUrl ? <img src={item.imageUrl} alt="" /> : <><img src={previewBackground} alt="" />{hostLayer && !avatarSwitching && <img src={previewHost} alt="" style={{ opacity: hostLayer.opacity / 100 }} />}</>}<em>{item.source}</em></span>
-                  <strong>{item.name}</strong>
-                </button>
-                <button className="xlGoodsRemove" type="button" aria-label={`从直播间移除${item.name}`} title={goods.length <= 1 ? '直播商品单至少保留一个商品' : '从当前直播间移除'} disabled={productRemovingId !== null || goods.length <= 1 || onAir} onClick={() => void removeProductFromRoom(item)}>{productRemovingId === item.id ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <X size={13} />}</button>
-              </div>
-            ))}
-          </div>
-        </aside>
-
         <section className="xlProgramContent">
-          <header className="xlProductHeader">
-            <div className="xlProductName"><span>商品{goods.findIndex((item) => item.id === activeGoodsId) + 1}</span><strong>{activeGoods.name}</strong></div>
-            <div className="xlModeSwitch"><button className={workspaceMode === 'script' ? 'active' : ''} type="button" onClick={() => setWorkspaceMode('script')}>脚本</button><button className={workspaceMode === 'qa' ? 'active' : ''} type="button" onClick={() => setWorkspaceMode('qa')}>问答</button></div>
-            <button type="button" className="xlSaveScript" onClick={() => void saveToLibrary()} disabled={librarySaving || !room}><Save size={13} />{librarySaving ? '保存中…' : '保存到脚本库'}</button>
-          </header>
-
           <>
-            <section className={`xlQaWorkspace ${workspaceMode === 'qa' ? '' : 'xlWorkspaceHidden'}`}>
-              <header><div><strong>直播问答</strong><span>共{qaItems.length}条</span></div><div><button type="button" onClick={() => setShowQaComposer((value) => !value)}><Plus size={14} />问答组</button><label><input value={qaQuery} onChange={(event) => setQaQuery(event.target.value)} placeholder="搜索相关问题与回答" /><Search size={15} /></label></div></header>
-              {showQaComposer && <form className="xlQaComposer" onSubmit={addQa}><label><span>观众问题</span><input value={qaQuestion} onChange={(event) => setQaQuestion(event.target.value)} placeholder="输入常见问题" /></label><label><span>主播回答</span><textarea value={qaAnswer} onChange={(event) => setQaAnswer(event.target.value)} placeholder="输入推荐回答" rows={3} /></label><div><button type="button" onClick={() => setShowQaComposer(false)}>取消</button><button type="submit" disabled={!qaQuestion.trim() || !qaAnswer.trim()}>添加问答组</button></div></form>}
-              {filteredQaItems.length ? <div className="xlQaList">{filteredQaItems.map((item, index) => <article key={item.id}><span>Q{index + 1}</span><div><strong>{item.question}</strong><p>{item.answer}</p></div><button type="button" aria-label={`删除问题${index + 1}`} onClick={() => setQaItems((items) => items.filter((candidate) => candidate.id !== item.id))}><Trash2 size={14} /></button></article>)}</div> : <div className="xlQaEmpty"><MessageCircleQuestion size={58} /><strong>{qaQuery ? '没有匹配的问答' : '您还没有添加问答组'}</strong><p>添加常见问题后，AI 主播可以自动回复直播间弹幕。</p><button type="button" onClick={() => setShowQaComposer(true)}><Plus size={14} />添加第一个问答组</button></div>}
-            </section>
-            <div className={`xlEditorGrid ${workspaceMode === 'qa' ? 'xlWorkspaceHidden' : ''}`}>
-              <section className="xlScriptPanel">
-                <header className="xlPanelToolbar">
-                  <div><strong>话术列表</strong><span>当前商品 {activeProductScripts.length} 条 · 全场 {scripts.length} 条</span></div>
-                  <button type="button" className="xlSpeaker" aria-label={`选择主播声音，当前${selectedVoice.name}`} onClick={openVoiceDialog}><img src={selectedVoice.image} alt="" /><span>{selectedVoice.name}</span></button>
-                  <div className="xlScriptTools">
-                    <span className={`xlPlaybackStatus ${microphoneState !== 'idle' ? 'running' : playbackQueueStatus}`} aria-live="polite">{microphoneState === 'recording' ? '真人接管中' : microphoneState === 'submitting' ? '正在提交真人语音' : playbackQueueStatus === 'running' ? `自动播报中${currentPlaybackScriptId ? ` · 第${scripts.findIndex((item) => item.id === currentPlaybackScriptId) + 1}条` : ''}` : playbackQueueStatus === 'paused' ? '自动播报已暂停' : preparedVideoProgress && preparedVideoProgress.ready < preparedVideoProgress.total ? `视频预生成 ${preparedVideoProgress.ready}/${preparedVideoProgress.total}` : preparedVideoProgress?.total ? `${preparedVideoProgress.ready} 条视频已就绪` : '待机'}</span>
-                    {playbackQueueStatus === 'idle' && <button type="button" aria-label="开始自动播报" onClick={startScriptQueue} disabled={playbackBusy || !scripts.length}><Play size={15} fill="currentColor" /></button>}
-                    {playbackQueueStatus === 'running' && <button type="button" aria-label="暂停自动播报" onClick={pauseScriptQueue}><Pause size={15} /></button>}
-                    {playbackQueueStatus === 'paused' && <button type="button" aria-label="继续自动播报" onClick={resumeScriptQueue}><Play size={15} fill="currentColor" /></button>}
-                    {playbackQueueStatus !== 'idle' && <><button type="button" aria-label="跳过当前话术" onClick={skipScriptQueue}><SkipForward size={15} /></button><button type="button" aria-label="停止自动播报" onClick={stopScriptQueue}><CircleStop size={15} /></button></>}
-                    <button type="button" className={playbackLoop ? 'active' : ''} aria-label={playbackLoop ? '关闭循环播放' : '开启循环播放'} aria-pressed={playbackLoop} onClick={() => setPlaybackLoop((value) => !value)}><RotateCcw size={15} /></button>
-                    <button type="button" className={microphoneState !== 'idle' ? 'active' : ''} aria-label={microphoneState === 'idle' ? '开始真人接管' : '结束真人接管'} aria-pressed={microphoneState !== 'idle'} onClick={() => void toggleMicrophoneTakeover()} disabled={microphoneState === 'connecting' || !streamReady}><Mic size={15} /></button>
-                    {batchMode && selectedScriptIds.length ? <button type="button" aria-label="删除已选话术" onClick={deleteSelectedScripts}><Trash2 size={15} /></button> : <button type="button" aria-label="随机排序" onClick={shuffleScripts}><Shuffle size={15} /></button>}
-                    <button className={batchMode ? 'active' : ''} type="button" aria-label={batchMode ? '退出批量选择' : '批量选择'} onClick={toggleBatchMode}>{batchMode ? <X size={15} /> : <Check size={15} />}</button>
-                    <div className="xlMenuAnchor"><button type="button" aria-label="添加话术" aria-expanded={showScriptMenu} onClick={() => setShowScriptMenu((value) => !value)}><Plus size={17} /></button>{showScriptMenu && <div className="xlPopMenu script"><button type="button" onClick={() => { setShowComposer(true); setShowScriptMenu(false); }}><Plus size={13} />新建话术</button><button type="button" onClick={() => documentInputRef.current?.click()}><FileUp size={13} />导入文档</button><button type="button" onClick={() => { setDialog('library'); setShowScriptMenu(false); }}><Library size={13} />从话术库选择</button><button type="button" onClick={() => void generateDynamicScript()} disabled={dynamicGenerating}><WandSparkles size={13} />{dynamicGenerating ? 'AI 生成中' : 'AI 生成话术'}</button></div>}</div>
-                  </div>
-                </header>
+            <div className="xlEditorGrid">
+              <nav className="xlStudioNav" aria-label="直播间编辑导航">
+                {STUDIO_WORKSPACES.map((workspace) => {
+                  const Icon = workspace.icon;
+                  return <button className={studioWorkspace === workspace.id ? 'active' : ''} type="button" aria-current={studioWorkspace === workspace.id ? 'page' : undefined} onClick={() => openStudioWorkspace(workspace.id)} key={workspace.id}><Icon size={20} /><span>{workspace.label}</span></button>;
+                })}
+              </nav>
 
-                {showComposer && <form className="xlScriptComposer" onSubmit={addScript}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="输入新的直播话术…" rows={3} maxLength={200} autoFocus /><div><span>{draft.length}/200</span><span><button className="secondary" type="button" onClick={() => setShowComposer(false)}>取消</button><button type="submit" disabled={!draft.trim()}><Plus size={14} />添加话术</button></span></div></form>}
-
-                <div className="xlScriptList">
-                  {activeProductScripts.map((item, index) => {
-                    const selected = selectedScriptIds.includes(item.id);
-                    return <article className={`xlScriptItem ${item.state} ${selected ? 'selected' : ''}`} key={item.id} onClick={() => { if (batchMode) toggleScriptSelection(item.id); }}>
-                      <button className="xlScriptNumber" type="button" aria-label={batchMode ? `${selected ? '取消选择' : '选择'}${item.title}` : `第${index + 1}条话术`} onClick={(event) => { if (batchMode) { event.stopPropagation(); toggleScriptSelection(item.id); } }}>{batchMode ? (selected ? <CheckSquare size={16} /> : <span className="xlEmptyCheck" />) : index + 1}</button>
-                      <span className={`xlScriptCategory ${item.category === '促单' ? 'yellow' : item.category === '开场' ? 'pink' : ''}`}>{item.category}</span>
-                      <div className="xlScriptBody"><header><strong>{item.title}</strong><span>00:00 / {item.duration}</span></header><p>{item.text}</p><div className="xlScriptItemActions"><button type="button" onClick={(event) => { event.stopPropagation(); void play(item); }} disabled={playbackBusy || item.state === 'playing'} aria-label={`试听${item.title}`}><Play size={13} fill="currentColor" /></button><button type="button" onClick={(event) => { event.stopPropagation(); openScriptEditor(item); }} aria-label={`编辑${item.title}`}><Pencil size={13} /></button><button type="button" onClick={(event) => { event.stopPropagation(); setScripts((items) => items.filter((candidate) => candidate.id !== item.id)); setNotice('话术已删除'); }} aria-label={`删除${item.title}`}><Trash2 size={13} /></button></div></div>
-                    </article>;
-                  })}
+              <section className="xlScriptPanel" hidden={studioWorkspace !== 'script'}>
+                <div className="xlScriptAuthoringToolbar">
+                  <button className="xlWriteSegmentButton active" type="button" onClick={startNewScriptDraft} disabled={scriptVideoBatchBusy || dynamicGenerating}><FileText size={14} /><span>写片段</span></button>
+                  <span className="xlRewriteSegmented" aria-label="AI 文本处理">
+                    {([['expand', '扩写'], ['condense', '精简'], ['polish', '润色']] as const).map(([mode, label]) => (
+                      <button className={scriptRewriteMode === mode && dynamicGenerating ? 'active' : ''} type="button" key={mode} onClick={() => void generateDynamicScript(mode)} disabled={dynamicGenerating || (mode !== 'expand' && !draft.trim()) || (mode === 'expand' && !draft.trim() && !importedDocumentText.trim() && !importedMaterialImages.length)}>
+                        {dynamicGenerating && scriptRewriteMode === mode ? <LoaderCircle className="xlVoiceSpinner" size={12} /> : label}
+                      </button>
+                    ))}
+                  </span>
+                  <button className={importedDocumentName ? 'active' : ''} type="button" title={importedDocumentName ? `更换素材：${importedDocumentName}` : '上传文档或图片素材'} aria-label="上传文档或图片素材" onClick={() => documentInputRef.current?.click()}><FileUp size={15} /></button>
                 </div>
+
+                <section className="xlPrimaryScriptComposer">
+                  <div className="xlScriptEditorSurface">
+                    <textarea ref={draftTextareaRef} value={draft} aria-label="主播口播脚本" onChange={(event) => updateScriptDraft(event.target.value)} placeholder="在这里输入主播口播脚本…" rows={20} maxLength={SCRIPT_EDITOR_LIMIT} disabled={scriptVideoBatchBusy || dynamicGenerating || draftPreviewing || playbackQueueStatus !== 'idle' || onAir} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && storyboardScriptId === null) { event.preventDefault(); addDraftToScripts(); } }} />
+                    <div className="xlScriptEditorMeta"><span>{draft.length}/{SCRIPT_EDITOR_LIMIT}字</span><span>约{draftEstimatedDuration}</span><button type="button" title="重新估算时长" aria-label="重新估算时长" onClick={() => { if (storyboardScriptId !== null) setScripts(items => items.map(item => item.id === storyboardScriptId ? { ...item, duration: draftEstimatedDuration } : item)); }}><RefreshCw size={12} /></button>{storyboardScriptId === null && draft.trim() && <button type="button" title="加入分镜" aria-label="加入分镜" onClick={addDraftToScripts} disabled={scriptVideoBatchBusy}><Plus size={14} /></button>}</div>
+                  </div>
+                  {importedMaterialImages.length ? <div className="xlAttachedImageList" aria-label="已上传图片">
+                    {importedMaterialImages.map((image, index) => <div className="xlAttachedImage" role="group" tabIndex={0} aria-label={`已上传图片：${image.name}`} key={`${image.name}-${index}`}>
+                      <img className="xlAttachedImageThumb" src={image.dataUrl} alt={image.name} />
+                      <span className="xlAttachedImageZoom" role="tooltip"><img src={image.dataUrl} alt="" /></span>
+                      <button type="button" title={`移除“${image.name}”`} aria-label={`移除上传图片${image.name}`} onClick={() => removeImportedMaterialImage(index)}><X size={12} /></button>
+                    </div>)}
+                  </div> : importedDocumentName && <div className="xlAttachedMaterial"><FileUp size={13} /><span>{importedDocumentName}</span><button type="button" title="移除上传素材" aria-label="移除上传素材" onClick={clearImportedMaterial}><X size={13} /></button></div>}
+                  <div className="xlScriptComposerDock">
+                    <button className="xlComposerVoiceButton" type="button" title={`选择数字人声音，当前：${selectedVoice.name}`} onClick={openVoiceDialog}><span className="xlComposerAvatarAnchor"><img className="xlComposerAvatar" src={avatar.image} alt="" /><em>主播</em></span><span>{selectedVoice.name}</span><small>{voiceSpeed.toFixed(1)}x</small><ChevronDown size={12} /></button>
+                    <button className={`xlDraftPreviewButton ${draftPreviewState === 'playing' ? 'playing' : ''}`} type="button" aria-label={draftPreviewState === 'loading' ? '正在合成试听声音' : draftPreviewState === 'playing' ? '暂停试听' : draftPreviewState === 'paused' ? '继续试听' : '试听脚本'} aria-busy={draftPreviewState === 'loading'} title={draftPreviewState === 'loading' ? '正在合成并加载试听声音' : draftPreviewState === 'playing' ? '暂停当前试听' : draftPreviewState === 'paused' ? '继续当前试听' : `用“${selectedVoice.name}”试听当前文本`} disabled={!draft.trim() || draftPreviewState === 'loading' || (!draftPreviewing && (playbackBusy || playbackQueueStatus !== 'idle'))} onClick={() => void previewDraftSpeech()}>{draftPreviewState === 'loading' ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : draftPreviewState === 'playing' ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}<span>{draftPreviewState === 'loading' ? '合成中' : draftPreviewState === 'playing' ? '暂停' : draftPreviewState === 'paused' ? '继续' : '试听脚本'}</span></button>
+                  </div>
+                </section>
+
+                {productDemoStage !== 'idle' && <section className={`xlAliyunVideoStatus ${productDemoStage === 'failed' ? 'failed' : productDemoStage === 'ready' ? 'ready' : 'processing'}`} aria-live="polite" title={productDemoMessage || undefined}>
+                  <span>{productDemoBusy || aliyunVideoSubmitting ? <LoaderCircle className="xlVoiceSpinner" size={16} /> : productDemoStage === 'failed' ? <X size={16} /> : <Check size={16} />}</span>
+                  <div><strong>{productDemoStage === 'analyzing' ? '正在生成商品脚本' : productDemoStage === 'rendering' ? '正在合成数字人口播' : productDemoStage === 'ready' ? '商品试播已生成' : '商品试播未完成'}</strong><small>{productDemoMessage}</small></div>
+                  {aliyunVideo?.videoUrl && aliyunVideoState(aliyunVideo.status) === 'ready' && <button type="button" title={generatedVideoVisible ? '返回场景编辑预览' : '播放数字人口播成片'} aria-label={generatedVideoVisible ? '返回场景编辑预览' : '播放数字人口播成片'} onClick={() => void toggleGeneratedVideoPreview()}>{generatedVideoVisible ? <EyeOff size={14} /> : <Play size={14} fill="currentColor" />}</button>}
+                </section>}
+
               </section>
 
               <section className="xlPreviewPanel">
-                <header className="xlPreviewHeader"><span>直播预览 <button type="button" aria-label="查看预览说明" onClick={() => setPreviewHelp((value) => !value)}><HelpCircle size={15} /></button></span><div className="xlPreviewHeaderActions"><button type="button" className={loopVideoEnabled ? 'active' : ''} aria-label={loopVideoEnabled ? '关闭整场循环视频' : '开启整场循环视频'} aria-pressed={loopVideoEnabled} onClick={() => setLoopVideoEnabled((value) => !value)}><Video size={14} /><span>循环视频</span></button><span>预估时间 <strong>{estimatedTime}</strong></span></div></header>
+                <header className="xlPreviewHeader"><span>直播预览 <button type="button" aria-label="查看预览说明" onClick={() => setPreviewHelp((value) => !value)}><HelpCircle size={15} /></button></span><div className="xlPreviewHeaderActions"><span>预估时间 <strong>{estimatedTime}</strong></span></div></header>
                 <div className="xlPreviewStage">
                   {previewHelp && <div className="xlPreviewHelp">预览会实时同步模板、主播、文本与图层显隐状态。</div>}
                   <div className={`xlPortraitCanvas ${canvasGestureMode ? `interacting ${canvasGestureMode}` : ''}`} ref={previewCanvasRef} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasGesture} onPointerCancel={finishCanvasGesture} onLostPointerCapture={finishCanvasGesture}>
-                    {loopVideoEnabled && <>
-                      <video
-                        ref={loopVideoRef}
-                        className="xlSceneLoopVideo"
-                        src={BAIDU_LIVE_LOOP_VIDEO_URL}
-                        loop
-                        muted
-                        playsInline
-                        preload="metadata"
-                        aria-label="百度直播循环画面"
-                        onPlay={() => {
-                          loopVideoPlayingRef.current = true;
-                          setLoopVideoPlaying(true);
-                        }}
-                        onPause={() => {
-                          loopVideoPlayingRef.current = false;
-                          setLoopVideoPlaying(false);
-                        }}
-                      />
-                      <div className="xlLoopVideoControls">
-                        <button
-                          type="button"
-                          className="xlLoopVideoPlay"
-                          onClick={() => void toggleLoopVideoPlayback()}
-                          aria-label={loopVideoPlaying ? '暂停直播循环画面' : '播放直播循环画面并开启声音'}
-                          title={loopVideoPlaying ? '暂停直播循环画面' : '播放直播循环画面并开启声音'}
-                        >
-                          {loopVideoPlaying ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}
-                        </button>
-                        {loopVideoPlaying && <button
-                          type="button"
-                          className="xlLoopVideoVolume"
-                          onClick={() => setLoopVideoAudio(!loopVideoAudioEnabledRef.current)}
-                          disabled={playbackBusy || playbackQueueStatus === 'running'}
-                          aria-label={loopVideoAudioEnabled ? '关闭循环画面声音' : '开启循环画面声音'}
-                          title={loopVideoAudioEnabled ? '关闭循环画面声音' : '开启循环画面声音'}
-                        >
-                          {loopVideoAudioEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
-                        </button>}
-                      </div>
-                    </>}
                     {backgroundLayer && <img className="xlSceneBackground" src={previewBackground} alt={`${selectedTemplate.name}直播模板`} style={{ left: `${backgroundLayer.x}%`, top: `${backgroundLayer.y}%`, right: 'auto', bottom: 'auto', width: `${backgroundLayer.width}%`, height: `${backgroundLayer.height}%`, transform: `translate(-50%, -50%) rotate(${backgroundLayer.rotation}deg)`, opacity: backgroundLayer.opacity / 100 }} />}
-                    {!loopVideoEnabled && hostLayer && !avatarSwitching && <ChromaKeyHostPreview className="xlSceneHost" src={previewHost} settings={hostChromaKey} label={`${avatar.name}直播预览`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, zIndex: hostLayerZIndex, opacity: mediaActive ? 0 : hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />}
+                    {showStaticHost && hostLayer && <>
+                      {personImageState !== 'ready' && <ChromaKeyHostPreview className="xlSceneHost" src={previewHost} settings={previewHostChromaKey} label={`${avatar.name}静态预览`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, zIndex: hostLayerZIndex, opacity: hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />}
+                      <PersonSegmentedImagePreview className="xlAliyunHostPreview xlSegmentedHostPreview xlSceneHost" src={previewHost} onStateChange={setPersonImageState} label={`${avatar.name}透明静态人像`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, zIndex: hostLayerZIndex, opacity: personImageState === 'ready' ? hostLayer.opacity / 100 : 0, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />
+                    </>}
                     <canvas
                       ref={canvasRef}
                       className={mediaActive ? 'xlStreamCanvas active' : 'xlStreamCanvas'}
@@ -3133,17 +4452,61 @@ export function LiveStudio({
                         width: `${hostLayer.width}%`,
                         height: `${hostLayer.height}%`,
                         zIndex: hostLayerZIndex,
-                        opacity: loopVideoEnabled ? 0 : mediaActive ? hostLayer.opacity / 100 : 0,
+                        opacity: generatedVideoReady ? 0 : mediaActive ? hostLayer.opacity / 100 : 0,
                         transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)`,
                       } : undefined}
                     />
-                    {avatarSwitching && <div className="xlAvatarLoading" role="status"><i /><span>主播形象加载中</span></div>}
-                    {layers.map((item) => item.kind === 'text' ? <span className={`xlCanvasText ${item.sceneKey === 'custom' ? 'custom' : item.sceneKey ?? ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: layerZIndex(layers, item.id), transform: `translate(-50%, -50%) rotate(${item.rotation}deg)`, opacity: item.opacity / 100, color: item.color, fontFamily: FONT_FAMILIES[item.fontFamily ?? '默认字体'], fontSize: `${item.fontSize ?? 16}px`, fontWeight: item.fontWeight, fontStyle: item.fontStyle, textDecoration: item.textDecoration, textAlign: item.textAlign, letterSpacing: `${item.letterSpacing ?? 0}px`, lineHeight: item.lineHeight, WebkitTextStroke: item.strokeEnabled ? `1px ${item.strokeColor ?? '#000000'}` : undefined, textShadow: item.shadowEnabled ? `${item.shadowX ?? 4}px ${item.shadowY ?? 4}px ${item.shadowBlur ?? 8}px ${item.shadowColor ?? '#000000'}` : undefined }} key={item.id}>{item.value}</span> : item.sceneKey === 'custom' && item.kind !== 'host' ? <span className={`xlCustomSceneAsset ${item.kind}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: layerZIndex(layers, item.id), transform: `translate(-50%, -50%) rotate(${item.rotation}deg)`, opacity: item.opacity / 100 }} key={item.id}>{item.kind === 'image' && item.preview ? <img src={item.preview} alt={item.value} /> : item.kind === 'image' ? <ImageIcon size={23} /> : <Video size={23} />}{(item.kind !== 'image' || !item.preview) && <em>{item.value}</em>}</span> : null)}
+                    {layers.map((item) => {
+                      const layerStyle: CSSProperties = {
+                        left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`,
+                        zIndex: layerZIndex(layers, item.id), transform: `translate(-50%, -50%) rotate(${item.rotation}deg)`,
+                        opacity: item.opacity / 100,
+                      };
+                      if (item.kind === 'text') {
+                        if (item.preview) return <span className="xlCanvasText xlCanvasRenderedText" style={layerStyle} key={item.id}><img src={item.preview} alt={item.value} /></span>;
+                        return <span className={`xlCanvasText ${item.sceneKey === 'custom' ? 'custom' : item.sceneKey ?? ''}`} style={{
+                          ...layerStyle, color: item.color,
+                          background: item.backgroundEnabled ? colorWithOpacity(item.backgroundColor ?? '#111827', item.backgroundOpacity ?? 72) : item.sceneKey === 'custom' || item.sceneKey === 'templateElement' ? 'transparent' : undefined,
+                          borderRadius: `${item.backgroundRadius ?? 6}px`, fontFamily: fontFamilyCss(item.fontFamily),
+                          fontSize: canvasFontSize(item.fontSize), fontWeight: item.fontWeight, fontStyle: item.fontStyle,
+                          textDecoration: item.textDecoration, textAlign: item.textAlign,
+                          justifyContent: item.textAlign === 'left' ? 'flex-start' : item.textAlign === 'right' ? 'flex-end' : 'center',
+                          letterSpacing: `${item.letterSpacing ?? 0}px`, lineHeight: item.lineHeight,
+                          WebkitTextStroke: item.strokeEnabled ? `${roundCanvasValue((item.strokeWidth ?? 1) / 3.78)}cqw ${item.strokeColor ?? '#000000'}` : undefined,
+                          textShadow: item.shadowEnabled ? `${item.shadowX ?? 4}px ${item.shadowY ?? 4}px ${item.shadowBlur ?? 8}px ${item.shadowColor ?? '#000000'}` : undefined,
+                        }} key={item.id}>{item.value}</span>;
+                      }
+                      if ((item.sceneKey !== 'custom' && item.sceneKey !== 'templateElement') || item.kind === 'host') return null;
+                      return <span className={`xlCustomSceneAsset ${item.kind} ${item.sceneKey === 'templateElement' ? 'templateElement' : ''}`} style={layerStyle} key={item.id}>
+                        {item.kind === 'image' && item.preview ? <img src={item.preview} alt={item.value} /> : item.kind === 'image' ? <ImageIcon size={23} /> : <Video size={23} />}
+                        {(item.kind !== 'image' || !item.preview) && <em>{item.value}</em>}
+                      </span>;
+                    })}
                     {visibleProductCard && <div className="xlProductCardOverlay"><strong>{visibleProductCard.name}</strong>{typeof visibleProductCard.price === 'number' && <b>¥{visibleProductCard.price.toFixed(2)}</b>}{visibleProductCard.sellingPoints?.length ? <small>{visibleProductCard.sellingPoints.slice(0, 2).join(' · ')}</small> : null}</div>}
-                    {layers.map((item) => <button className={`xlLayerHitTarget ${item.sceneKey === 'templateBackground' ? 'background' : ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: layerZIndex(layers, item.id, 30), transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }} type="button" aria-label={`选择并移动图层：${item.value}`} aria-pressed={selectedLayerId === item.id} data-layer-hit={item.id} key={`hit-${item.id}`} onPointerDown={(event) => beginCanvasGesture(event, item, 'move')} onClick={(event) => { event.stopPropagation(); openLayerInspector(item.id); }} />)}
-                    {inspectorLayer && <div className={`xlLayerSelectionBox ${inspectorLayer.kind}`} style={{ left: `${inspectorLayer.x}%`, top: `${inspectorLayer.y}%`, width: `${inspectorLayer.width}%`, height: `${inspectorLayer.height}%`, transform: `translate(-50%, -50%) rotate(${inspectorLayer.rotation}deg)` }} role="group" aria-label={`画布控制：${inspectorLayer.value}`} onPointerDownCapture={(event) => beginSelectionGesture(event, inspectorLayer)}>
-                      {(['nw', 'ne', 'se', 'sw'] as const).map((handle) => <span className={`xlResizeHandle ${handle}`} role="button" aria-label={`${handle}方向缩放${inspectorLayer.value}`} data-resize-handle={handle} key={handle} />)}
-                      <span className="xlRotateHandle" role="button" aria-label={`旋转${inspectorLayer.value}`} data-rotate-handle="true" />
+                    {generatedVideoReady && hostLayer && <video
+                      ref={(element) => {
+                        generatedVideoRef.current = element;
+                        if (broadcastSceneRef.current) broadcastSceneRef.current.hostVideoElement = element;
+                        if (element) playRequestedGeneratedVideo(element);
+                      }}
+                      className="xlGeneratedProductVideo xlSceneHost"
+                      src={aliyunVideo!.videoUrl}
+                      poster={aliyunVideo!.coverUrl || undefined}
+                      playsInline
+                      preload="auto"
+                      aria-label="生成的商品数字人口播预览"
+                      onPlay={(event) => { setGeneratedVideoPlaying(true); void useGeneratedVideoOutputAudio(event.currentTarget).catch((cause) => setError(`数字人口播音频接入失败：${cause instanceof Error ? cause.message : String(cause)}`)); }}
+                      onPause={() => setGeneratedVideoPlaying(false)}
+                      onEnded={() => void restoreAvatarOutputAudio().catch(() => undefined)}
+                      style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, zIndex: hostLayerZIndex, opacity: hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }}
+                    />}
+                    {generatedVideoReady && <div className="xlGeneratedPreviewControls">
+                      <button className="xlCloseGeneratedPreview" type="button" title="返回静态画布" aria-label="返回静态画布" onClick={() => { generatedVideoPlaybackRequestRef.current = null; generatedVideoRef.current?.pause(); setGeneratedVideoVisible(false); void restoreAvatarOutputAudio().catch(() => undefined); }}><X size={16} /></button>
+                    </div>}
+                    {layers.map((item) => <button className={`xlLayerHitTarget ${item.sceneKey === 'templateBackground' ? 'background' : ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: layerZIndex(layers, item.id, 30), transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }} type="button" aria-label={`选择并移动图层：${item.value}`} aria-pressed={selectedLayerId === item.id} data-layer-hit={item.id} key={`hit-${item.id}`} onPointerDown={(event) => beginCanvasGesture(event, item, 'move')} onClick={(event) => { event.stopPropagation(); selectCanvasLayer(item); }} />)}
+                    {selectedLayer && <div className={`xlLayerSelectionBox ${selectedLayer.kind}`} style={{ left: `${selectedLayer.x}%`, top: `${selectedLayer.y}%`, width: `${selectedLayer.width}%`, height: `${selectedLayer.height}%`, transform: `translate(-50%, -50%) rotate(${selectedLayer.rotation}deg)` }} role="group" aria-label={`画布控制：${selectedLayer.value}`} onPointerDownCapture={(event) => beginSelectionGesture(event, selectedLayer)}>
+                      {(['nw', 'ne', 'se', 'sw'] as const).map((handle) => <span className={`xlResizeHandle ${handle}`} role="button" aria-label={`${handle}方向缩放${selectedLayer.value}`} data-resize-handle={handle} key={handle} />)}
+                      <span className="xlRotateHandle" role="button" aria-label={`旋转${selectedLayer.value}`} data-rotate-handle="true" />
                     </div>}
                     {onAir && <span className="xlOnAir">LIVE</span>}
                     {stage !== 'idle' && <span className="xlRenderState">{stage === 'error' ? '连接异常' : '数字人生成中'}</span>}
@@ -3153,36 +4516,28 @@ export function LiveStudio({
                 </div>
               </section>
 
-              <aside className="xlMaterialsPanel">
-                <nav className="xlMaterialTabs" aria-label="直播素材">{MATERIAL_TABS.map((tabItem) => { const Icon = tabItem.icon; return <button className={materialTab === tabItem.id ? 'active' : ''} type="button" key={tabItem.id} onClick={() => { setMaterialTab(tabItem.id); closeLayerInspector(); setAssetQuery(''); setAssetBatchMode(false); setSelectedAssetIds([]); }}><Icon size={17} /><span>{tabItem.label}</span></button>; })}</nav>
+              <aside className={`xlMaterialsPanel ${studioWorkspace}`} hidden={studioWorkspace === 'script'}>
+                {studioWorkspace === 'decorate' && <nav className="xlMaterialTabs" aria-label="装修素材">{DECORATION_TABS.map((tabItem) => { const Icon = tabItem.icon; return <button className={materialTab === tabItem.id ? 'active' : ''} type="button" key={tabItem.id} onClick={() => { setMaterialTab(tabItem.id); closeLayerInspector(); setAssetQuery(''); setAssetBatchMode(false); setSelectedAssetIds([]); }}><Icon size={17} /><span>{tabItem.label}</span></button>; })}</nav>}
                 <input ref={imageInputRef} className="xlHiddenInput" type="file" accept="image/*" multiple onChange={(event) => { void importAssets('image', event.currentTarget.files); event.currentTarget.value = ''; }} />
-                <input ref={videoInputRef} className="xlHiddenInput" type="file" accept="video/*" multiple onChange={(event) => { void importAssets('video', event.currentTarget.files); event.currentTarget.value = ''; }} />
-                <input ref={documentInputRef} className="xlHiddenInput" type="file" accept=".ppt,.pptx,.doc,.docx,.xls,.xlsx,.txt,.md" onChange={(event) => { void importDocument(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
+                <input ref={templateInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void chooseTemplateBackground(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
+                <input ref={documentInputRef} className="xlHiddenInput" type="file" accept=".pdf,.docx,.xlsx,.txt,.md,.csv,.json,image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json" onChange={(event) => { void importDocument(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
                 <input ref={productDocumentInputRef} className="xlHiddenInput" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,image/jpeg,image/png,image/webp,image/gif" multiple onChange={(event) => { void loadProductReferenceFiles(event.currentTarget.files ?? undefined); event.currentTarget.value = ''; }} />
                 <input ref={productImageInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple onChange={(event) => { void loadProductReferenceImages(event.currentTarget.files ?? undefined); event.currentTarget.value = ''; }} />
                 <div className="xlMaterialsWorkspace">
                   <div className="xlMaterialsScroll" ref={materialsScrollRef}>
-                  {inspectorLayer ? (
+                  {studioWorkspace === 'decorate' && inspectorLayer ? (
                     <section className="xlLayerInspector">
                       <header className="xlInspectorHeader"><strong>调整</strong><button type="button" aria-label="关闭调整面板" onClick={closeLayerInspector}><X size={16} /></button></header>
                       <div className="xlInspectorBody">
                         <div className="xlInspectorSection"><strong>位置</strong><div className="xlInspectorPosition"><label><span>X</span><input aria-label="图层横向位置" type="number" min="-100" max="200" value={inspectorLayer.x} onChange={(event) => updateLayer(inspectorLayer.id, { x: Math.max(-100, Math.min(200, Number(event.target.value))) })} /></label><label><span>Y</span><input aria-label="图层纵向位置" type="number" min="-100" max="200" value={inspectorLayer.y} onChange={(event) => updateLayer(inspectorLayer.id, { y: Math.max(-100, Math.min(200, Number(event.target.value))) })} /></label></div></div>
                         <div className="xlInspectorSection"><strong>尺寸</strong><div className="xlInspectorPosition"><label><span>W</span><input aria-label="图层宽度" type="number" min="4" max="200" step="0.1" value={inspectorLayer.width} onChange={(event) => updateLayer(inspectorLayer.id, { width: clampCanvasValue(Number(event.target.value), 4, 200) })} /></label><label><span>H</span><input aria-label="图层高度" type="number" min="3" max="200" step="0.1" value={inspectorLayer.height} onChange={(event) => updateLayer(inspectorLayer.id, { height: clampCanvasValue(Number(event.target.value), 3, 200) })} /></label></div></div>
                         <div className="xlInspectorSection"><label className="xlInspectorField"><strong>旋转</strong><span><input aria-label="图层旋转角度" type="number" min="-180" max="180" value={inspectorLayer.rotation} onChange={(event) => updateLayer(inspectorLayer.id, { rotation: Math.max(-180, Math.min(180, Number(event.target.value))) })} /><em>°</em></span></label></div>
-                        {inspectorLayer.kind === 'host' && <div className="xlInspectorSection xlChromaKeyControl">
-                          <div className="xlChromaKeyHeader"><strong>背景抠除</strong><button className={hostChromaKey.enabled ? 'on' : ''} type="button" role="switch" aria-label="背景抠除开关" aria-checked={hostChromaKey.enabled} onClick={() => updateLayer(inspectorLayer.id, { chromaKeyEnabled: !hostChromaKey.enabled })}><i /></button></div>
-                          {hostChromaKey.enabled && <div className="xlChromaKeyFields">
-                            <div className="xlChromaKeyColor"><label><span>背景色</span><input ref={chromaColorInputRef} aria-label="抠除背景色" type="color" value={hostChromaKey.color} onChange={(event) => updateLayer(inspectorLayer.id, { chromaKeyColor: event.target.value })} /></label><code>{hostChromaKey.color.toUpperCase()}</code><button type="button" aria-label="从屏幕选取背景色" title="从屏幕选取背景色" onClick={() => void pickChromaKeyColor(inspectorLayer)}><Pipette size={15} /></button></div>
-                            <label className="xlChromaKeyRange"><span><strong>容差</strong><em>{hostChromaKey.tolerance}</em></span><input aria-label="背景色容差" type="range" min="0" max="40" step="0.5" value={hostChromaKey.tolerance} onChange={(event) => updateLayer(inspectorLayer.id, { chromaKeyTolerance: Number(event.target.value) })} /></label>
-                            <label className="xlChromaKeyRange"><span><strong>边缘柔化</strong><em>{hostChromaKey.softness}</em></span><input aria-label="抠色边缘柔化" type="range" min="0" max="40" step="0.5" value={hostChromaKey.softness} onChange={(event) => updateLayer(inspectorLayer.id, { chromaKeySoftness: Number(event.target.value) })} /></label>
-                          </div>}
-                        </div>}
                         <div className="xlInspectorSection"><strong>层级</strong><div className="xlInspectorOrder"><button type="button" onClick={() => moveLayer(inspectorLayer.id, 'forward')}>向前</button><button type="button" onClick={() => moveLayer(inspectorLayer.id, 'backward')}>向后</button><button type="button" onClick={() => moveLayer(inspectorLayer.id, 'front')}>最前</button><button type="button" onClick={() => moveLayer(inspectorLayer.id, 'back')}>最后</button></div></div>
                         <div className="xlInspectorSection"><strong>对齐</strong><div className="xlInspectorAlign"><button type="button" aria-label="左对齐" onClick={() => alignLayer(inspectorLayer, 'left')}>左</button><button type="button" aria-label="水平居中" onClick={() => alignLayer(inspectorLayer, 'centerX')}>水平</button><button type="button" aria-label="右对齐" onClick={() => alignLayer(inspectorLayer, 'right')}>右</button><button type="button" aria-label="顶部对齐" onClick={() => alignLayer(inspectorLayer, 'top')}>上</button><button type="button" aria-label="垂直居中" onClick={() => alignLayer(inspectorLayer, 'centerY')}>垂直</button><button type="button" aria-label="底部对齐" onClick={() => alignLayer(inspectorLayer, 'bottom')}>下</button></div></div>
                         {inspectorLayer.kind === 'text' && <div className="xlInspectorSection xlInspectorTextStyle">
                           <strong>文本样式</strong>
                           <label className="xlInspectorWide"><span>文本内容</span><textarea aria-label="文本内容" rows={2} maxLength={80} value={inspectorLayer.value} onChange={(event) => updateLayer(inspectorLayer.id, { value: event.target.value })} /></label>
-                          <label className="xlInspectorWide"><span>字体</span><select aria-label="字体" value={inspectorLayer.fontFamily ?? '默认字体'} onChange={(event) => updateLayer(inspectorLayer.id, { fontFamily: event.target.value })}><option>默认字体</option><option>思源黑体</option><option>站酷快乐体</option></select></label>
+                          <label className="xlInspectorWide"><span>字体</span><select aria-label="字体" value={inspectorLayer.fontFamily ?? '默认字体'} onChange={(event) => updateLayer(inspectorLayer.id, { fontFamily: event.target.value })}>{FONT_OPTIONS.map(font => <option value={font.value} key={font.value}>{font.label}</option>)}</select></label>
                           <label><span>文字颜色</span><input aria-label="文字颜色" type="color" value={inspectorLayer.color ?? '#ffffff'} onChange={(event) => updateLayer(inspectorLayer.id, { color: event.target.value })} /></label>
                           <label><span>字号</span><input aria-label="文字字号" type="number" min="8" max="72" value={inspectorLayer.fontSize ?? 16} onChange={(event) => updateLayer(inspectorLayer.id, { fontSize: Math.max(8, Math.min(72, Number(event.target.value))) })} /></label>
                           <label><span>字距</span><input aria-label="文字字距" type="number" min="-10" max="30" value={inspectorLayer.letterSpacing ?? 0} onChange={(event) => updateLayer(inspectorLayer.id, { letterSpacing: Math.max(-10, Math.min(30, Number(event.target.value))) })} /></label>
@@ -3191,31 +4546,157 @@ export function LiveStudio({
                           <div className="xlTextStyleGroup"><span>对齐方式</span><div>{(['left', 'center', 'right'] as const).map((alignment) => <button className={inspectorLayer.textAlign === alignment ? 'active' : ''} type="button" aria-label={`文本${alignment === 'left' ? '左' : alignment === 'center' ? '居中' : '右'}对齐`} aria-pressed={inspectorLayer.textAlign === alignment} key={alignment} onClick={() => updateLayer(inspectorLayer.id, { textAlign: alignment })}>{alignment === 'left' ? '左' : alignment === 'center' ? '中' : '右'}</button>)}</div></div>
                           <div className="xlEffectControl"><div><span>描边</span><button className={inspectorLayer.strokeEnabled ? 'on' : ''} type="button" role="switch" aria-label="描边开关" aria-checked={inspectorLayer.strokeEnabled} onClick={() => updateLayer(inspectorLayer.id, { strokeEnabled: !inspectorLayer.strokeEnabled })}><i /></button></div>{inspectorLayer.strokeEnabled && <input aria-label="描边颜色" type="color" value={inspectorLayer.strokeColor ?? '#000000'} onChange={(event) => updateLayer(inspectorLayer.id, { strokeColor: event.target.value })} />}</div>
                           <div className="xlEffectControl xlInspectorWide"><div><span>阴影</span><button className={inspectorLayer.shadowEnabled ? 'on' : ''} type="button" role="switch" aria-label="阴影开关" aria-checked={inspectorLayer.shadowEnabled} onClick={() => updateLayer(inspectorLayer.id, { shadowEnabled: !inspectorLayer.shadowEnabled })}><i /></button></div>{inspectorLayer.shadowEnabled && <div className="xlShadowFields"><input aria-label="阴影颜色" type="color" value={inspectorLayer.shadowColor ?? '#000000'} onChange={(event) => updateLayer(inspectorLayer.id, { shadowColor: event.target.value })} /><input aria-label="阴影模糊" title="模糊" type="number" min="0" max="30" value={inspectorLayer.shadowBlur ?? 8} onChange={(event) => updateLayer(inspectorLayer.id, { shadowBlur: Math.max(0, Math.min(30, Number(event.target.value))) })} /><input aria-label="阴影横向偏移" title="X" type="number" min="-30" max="30" value={inspectorLayer.shadowX ?? 4} onChange={(event) => updateLayer(inspectorLayer.id, { shadowX: Math.max(-30, Math.min(30, Number(event.target.value))) })} /><input aria-label="阴影纵向偏移" title="Y" type="number" min="-30" max="30" value={inspectorLayer.shadowY ?? 4} onChange={(event) => updateLayer(inspectorLayer.id, { shadowY: Math.max(-30, Math.min(30, Number(event.target.value))) })} /></div>}</div>
+                          <div className="xlEffectControl xlInspectorWide"><div><span>文字背景</span><button className={inspectorLayer.backgroundEnabled ? 'on' : ''} type="button" role="switch" aria-label="文字背景开关" aria-checked={Boolean(inspectorLayer.backgroundEnabled)} onClick={() => updateLayer(inspectorLayer.id, { backgroundEnabled: !inspectorLayer.backgroundEnabled })}><i /></button></div>{inspectorLayer.backgroundEnabled && <div className="xlTextBackgroundFields"><input aria-label="文字背景颜色" type="color" value={inspectorLayer.backgroundColor ?? '#111827'} onChange={(event) => updateLayer(inspectorLayer.id, { backgroundColor: event.target.value })} /><label><span>透明度</span><input aria-label="文字背景透明度" type="range" min="0" max="100" value={inspectorLayer.backgroundOpacity ?? 72} onChange={(event) => updateLayer(inspectorLayer.id, { backgroundOpacity: Number(event.target.value) })} /><em>{inspectorLayer.backgroundOpacity ?? 72}%</em></label></div>}</div>
                         </div>}
+                        {inspectorLayer.kind === 'image' && <div className="xlInspectorSection"><button className="xlInspectorReplaceImage" type="button" onClick={() => imageInputRef.current?.click()}><ImageIcon size={14} />替换图片</button></div>}
                         <div className="xlInspectorSection"><label className="xlOpacityField"><span><strong>不透明度</strong><em>{inspectorLayer.opacity}%</em></span><input aria-label="图层不透明度" type="range" min="0" max="100" value={inspectorLayer.opacity} onChange={(event) => updateLayer(inspectorLayer.id, { opacity: Number(event.target.value) })} /></label></div>
                         <button className="xlApplyAllGoods" type="button" onClick={() => setNotice(inspectorLayer.kind === 'host' ? '人像位置已同步到全部商品' : `“${inspectorLayer.value}”已添加至所有商品`)}>{inspectorLayer.kind === 'host' ? '同步人像位置' : '添加至所有商品'}</button>
                       </div>
                     </section>
                   ) : <div className="xlMaterialBrowser">
-                    {materialTab === 'template' && <><label className="xlMaterialSearch"><input value={templateQuery} onChange={(event) => setTemplateQuery(event.target.value)} placeholder="搜索模板名称" /><Search size={15} /></label><div className="xlMaterialFilters"><label><select aria-label="模板类型" value={templateCategory} onChange={(event) => setTemplateCategory(event.target.value)}>{['全部', '通用', '家居', '食品', '教育', '服饰'].map((item) => <option value={item} key={item}>类型：{item}</option>)}</select><ChevronDown size={12} /></label><label><select aria-label="模板颜色" value={templateColor} onChange={(event) => setTemplateColor(event.target.value)}>{['全部', '暖色', '清新', '亮色'].map((item) => <option value={item} key={item}>颜色：{item}</option>)}</select><ChevronDown size={12} /></label></div><div className="xlTemplateGrid">{filteredTemplates.map((template) => <button className={selectedTemplateId === template.id ? 'selected' : ''} type="button" key={template.id} onClick={() => applyTemplate(template.id)}><img src={template.image} alt={template.name} /><span>{template.name}</span></button>)}</div>{!filteredTemplates.length && <div className="xlMaterialNoResult">没有找到匹配模板</div>}</>}
+                    {studioWorkspace === 'decorate' && materialTab === 'template' && <div className="xlTemplateBrowser">
+                      <label className="xlMaterialSearch"><input value={templateQuery} onChange={(event) => { setTemplateQuery(event.target.value); setVisibleTemplateCount(80); }} placeholder="搜索模板名称" /><Search size={15} /></label>
+                      <div className="xlTemplateActions">
+                        <button type="button" onClick={openTemplateDraft}><Plus size={13} />新建自定义模板</button>
+                        {customTemplates.some((item) => item.id === selectedTemplateId) && <>
+                          <button type="button" title="用当前画面覆盖所选模板" onClick={updateSelectedCustomTemplate}><RefreshCw size={13} />更新</button>
+                          <button className="danger" type="button" title="删除所选自定义模板" onClick={deleteSelectedCustomTemplate}><Trash2 size={13} /></button>
+                        </>}
+                      </div>
+                      {templateDraftMode && <section className="xlTemplateCreator">
+                        <header><strong>新建自定义模板</strong><button type="button" aria-label="关闭自定义模板编辑" onClick={() => setTemplateDraftMode(null)}><X size={14} /></button></header>
+                        <label><span>模板名称</span><input value={templateDraftName} onChange={(event) => setTemplateDraftName(event.target.value)} maxLength={24} placeholder="输入模板名称" /></label>
+                        <button className={`xlTemplateBackgroundPicker ${templateDraftBackground ? 'hasImage' : ''}`} type="button" onClick={() => templateInputRef.current?.click()} disabled={templateDraftBusy}>
+                          {templateDraftBackground ? <img src={templateDraftBackground} alt="自定义模板背景预览" /> : <span><Upload size={18} /><strong>{templateDraftBusy ? '正在处理背景' : '上传 9:16 背景图'}</strong><small>JPG、PNG 或 WebP，最大 15 MB</small></span>}
+                          {templateDraftBackground && <em><Upload size={12} />更换背景</em>}
+                        </button>
+                        <button className="xlTemplateSaveButton" type="button" disabled={!templateDraftName.trim() || !templateDraftBackground || templateDraftBusy} onClick={saveCustomTemplate}><Save size={13} />保存并应用</button>
+                      </section>}
+                      {templateStorageError && <div className="xlTemplateStorageError">{templateStorageError}</div>}
+                      {templateLoadError && <div className="xlTemplateStorageError">{templateLoadError}</div>}
+                      {(selectedTemplate.pageCount ?? 1) > 1 && <div className="xlTemplatePages"><span>画布页面</span><div>{Array.from({ length: selectedTemplate.pageCount ?? 1 }, (_, pageIndex) => <button className={selectedTemplatePage === pageIndex ? 'active' : ''} type="button" disabled={roomLoading || templateLoadingId === selectedTemplate.id} aria-label={`切换到第 ${pageIndex + 1} 页`} aria-pressed={selectedTemplatePage === pageIndex} onClick={() => void applyTemplate(selectedTemplate.id, pageIndex)} key={pageIndex}>{pageIndex + 1}</button>)}</div></div>}
+                      <div className="xlMaterialFilters"><label><select aria-label="模板类型" value={templateCategory} onChange={(event) => { setTemplateCategory(event.target.value); setVisibleTemplateCount(80); }}>{templateCategories.map((item) => <option value={item} key={item}>类型：{item}</option>)}</select><ChevronDown size={12} /></label><label><select aria-label="模板颜色" value={templateColor} onChange={(event) => { setTemplateColor(event.target.value); setVisibleTemplateCount(80); }}>{templateColors.map((item) => <option value={item} key={item}>颜色：{item}</option>)}</select><ChevronDown size={12} /></label></div>
+                      <div className="xlTemplateGrid">{filteredTemplates.map((template) => <article className={`xlTemplateCard ${selectedTemplateId === template.id ? 'selected' : ''}`} key={template.id}><button type="button" disabled={roomLoading || templateLoadingId === template.id} aria-busy={templateLoadingId === template.id} onClick={() => void applyTemplate(template.id)}><span className="xlTemplateCover"><img src={template.image} alt={template.name} loading="lazy" decoding="async" />{template.custom ? <i>我的</i> : template.source && <i>{templateLoadingId === template.id ? '读取中' : '一镜'}</i>}{(template.pageCount ?? 1) > 1 && <small>{template.pageCount} 页</small>}</span><strong>{template.name}</strong></button></article>)}</div>
+                      {filteredTemplates.length < matchingTemplates.length && <button className="xlTemplateLoadMore" type="button" onClick={() => setVisibleTemplateCount((count) => count + 80)}>加载更多（{filteredTemplates.length}/{matchingTemplates.length}）</button>}
+                      {!filteredTemplates.length && <div className="xlMaterialNoResult">没有找到匹配模板</div>}
+                    </div>}
 
-                    {materialTab === 'host' && <div className="xlHostPicker"><label className="xlMaterialSearch"><input value={hostQuery} onChange={(event) => setHostQuery(event.target.value)} placeholder="搜索人像名称" /><Search size={15} /></label><div className="xlHostScope"><button className={hostScope === 'mine' ? 'active' : ''} type="button" onClick={() => setHostScope('mine')}>我的</button><button className={hostScope === 'square' ? 'active' : ''} type="button" onClick={() => setHostScope('square')}>广场</button><button className={hostScope === 'favorite' ? 'active' : ''} type="button" onClick={() => setHostScope('favorite')}>收藏</button></div>{hostScope === 'square' && <><button className="xlExpandFilters" type="button" aria-expanded={showHostFilters} onClick={() => setShowHostFilters((value) => !value)}>{showHostFilters ? '收起筛选' : '展开筛选'}<ChevronDown size={13} /></button>{showHostFilters && <div className="xlHostFilters"><label><span>类型</span><select value={hostFilters.type} onChange={(event) => setHostFilters((filters) => ({ ...filters, type: event.target.value }))}><option>全部</option><option>真人</option><option>卡通</option></select></label><label><span>性别</span><select value={hostFilters.gender} onChange={(event) => setHostFilters((filters) => ({ ...filters, gender: event.target.value }))}><option>全部</option><option>女</option><option>男</option></select></label><label><span>年龄</span><select value={hostFilters.age} onChange={(event) => setHostFilters((filters) => ({ ...filters, age: event.target.value }))}><option>全部</option><option>青年</option><option>中年</option></select></label></div>}</>}{visibleHosts.map((item) => <button className={avatarId === item.id ? 'selected' : ''} type="button" key={item.id} disabled={onAir} onClick={() => { if (item.id === avatarId) { setNotice('当前已使用该主播'); return; } setPendingAvatarId(item.id); setDialog('avatarConfirm'); }}><img src={item.id === 'chinese' ? '/assets/xiling-live/host.png' : item.image} alt={item.name} /><span><strong>{item.name}</strong><small>{item.role}</small></span>{avatarId === item.id && <Check size={15} />}</button>)}{!visibleHosts.length && <div className="xlMaterialNoResult">没有找到匹配主播</div>}</div>}
+                    {studioWorkspace === 'host' && materialTab === 'host' && <div className="xlHostPicker">
+                      <div className="xlHostFilters" aria-label="数字人筛选">
+                        <div className="xlHostGenderFilter"><span>性别</span>{(['全部', '女', '男'] as const).map((gender) => <button className={hostFilters.gender === gender ? 'active' : ''} type="button" aria-pressed={hostFilters.gender === gender} onClick={() => setHostFilters((filters) => ({ ...filters, gender }))} key={gender}>{gender}</button>)}</div>
+                        <label><span>使用场景</span><span><select aria-label="主播使用场景" value={hostFilters.scene} onChange={(event) => setHostFilters((filters) => ({ ...filters, scene: event.target.value }))}><option>全部场景</option><option>播报</option><option>对话</option><option>直播</option></select><ChevronDown size={12} /></span></label>
+                      </div>
+                      <div className="xlHostGrid">
+                        {visibleHosts.map((item) => <button className={`xlHostCard ${avatarId === item.id ? 'selected' : ''}`} type="button" key={item.id} disabled={roomLoading || onAir} aria-label={`选择数字人 ${item.name}`} aria-pressed={avatarId === item.id} onClick={() => { if (item.id === avatarId) { setNotice('当前已使用该主播'); return; } applyAvatar(item.id); }}><span className="xlHostPortrait"><img src={item.image} alt="" loading="lazy" decoding="async" />{avatarId === item.id && <i><Check size={13} /></i>}</span><span className="xlHostMeta"><strong>{item.name}</strong><small>{item.role}</small></span></button>)}
+                      </div>
+                      {!visibleHosts.length && <div className="xlMaterialNoResult">没有找到匹配主播</div>}
+                    </div>}
 
-                    {(materialTab === 'image' || materialTab === 'video') && <div className="xlAssetPanel"><label className="xlMaterialSearch"><input value={assetQuery} onChange={(event) => setAssetQuery(event.target.value)} placeholder={`搜索${materialTab === 'image' ? '图片' : '视频'}名称`} /><Search size={15} /></label><div className="xlAssetToolbar"><div><button className={assetScope === 'mine' ? 'active' : ''} type="button" onClick={() => { setAssetScope('mine'); setSelectedAssetIds([]); }}>我的</button><button className={assetScope === 'square' ? 'active' : ''} type="button" onClick={() => { setAssetScope('square'); setSelectedAssetIds([]); }}>广场</button></div><span><button type="button" onClick={() => (materialTab === 'image' ? imageInputRef : videoInputRef).current?.click()}><Upload size={13} />导入</button><button className={assetBatchMode ? 'active' : ''} type="button" onClick={() => { setAssetBatchMode((value) => !value); setSelectedAssetIds([]); }}>批量</button></span></div>{assetBatchMode && <div className="xlAssetBatchToolbar"><button type="button" onClick={() => setSelectedAssetIds(selectedAssetIds.length === currentAssets.length ? [] : currentAssets.map((item) => item.id))}>{currentAssets.length > 0 && selectedAssetIds.length === currentAssets.length ? <CheckSquare size={14} /> : <span className="xlEmptyCheck" />}全选</button><button type="button" disabled={!selectedAssetIds.length || assetScope !== 'mine'} onClick={deleteSelectedAssets}><Trash2 size={14} />删除已选</button></div>}{assetScope === 'mine' && currentAssets.length === 0 ? <div className="xlMaterialEmpty"><span>{materialTab === 'image' ? <ImageIcon size={26} /> : <Video size={26} />}</span><strong>暂无{materialTab === 'image' ? '图片' : '视频'}素材</strong><p>导入只会加入“我的素材”，点击素材卡片才会添加到直播画面。</p><button type="button" onClick={() => (materialTab === 'image' ? imageInputRef : videoInputRef).current?.click()}><Plus size={14} />导入素材</button></div> : <div className="xlAssetCards">{currentAssets.map((asset) => { const selected = selectedAssetIds.includes(asset.id); return <button className={selected ? 'selected' : ''} type="button" key={asset.id} onClick={() => assetBatchMode ? toggleAssetSelection(asset.id) : addAssetToCanvas(asset)}>{asset.preview && asset.kind === 'image' ? <img src={asset.preview} alt="" /> : <span>{asset.kind === 'image' ? <ImageIcon size={22} /> : <Video size={22} />}</span>}<strong>{asset.name}</strong>{assetBatchMode && <i>{selected ? <Check size={12} /> : null}</i>}</button>; })}</div>}</div>}
+                    {studioWorkspace === 'decorate' && materialTab === 'image' && <div className="xlAssetPanel"><label className="xlMaterialSearch"><input value={assetQuery} onChange={(event) => setAssetQuery(event.target.value)} placeholder="搜索图片名称" /><Search size={15} /></label><div className="xlAssetToolbar"><div><button className={assetScope === 'mine' ? 'active' : ''} type="button" onClick={() => { setAssetScope('mine'); setSelectedAssetIds([]); }}>我的</button><button className={assetScope === 'square' ? 'active' : ''} type="button" onClick={() => { setAssetScope('square'); setSelectedAssetIds([]); }}>广场</button></div><span><button type="button" onClick={() => imageInputRef.current?.click()}><Upload size={13} />导入</button><button className={assetBatchMode ? 'active' : ''} type="button" onClick={() => { setAssetBatchMode((value) => !value); setSelectedAssetIds([]); }}>批量</button></span></div>{assetBatchMode && <div className="xlAssetBatchToolbar"><button type="button" onClick={() => setSelectedAssetIds(selectedAssetIds.length === currentAssets.length ? [] : currentAssets.map((item) => item.id))}>{currentAssets.length > 0 && selectedAssetIds.length === currentAssets.length ? <CheckSquare size={14} /> : <span className="xlEmptyCheck" />}全选</button><button type="button" disabled={!selectedAssetIds.length || assetScope !== 'mine'} onClick={deleteSelectedAssets}><Trash2 size={14} />删除已选</button></div>}{assetScope === 'mine' && currentAssets.length === 0 ? <div className="xlMaterialEmpty"><span><ImageIcon size={26} /></span><strong>暂无图片素材</strong><p>导入只会加入“我的素材”，点击素材卡片才会添加到直播画面。</p><button type="button" onClick={() => imageInputRef.current?.click()}><Plus size={14} />导入素材</button></div> : <div className="xlAssetCards">{currentAssets.map((asset) => { const selected = selectedAssetIds.includes(asset.id); return <article className="xlAssetCardWrap" key={asset.id}><button className={`xlAssetCard ${selected ? 'selected' : ''}`} type="button" onClick={() => assetBatchMode ? toggleAssetSelection(asset.id) : addAssetToCanvas(asset)}>{asset.preview ? <img src={asset.preview} alt="" /> : <span><ImageIcon size={22} /></span>}<strong>{asset.name}</strong>{assetBatchMode && <i>{selected ? <Check size={12} /> : null}</i>}</button>{assetScope === 'mine' && !assetBatchMode && <button className="xlAssetDelete" type="button" title={`删除图片“${asset.name}”`} aria-label={`删除图片“${asset.name}”`} onClick={() => deleteAsset(asset.id)}><Trash2 size={12} /></button>}</article>; })}</div>}</div>}
 
-                    {materialTab === 'text' && <div className="xlTextMaterial"><h3>添加文本素材</h3><label><span>文本内容</span><input value={customText} onChange={(event) => setCustomText(event.target.value)} maxLength={24} /></label><div className="xlTextPreview">{customText || '请输入文本内容'}</div><button type="button" disabled={!customText.trim()} onClick={addTextToCanvas}><Plus size={14} />添加到直播画面</button></div>}
+                    {studioWorkspace === 'decorate' && materialTab === 'text' && <div className="xlTextMaterial">
+                      <h3>{selectedTextLayer ? '编辑文本' : '添加文本'}</h3>
+                      <label><span>文本内容</span><textarea value={textMaterialValue} onChange={(event) => updateTextMaterialValue(event.target.value)} maxLength={80} rows={2} /></label>
+                      <div className="xlTextMaterialGrid">
+                        <label><span>字体</span><select value={textMaterialStyle.fontFamily} onChange={(event) => updateTextMaterialStyle({ fontFamily: event.target.value })}>{FONT_OPTIONS.map(font => <option value={font.value} key={font.value}>{font.label}</option>)}</select></label>
+                        <label><span>字号</span><input aria-label="文字字号" type="number" min="8" max="72" value={textMaterialStyle.fontSize} onChange={(event) => updateTextMaterialStyle({ fontSize: clampCanvasValue(Number(event.target.value), 8, 72) })} /></label>
+                        <label><span>文字颜色</span><input aria-label="文字颜色" type="color" value={textMaterialStyle.color} onChange={(event) => updateTextMaterialStyle({ color: event.target.value })} /></label>
+                      </div>
+                      <div className="xlTextFormatToolbar" aria-label="文本格式">
+                        <button className={textMaterialStyle.fontWeight === 'bold' ? 'active' : ''} type="button" aria-label="加粗" aria-pressed={textMaterialStyle.fontWeight === 'bold'} onClick={() => updateTextMaterialStyle({ fontWeight: textMaterialStyle.fontWeight === 'bold' ? 'normal' : 'bold' })}><strong>B</strong></button>
+                        <button className={textMaterialStyle.fontStyle === 'italic' ? 'active' : ''} type="button" aria-label="斜体" aria-pressed={textMaterialStyle.fontStyle === 'italic'} onClick={() => updateTextMaterialStyle({ fontStyle: textMaterialStyle.fontStyle === 'italic' ? 'normal' : 'italic' })}><i>I</i></button>
+                        <button className={textMaterialStyle.textDecoration === 'underline' ? 'active' : ''} type="button" aria-label="下划线" aria-pressed={textMaterialStyle.textDecoration === 'underline'} onClick={() => updateTextMaterialStyle({ textDecoration: textMaterialStyle.textDecoration === 'underline' ? 'none' : 'underline' })}><u>U</u></button>
+                        {([['left', AlignLeft, '左对齐'], ['center', AlignCenter, '居中对齐'], ['right', AlignRight, '右对齐']] as const).map(([alignment, Icon, label]) => <button className={textMaterialStyle.textAlign === alignment ? 'active' : ''} type="button" aria-label={label} aria-pressed={textMaterialStyle.textAlign === alignment} onClick={() => updateTextMaterialStyle({ textAlign: alignment })} key={alignment}><Icon size={14} /></button>)}
+                      </div>
+                      <section className="xlTextBackgroundControl">
+                        <header><span>文字背景</span><button className={textMaterialStyle.backgroundEnabled ? 'on' : ''} type="button" role="switch" aria-label="文字背景开关" aria-checked={textMaterialStyle.backgroundEnabled} onClick={() => updateTextMaterialStyle({ backgroundEnabled: !textMaterialStyle.backgroundEnabled })}><i /></button></header>
+                        {textMaterialStyle.backgroundEnabled && <div><label><span>颜色</span><input aria-label="文字背景颜色" type="color" value={textMaterialStyle.backgroundColor} onChange={(event) => updateTextMaterialStyle({ backgroundColor: event.target.value })} /></label><label><span>透明度</span><input aria-label="文字背景透明度" type="range" min="0" max="100" value={textMaterialStyle.backgroundOpacity} onChange={(event) => updateTextMaterialStyle({ backgroundOpacity: Number(event.target.value) })} /><em>{textMaterialStyle.backgroundOpacity}%</em></label></div>}
+                      </section>
+                      <label className="xlTextOpacityControl"><span>整体透明度</span><input aria-label="文字整体透明度" type="range" min="0" max="100" value={textMaterialStyle.opacity} onChange={(event) => updateTextMaterialStyle({ opacity: Number(event.target.value) })} /><em>{textMaterialStyle.opacity}%</em></label>
+                      <div className="xlTextPreview"><span style={{ opacity: textMaterialStyle.opacity / 100, color: textMaterialStyle.color, background: textMaterialStyle.backgroundEnabled ? colorWithOpacity(textMaterialStyle.backgroundColor, textMaterialStyle.backgroundOpacity) : 'transparent', fontFamily: fontFamilyCss(textMaterialStyle.fontFamily), fontSize: `${textMaterialStyle.fontSize}px`, fontWeight: textMaterialStyle.fontWeight, fontStyle: textMaterialStyle.fontStyle, textDecoration: textMaterialStyle.textDecoration, textAlign: textMaterialStyle.textAlign, justifyContent: textMaterialStyle.textAlign === 'left' ? 'flex-start' : textMaterialStyle.textAlign === 'right' ? 'flex-end' : 'center' }}>{textMaterialValue || '请输入文本内容'}</span></div>
+                      {selectedTextLayer
+                        ? <button type="button" onClick={() => { setSelectedLayerId(null); setInspectorLayerId(null); setNotice('文本样式已更新'); }}><Check size={14} />完成编辑</button>
+                        : <button type="button" disabled={!textMaterialValue.trim()} onClick={addTextToCanvas}><Plus size={14} />添加到直播画面</button>}
+                    </div>}
                   </div>}
                   </div>
-                  <section className="xlLayers">
-                    <header><strong>图层</strong><span>{layers.length}</span></header>
-                    <div className="xlLayerList" ref={layerListRef}>{layers.map((layer) => {
-                        const Icon = layer.kind === 'text' ? Type : layer.kind === 'image' ? ImageIcon : layer.kind === 'video' ? Video : UserRound;
-                        return <div className={`xlLayerRow ${selectedLayerId === layer.id ? 'selected' : ''}`} role="button" tabIndex={0} data-layer-id={layer.id} aria-pressed={selectedLayerId === layer.id} key={layer.id} onClick={() => openLayerInspector(layer.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openLayerInspector(layer.id); } }}><span>{layer.preview && layer.kind === 'image' ? <img src={layer.preview} alt="" /> : <Icon size={14} />}</span><em>{layer.value}</em><button className="xlLayerDelete" type="button" aria-label={`删除${layer.value}图层`} onClick={(event) => { event.stopPropagation(); deleteLayer(layer.id); }}><Trash2 size={13} /></button></div>;
-                      })}</div>
-                  </section>
                 </div>
               </aside>
+
+              <section className="xlLayers xlLayersPanel">
+                <header><strong>图层</strong><span>{layers.length}</span></header>
+                <div className="xlLayerList" ref={layerListRef} role="list" aria-label="直播画面图层，按从前到后排序">{layers.map((layer) => {
+                    const Icon = layer.kind === 'text' ? Type : layer.kind === 'image' ? ImageIcon : layer.kind === 'video' ? Video : UserRound;
+                    const background = layer.sceneKey === 'templateBackground';
+                    const dropClass = layerDropTarget?.id === layer.id ? `drop-${layerDropTarget.position}` : '';
+                    return <div className={`xlLayerRow ${selectedLayerId === layer.id ? 'selected' : ''} ${draggingLayerId === layer.id ? 'dragging' : ''} ${dropClass}`} role="listitem" tabIndex={0} data-layer-id={layer.id} key={layer.id} onClick={() => selectCanvasLayer(layer)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectCanvasLayer(layer); } }} onDragOver={(event) => { if (!draggingLayerId || draggingLayerId === layer.id) return; event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); setLayerDropTarget({ id: layer.id, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' }); }} onDrop={(event) => { event.preventDefault(); if (draggingLayerId) { const rect = event.currentTarget.getBoundingClientRect(); reorderLayer(draggingLayerId, layer.id, event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'); } setDraggingLayerId(null); setLayerDropTarget(null); }}>
+                      <span className={`xlLayerDragHandle ${background ? 'locked' : ''}`} draggable={!background} role="button" tabIndex={background ? -1 : 0} title={background ? '模板背景固定在底层' : '拖动调整图层层级'} aria-label={background ? '模板背景固定在底层' : `拖动${layer.value}图层调整层级`} onClick={(event) => event.stopPropagation()} onDragStart={(event) => { if (background) return; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', layer.id); setDraggingLayerId(layer.id); }} onDragEnd={() => { setDraggingLayerId(null); setLayerDropTarget(null); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'ArrowUp') { event.preventDefault(); moveLayer(layer.id, 'forward'); } if (event.key === 'ArrowDown') { event.preventDefault(); moveLayer(layer.id, 'backward'); } }}><GripVertical size={14} /></span>
+                      <span className="xlLayerThumb">{layer.preview && layer.kind === 'image' ? <img src={layer.preview} alt="" /> : <Icon size={14} />}</span>
+                      {layer.kind === 'text' ? <input aria-label={`修改${layer.value}图层文本`} value={layer.value} maxLength={80} onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} onChange={(event) => updateLayer(layer.id, { value: event.target.value })} /> : <em>{layer.value}</em>}
+                      <button className="xlLayerDelete" type="button" aria-label={`删除${layer.value}图层`} onClick={(event) => { event.stopPropagation(); deleteLayer(layer.id); }}><Trash2 size={13} /></button>
+                    </div>;
+                  })}</div>
+              </section>
             </div>
+          <section className="xlStoryboardRail" aria-label="分镜">
+            <header>
+              <span className="xlSynthesisOverview" role="status" aria-live="polite" title="已完成成片数 / 分镜总数">{scriptVideosReady}/{scriptVideoProgressTotal}</span>
+              <button className="xlSynthesizeSelected" type="button" title={selectedStoryboardVideoBusy ? '云端正在生成当前分镜' : '使用当前主播和音色合成选中分镜的数字人口播视频'} aria-label={selectedStoryboardVideoBusy ? '当前分镜合成中' : '合成选中分镜'} aria-busy={selectedStoryboardVideoBusy} disabled={!selectedStoryboardScript || scriptVideoBatchBusy || dynamicGenerating || roomSaving || roomLoading || playbackBusy || onAir || !selectedStoryboardScript.text.trim() || selectedStoryboardVideoBusy} onClick={() => { if (selectedStoryboardScript) void synthesizeScriptVideos([selectedStoryboardScript]); }}>{selectedStoryboardVideoBusy ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : <Video size={15} />}<span>{selectedStoryboardVideoBusy ? '合成中' : '合成分镜'}</span></button>
+            </header>
+            <div className="xlStoryboardStrip">
+              <div className="xlStoryboardFilm">
+            {scripts.map((item, index) => {
+              const selected = selectedScriptIds.includes(item.id);
+              const focused = storyboardScriptId === item.id;
+              const batchIndex = scriptVideoBatch?.scriptIds.indexOf(item.id) ?? -1;
+              const storedVideoState = scriptVideoState(item);
+              const videoState = batchIndex >= (scriptVideoBatch?.submitted ?? 0)
+                ? (batchIndex === scriptVideoBatch?.submitted && !scriptVideoBatch?.waiting ? 'submitting' : 'queued')
+                : storedVideoState;
+              const videoStatusLabel = videoState === 'ready' ? '成片完成'
+                : videoState === 'failed' ? '合成失败'
+                  : videoState === 'stale' ? '需重新合成'
+                    : videoState === 'missing' ? '未合成'
+                      : videoState === 'queued' ? '待提交'
+                        : videoState === 'submitting' ? '提交中'
+                          : '生成中';
+              const videoStatusTitle = scriptVideoSubmissionErrors[item.id]
+                || (storedVideoState === 'failed' ? scriptVideoResults[item.id]?.error : '')
+                || videoStatusLabel;
+              const videoPreviewActive = Boolean(
+                focused
+                && generatedVideoVisible
+                && aliyunVideo?.id === scriptVideoResults[item.id]?.id,
+              );
+              const videoPreviewPlaying = videoPreviewActive && generatedVideoPlaying;
+              return <article className={`xlStoryboardItem ${focused ? 'focused' : ''} ${selected ? 'selected' : ''} ${item.state === 'playing' ? 'playing' : ''}`} key={item.id}>
+                <button className="xlStoryboardPreview" type="button" title={`${item.title} · ${item.duration} · ${videoStatusTitle}`} aria-label={batchMode ? `${selected ? '取消选择' : '选择'}${item.title}` : `选择分镜 ${index + 1}：${item.title}`} aria-pressed={batchMode ? selected : focused} disabled={scriptVideoBatchBusy || dynamicGenerating || onAir} onClick={() => batchMode ? toggleScriptSelection(item.id) : selectStoryboardScript(item)}>
+                  <StoryboardScenePreview layers={layers} background={previewBackground} host={avatar.image} fonts={FONT_FAMILIES} videoUrl={storedVideoState === 'ready' ? scriptVideoResults[item.id]?.videoUrl : undefined} />
+                  <b>{index + 1}</b>
+                  {batchMode && <i className="xlStoryboardCheck">{selected ? <Check size={12} /> : null}</i>}
+                  <em className={`xlStoryboardStatus ${videoState}`} title={videoStatusTitle}>{['processing', 'submitting'].includes(videoState) && <LoaderCircle className="xlVoiceSpinner" size={9} />}{videoState === 'ready' ? '成片' : videoState === 'stale' ? '更新' : videoState === 'failed' ? '失败' : '待合成'}</em>
+                </button>
+                {storedVideoState === 'ready' && <button className={`xlStoryboardPlay ${videoPreviewPlaying ? 'playing' : ''}`} type="button" title={`${videoPreviewPlaying ? '暂停' : videoPreviewActive ? '继续播放' : '播放'}“${item.title}”成片`} aria-label={`${videoPreviewPlaying ? '暂停' : videoPreviewActive ? '继续播放' : '播放'}分镜 ${index + 1} 成片`} aria-pressed={videoPreviewPlaying} disabled={scriptVideoBatchBusy || dynamicGenerating || playbackBusy || playbackQueueStatus !== 'idle' || onAir || roomLoading} onClick={() => {
+                  const element = generatedVideoRef.current;
+                  if (!videoPreviewActive || !element) {
+                    previewScriptAvatarVideo(item);
+                    return;
+                  }
+                  if (element.paused || element.ended) {
+                    if (element.ended) element.currentTime = 0;
+                    void element.play().catch((cause) => setError(cause instanceof Error ? cause.message : '成片播放失败'));
+                  } else element.pause();
+                }}>{videoPreviewPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}</button>}
+                <span className="xlStoryboardActions">
+                  <button type="button" title="复制该分镜" aria-label={`复制分镜 ${index + 1}`} disabled={scriptVideoBatchBusy || dynamicGenerating || playbackBusy || playbackQueueStatus !== 'idle' || onAir || roomLoading} onClick={() => duplicateScript(item)}><Copy size={14} /></button>
+                  <button type="button" title="删除该分镜" aria-label={`删除分镜 ${index + 1}`} disabled={scriptVideoBatchBusy || dynamicGenerating || playbackBusy || playbackQueueStatus !== 'idle' || onAir || roomLoading} onClick={() => deleteScript(item.id)}><Trash2 size={14} /></button>
+                </span>
+              </article>;
+            })}
+              <div className="xlStoryboardCommands"><button className="xlStoryboardAdd" type="button" title={storyboardScriptId === null && draft.trim() ? '加入分镜' : '编写新分镜'} aria-label={storyboardScriptId === null && draft.trim() ? '加入分镜' : '编写新分镜'} disabled={scriptVideoBatchBusy || dynamicGenerating || onAir} onClick={() => storyboardScriptId === null && draft.trim() ? addDraftToScripts() : startNewScriptDraft()}><Plus size={20} /></button>
+              </div></div>
+            </div>
+          </section>
           </>
         </section>
       </div>
@@ -3293,16 +4774,16 @@ export function LiveStudio({
       </div>}
 
       {dialog === 'voice' && <div className="xlModalBackdrop" onMouseDown={closeVoiceDialog}>
-        <section className={`xlModal xlVoiceModal ${voiceTab === 'clone' ? 'cloneMode' : ''}`} role="dialog" aria-modal="true" aria-label="主播声音" onMouseDown={(event) => event.stopPropagation()}>
+        <section className={`xlModal xlVoiceModal ${voiceTab === 'mine' ? 'cloneMode' : ''}`} role="dialog" aria-modal="true" aria-label="主播声音" onMouseDown={(event) => event.stopPropagation()}>
           <header><strong>主播声音</strong><button type="button" aria-label="关闭主播声音" onClick={closeVoiceDialog}><X size={17} /></button></header>
-          <div className="xlPlatformNotice">公共声音来自 Fish Audio 经典音色样本，可试听后直接设为当前数字人的播报声音。</div>
+          <div className="xlPlatformNotice"><ShieldCheck size={15} /><span><strong>官方公共音色</strong><small>已同步 35 个官方音色与原声试听</small></span></div>
           <div className="xlVoiceToolbar">
-            <div role="tablist" aria-label="声音来源"><button className={voiceTab === 'public' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'public'} onClick={() => { stopVoicePreview(); setVoiceTab('public'); }}>可用语音</button><button className={voiceTab === 'clone' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'clone'} onClick={() => { stopVoicePreview(); setVoiceTab('clone'); }}>克隆语音</button></div>
-            {voiceTab !== 'clone' && <label><input aria-label="搜索主播声音" value={voiceQuery} onChange={(event) => setVoiceQuery(event.target.value)} placeholder="搜索可用语音" /><Search size={16} /></label>}
+            <div role="tablist" aria-label="声音来源"><button className={voiceTab === 'public' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'public'} onClick={() => { stopVoicePreview(); setVoiceTab('public'); }}>公共音色</button><button className={voiceTab === 'mine' ? 'active' : ''} type="button" role="tab" aria-selected={voiceTab === 'mine'} onClick={() => { stopVoicePreview(); setVoiceTab('mine'); }}>克隆语音</button></div>
+            {voiceTab !== 'mine' && <label><input aria-label="搜索主播声音" value={voiceQuery} onChange={(event) => setVoiceQuery(event.target.value)} placeholder="搜索音色名称或特点" /><Search size={16} /></label>}
           </div>
-          {voiceTab !== 'clone' ? <><div className="xlVoiceFilters">
+          {voiceTab !== 'mine' ? <><div className="xlVoiceFilters">
             <div role="radiogroup" aria-label="声音性别">{(['全部性别', '男性', '女性'] as const).map((gender) => <button className={voiceGender === gender ? 'active' : ''} type="button" role="radio" aria-checked={voiceGender === gender} key={gender} onClick={() => setVoiceGender(gender)}>{gender}</button>)}</div>
-            <div role="radiogroup" aria-label="声音年龄">{(['全部年龄', '18-24岁', '25-35岁', '36-50岁'] as const).map((age) => <button className={voiceAge === age ? 'active' : ''} type="button" role="radio" aria-checked={voiceAge === age} key={age} onClick={() => setVoiceAge(age)}>{age}</button>)}</div>
+            <div role="radiogroup" aria-label="声音语言">{(['全部语言', '中英文', '英文', '日文', '韩文'] as const).map((language) => <button className={voiceLanguage === language ? 'active' : ''} type="button" role="radio" aria-checked={voiceLanguage === language} key={language} onClick={() => setVoiceLanguage(language)}>{language}</button>)}</div>
           </div>
           <div className="xlVoiceGrid" role="tabpanel" aria-label={voiceTab === 'public' ? '公共声音' : '我的声音'}>
             {filteredVoices.map((voice) => {
@@ -3310,10 +4791,10 @@ export function LiveStudio({
               const loading = previewVoiceLoadingId === voice.id;
               return <div className={`xlVoiceCard ${pendingVoiceId === voice.id ? 'selected' : ''} ${playing ? 'playing' : ''}`} role="radio" tabIndex={0} aria-label={`选择声音${voice.name}`} aria-checked={pendingVoiceId === voice.id} key={voice.id} onClick={() => setPendingVoiceId(voice.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoiceId(voice.id); } }}>
                 <button className="xlVoiceListen" type="button" aria-label={playing || loading ? `停止试听${voice.name}` : `试听${voice.name}`} onClick={(event) => { event.stopPropagation(); void auditionVoice(voice); }}>
-                  <img src={voice.image} alt="" />
+                  <span className="xlVoiceGlyph" aria-hidden="true"><Volume2 size={22} /></span>
                   <i aria-hidden="true">{loading ? <LoaderCircle className="xlVoiceSpinner" size={17} /> : playing ? <CircleStop size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}</i>
                 </button>
-                <span title={`${voice.providerName} · ${voice.referenceId}`}><strong>{voice.name}</strong><small><em>{voice.providerName}</em><em>{voice.age}</em><em>{voice.tone}</em></small>{playing && <b aria-hidden="true"><i /><i /><i /></b>}</span>
+                <span title={`${voice.providerName} · ${voice.officialId}`}><strong>{voice.name}</strong><p>{voice.description}</p><small><em>{voice.language}</em><em>{voice.gender}</em>{voice.supportSsml && <em>SSML</em>}</small>{playing && <b aria-hidden="true"><i /><i /><i /></b>}</span>
               </div>;
             })}
             {!filteredVoices.length && <div className="xlVoiceEmpty"><UserRound size={34} /><strong>没有匹配的声音</strong><span>请调整关键词或筛选条件后重试</span></div>}
@@ -3476,21 +4957,12 @@ export function LiveStudio({
         </section>
       </div>}
 
-      {dialog === 'library' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
-        <section className="xlModal xlLibraryModal" role="dialog" aria-modal="true" aria-label="行业话术库" onMouseDown={(event) => event.stopPropagation()}>
-          <header><strong>行业话术库</strong><button type="button" aria-label="关闭话术库" onClick={() => setDialog(null)}><X size={17} /></button></header>
-          <div className="xlLibraryToolbar"><div>{['全部', '电商', '教育', '金融', '通用', '开场', '讲品', '促单'].map((category) => <button className={libraryCategory === category ? 'active' : ''} type="button" key={category} onClick={() => setLibraryCategory(category)}>{category}</button>)}</div><label><Search size={14} /><input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="搜索话术" /></label></div>
-          <div className="xlLibraryList">{filteredLibrary.map((item) => <article key={`${item.title}-${item.text}`}><span><BookOpenText size={16} /></span><div><small>{item.category}</small><strong>{item.title}</strong><p>{item.text}</p></div><button type="button" onClick={() => { const category = item.category === '开场' || item.category === '讲品' || item.category === '促单' ? item.category : item.category === '电商' ? '促单' : '讲品'; const duration = 'duration' in item && item.duration ? item.duration : '00:32'; setScripts((items) => [...items, { id: Date.now(), productId: activeGoods?.id, title: item.title, category, duration, text: item.text, state: 'ready' }]); setDialog(null); setNotice('已从话术库添加内容'); }}><Plus size={14} />添加</button></article>)}</div>
-          {!filteredLibrary.length && <div className="xlLibraryEmpty"><Database size={28} />没有匹配的话术</div>}
-        </section>
-      </div>}
-
       {dialog === 'scriptImport' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
         <section className="xlModal xlImportModal" role="dialog" aria-modal="true" aria-label="文档导入结果" onMouseDown={(event) => event.stopPropagation()}>
-          <header><strong>{importedDocumentMode === 'text' ? '文本解析结果' : 'Office 文档编排预览'}</strong><button type="button" aria-label="关闭文档导入结果" onClick={() => setDialog(null)}><X size={17} /></button></header>
-          <div className="xlImportSource"><FileSpreadsheet size={20} /><span><strong>{importedDocumentName}</strong><small>{importedDocumentMode === 'text' ? '已读取文本内容' : 'PPT / Word / Excel 当前生成示例编排'} · {importedScripts.length} 个话术节点</small></span><em>{importedDocumentMode === 'text' ? '读取完成' : '预览模式'}</em></div>
+          <header><strong>文本解析结果</strong><button type="button" aria-label="关闭文档导入结果" onClick={() => setDialog(null)}><X size={17} /></button></header>
+          <div className="xlImportSource"><FileSpreadsheet size={20} /><span><strong>{importedDocumentName}</strong><small>已读取文本内容 · {importedScripts.length} 个话术节点</small></span><em>读取完成</em></div>
           <div className="xlImportFlow">{importedScripts.map((item, index) => <article key={`${item.title}-${index}`}><span>{String(index + 1).padStart(2, '0')}</span><div><strong>{item.title}</strong><p>{item.text}</p></div><em>{item.category} · {item.duration}</em></article>)}</div>
-          <div className="xlImportNote">文本文件会读取实际段落；Office 文件仅展示编排流程，正式内容解析需连接文档解析服务。</div>
+          <div className="xlImportNote">已提取的内容会自动作为 AI 扩写参考，也可直接加入当前脚本。</div>
           <footer><button type="button" onClick={() => setDialog(null)}>取消</button><button type="button" disabled={!importedScripts.length} onClick={applyImportedScripts}>加入当前脚本</button></footer>
         </section>
       </div>}
@@ -3515,7 +4987,6 @@ export function LiveStudio({
         </section>
       </div>}
 
-      {dialog === 'avatarConfirm' && <div className="xlModalBackdrop" onMouseDown={() => { setDialog(null); setPendingAvatarId(null); }}><section className="xlModal xlConfirmModal" role="dialog" aria-modal="true" aria-labelledby="avatar-confirm-title" onMouseDown={(event) => event.stopPropagation()}><header><strong id="avatar-confirm-title">切换人像</strong><button type="button" aria-label="关闭主播确认" onClick={() => { setDialog(null); setPendingAvatarId(null); }}><X size={17} /></button></header><p>切换人像后，当前直播中所有商品都将会被替换，是否继续？</p><footer><button type="button" onClick={() => { setDialog(null); setPendingAvatarId(null); }}>取消</button><button type="button" onClick={applyPendingAvatar}>确定</button></footer></section></div>}
     </main>
   );
 }

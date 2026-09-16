@@ -1,0 +1,327 @@
+@font-face {
+  font-family: 'Anton';
+  src: url('/assets/xiling-live/yijing/fonts/Anton.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'BaiduNumberPlus_Medium';
+  src: url('/assets/xiling-live/yijing/fonts/BaiduNumberPlus_Medium.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'CangErFeiBaiTi';
+  src: url('/assets/xiling-live/yijing/fonts/CangErFeiBaiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'CangErYuYangTi';
+  src: url('/assets/xiling-live/yijing/fonts/CangErYuYangTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ChuanQiNanAnTi';
+  src: url('/assets/xiling-live/yijing/fonts/ChuanQiNanAnTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ChuangKeTieLiXiaTi';
+  src: url('/assets/xiling-live/yijing/fonts/ChuangKeTieLiXiaTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ChuangKeTieShiHei';
+  src: url('/assets/xiling-live/yijing/fonts/ChuangKeTieShiHei.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ChuangKeTieXiaZhiTi';
+  src: url('/assets/xiling-live/yijing/fonts/ChuangKeTieXiaZhiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZCuYSJ_V2';
+  src: url('/assets/xiling-live/yijing/fonts/FZCuYSJ_V2.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZDaLTJ_Da';
+  src: url('/assets/xiling-live/yijing/fonts/FZDaLTJ_Da.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZFWQingYinTiJWE';
+  src: url('/assets/xiling-live/yijing/fonts/FZFWQingYinTiJWE.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZFeiFTJ_Da';
+  src: url('/assets/xiling-live/yijing/fonts/FZFeiFTJ_Da.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZFengRSTJW-EB';
+  src: url('/assets/xiling-live/yijing/fonts/FZFengRSTJW-EB.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZHZGBJW';
+  src: url('/assets/xiling-live/yijing/fonts/FZHZGBJW.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZJingYLLTJW';
+  src: url('/assets/xiling-live/yijing/fonts/FZJingYLLTJW.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZKuaiSTJW_Zhun';
+  src: url('/assets/xiling-live/yijing/fonts/FZKuaiSTJW_Zhun.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZMoDTJW_Da';
+  src: url('/assets/xiling-live/yijing/fonts/FZMoDTJW_Da.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZPWJW';
+  src: url('/assets/xiling-live/yijing/fonts/FZPWJW.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZShuYTJW-EB';
+  src: url('/assets/xiling-live/yijing/fonts/FZShuYTJW-EB.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZSuHJW';
+  src: url('/assets/xiling-live/yijing/fonts/FZSuHJW.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZYanSJW_Da';
+  src: url('/assets/xiling-live/yijing/fonts/FZYanSJW_Da.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZZYJW';
+  src: url('/assets/xiling-live/yijing/fonts/FZZYJW.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZZhaoGYJW-EB';
+  src: url('/assets/xiling-live/yijing/fonts/FZZhaoGYJW-EB.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZZhengHeiS-DB-GB';
+  src: url('/assets/xiling-live/yijing/fonts/FZZhengHeiS-DB-GB.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FZZiYHJW';
+  src: url('/assets/xiling-live/yijing/fonts/FZZiYHJW.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FangYuanTi';
+  src: url('/assets/xiling-live/yijing/fonts/FangYuanTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'HouHeiTi';
+  src: url('/assets/xiling-live/yijing/fonts/HouHeiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JiangXiZhuoKai';
+  src: url('/assets/xiling-live/yijing/fonts/JiangXiZhuoKai.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JinNanBoBoHei';
+  src: url('/assets/xiling-live/yijing/fonts/JinNanBoBoHei.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'KdamThmor';
+  src: url('/assets/xiling-live/yijing/fonts/KdamThmor.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NanShenTi';
+  src: url('/assets/xiling-live/yijing/fonts/NanShenTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'SanJiXingKaiJianTi';
+  src: url('/assets/xiling-live/yijing/fonts/SanJiXingKaiJianTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'SiYuanHeiTi';
+  src: url('/assets/xiling-live/yijing/fonts/SiYuanHeiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'SiYuanSongTi';
+  src: url('/assets/xiling-live/yijing/fonts/SiYuanSongTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'XiMaiTi';
+  src: url('/assets/xiling-live/yijing/fonts/XiMaiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'XinYiGuanHeiTi';
+  src: url('/assets/xiling-live/yijing/fonts/XinYiGuanHeiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'YunFengFeiYunTi';
+  src: url('/assets/xiling-live/yijing/fonts/YunFengFeiYunTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ZhenShuaiTi';
+  src: url('/assets/xiling-live/yijing/fonts/ZhenShuaiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ZhuShiTi';
+  src: url('/assets/xiling-live/yijing/fonts/ZhuShiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ZiTiQuanXinYiJiXiangSong';
+  src: url('/assets/xiling-live/yijing/fonts/ZiTiQuanXinYiJiXiangSong.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'alibabapuhuiti-thai';
+  src: url('/assets/xiling-live/yijing/fonts/alibabapuhuiti-thai.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}

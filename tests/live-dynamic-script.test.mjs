@@ -1,25 +1,95 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildDynamicScriptPrompt, normalizeGeneratedScript, validateDynamicScript } from '../src/lib/live-dynamic-script.ts';
+import { buildDynamicScriptPrompt, dynamicScriptComparisonTexts, isNearDuplicateScript, normalizeGeneratedScript, validateDynamicScript } from '../src/lib/live-dynamic-script.ts';
 
 test('builds a factual dynamic-script prompt with recent context', () => {
   const prompt = buildDynamicScriptPrompt({
     productName: '精品咖啡豆',
     productSellingPoints: ['新鲜烘焙', '醇厚风味'],
     currentScripts: ['第一段', '第二段'],
+    draftText: '请帮我介绍这款咖啡。',
+    uploadedMaterials: [{ name: '产品资料.txt', content: '建议使用 92 摄氏度热水冲泡。' }],
+    uploadedImages: ['包装正面.jpg'],
   });
   assert.match(prompt, /精品咖啡豆/);
   assert.match(prompt, /新鲜烘焙、醇厚风味/);
+  assert.match(prompt, /请帮我介绍这款咖啡/);
+  assert.match(prompt, /产品资料\.txt/);
+  assert.match(prompt, /92 摄氏度/);
+  assert.match(prompt, /包装正面\.jpg/);
+  assert.match(prompt, /本次上传图片是用户最新指定的商品依据/);
+  assert.match(prompt, /逐字识别包装/);
+  assert.match(prompt, /以图片为准并忽略冲突的旧信息/);
+  assert.match(prompt, /任一字符不确定时整项忽略/);
+  assert.match(prompt, /不得出现.*图片.*画面.*包装上看到.*根据资料/);
+  assert.match(prompt, /不得.*换序.*同义改写/);
+  assert.match(prompt, /不得由外观推断口感/);
   assert.match(prompt, /避免重复/);
 });
 
 test('normalizes model output and removes markdown wrappers', () => {
   assert.equal(normalizeGeneratedScript('  话术：```\n欢迎来到直播间\n```  '), '欢迎来到直播间');
+  assert.equal(
+    normalizeGeneratedScript('话术：第一段内容。  段内继续。\r\n\r\n\r\n第二段内容。'),
+    '第一段内容。 段内继续。\n\n第二段内容。',
+  );
   assert.equal(normalizeGeneratedScript({ content: 'invalid' }), '');
 });
 
-test('rejects risky or repeated generated copy', () => {
+test('uses operation-specific instructions for condense and polish', () => {
+  const shared = {
+    productName: '六堡茶',
+    currentScripts: [],
+    draftText: '这是一段需要处理的直播话术。',
+  };
+  const condensed = buildDynamicScriptPrompt({ ...shared, operation: 'condense' });
+  const polished = buildDynamicScriptPrompt({ ...shared, operation: 'polish' });
+  assert.match(condensed, /精简成一段/);
+  assert.match(condensed, /原文约一半长度/);
+  assert.doesNotMatch(condensed, /尽量扩写到/);
+  assert.match(polished, /请润色用户草稿/);
+  assert.match(polished, /篇幅与原文基本一致/);
+  assert.doesNotMatch(polished, /尽量扩写到/);
+});
+
+test('requests a long-form expansion of at least 2000 characters', () => {
+  const prompt = buildDynamicScriptPrompt({
+    productName: '六堡茶',
+    currentScripts: [],
+    draftText: '介绍这款六堡茶。',
+    operation: 'expand',
+  });
+  assert.match(prompt, /2000-2600/);
+  assert.match(prompt, /超过 2000 字/);
+  assert.match(prompt, /多个自然段/);
+  assert.match(prompt, /段落之间保留一个空行/);
+  assert.doesNotMatch(prompt, /120-500/);
+});
+
+test('rejects risky copy and reports repeated copy without discarding it', () => {
   assert.equal(validateDynamicScript('这是全网最低价的商品', []).ok, false);
-  assert.equal(validateDynamicScript('欢迎来到直播间', ['欢迎来到直播间']).duplicate, true);
+  const repeated = validateDynamicScript('欢迎来到直播间', ['欢迎来到直播间']);
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.duplicate, true);
   assert.equal(validateDynamicScript('新鲜烘焙，今天为大家介绍冲泡建议', ['欢迎来到直播间']).ok, true);
+});
+
+test('uses phrase overlap instead of shared single characters for duplicate detection', () => {
+  assert.equal(isNearDuplicateScript(
+    '直播间的朋友们，今天带大家看看这款六堡茶，正面写着十二生肖，净含量是8.4克乘12盒。',
+    '想找一款有辨识度的茶，可以看看这款六堡茶。正面清楚写着十二生肖，净含量8.4克乘12盒，中间的树形纹样很醒目。',
+  ), false);
+  assert.equal(isNearDuplicateScript(
+    '欢迎来到直播间，今天给大家介绍这款六堡茶，茶汤红浓明亮，入口醇和顺滑。',
+    '欢迎来到直播间。今天给大家介绍这款六堡茶，茶汤红浓明亮，入口醇和顺滑！',
+  ), true);
+});
+
+test('excludes the script being rewritten from duplicate comparisons', () => {
+  const scripts = [
+    { id: 1, text: '当前需要润色的原文' },
+    { id: 2, text: '另一条已经存在的话术' },
+  ];
+  assert.deepEqual(dynamicScriptComparisonTexts(scripts, 1), ['另一条已经存在的话术']);
+  assert.deepEqual(dynamicScriptComparisonTexts(scripts, null), ['当前需要润色的原文', '另一条已经存在的话术']);
 });

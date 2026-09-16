@@ -81,3 +81,8 @@ def publish_live_room(db: Session, room: LiveRoom) -> LiveRoom:
     db.commit()
     db.refresh(room)
     return room
+
+
+def delete_live_room(db: Session, room: LiveRoom) -> None:
+    db.delete(room)
+    db.commit()
