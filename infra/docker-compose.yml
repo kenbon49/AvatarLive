@@ -178,9 +178,9 @@ services:
       retries: 12
       start_period: 20s
 
-  # Remote-managed Cloudflare Tunnel for avator.ipaperview.com. Sharing the
-  # web network namespace makes its configured 127.0.0.1:3000 origin resolve
-  # to Next.js without publishing port 3000 on the host.
+  # Remote-managed Cloudflare Tunnel for avator.ipaperview.com. It normally
+  # shares the web network namespace so 127.0.0.1:3000 resolves to the Docker
+  # frontend. Set CLOUDFLARED_NETWORK_MODE=host when Next.js runs on the host.
   cloudflared:
     profiles: ["tunnel"]
     image: ${REGISTRY}cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.7.3}
@@ -188,7 +188,7 @@ services:
     # host owner instead of the image's built-in uid (65532).
     user: "${CLOUDFLARED_UID:-1000}:${CLOUDFLARED_GID:-1000}"
     restart: unless-stopped
-    network_mode: "service:web"
+    network_mode: "${CLOUDFLARED_NETWORK_MODE:-service:web}"
     # This host has no routable IPv6 edge path; force IPv4 so QUIC does not
     # bind an IPv6 wildcard socket and repeatedly fail with network unreachable.
     command: ["tunnel", "--no-autoupdate", "--edge-ip-version", "4", "run", "--token-file", "/run/secrets/cloudflare_tunnel_token"]
