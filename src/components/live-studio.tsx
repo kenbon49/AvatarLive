@@ -43,6 +43,7 @@ import {
   Search,
   Server,
   Settings2,
+  Shapes,
   ShieldCheck,
   ShoppingBag,
   SkipForward,
@@ -150,6 +151,7 @@ import { applyTemplateLayersPreservingHost, repairLegacyTemplateBackground } fro
 import { waitForAvatarVideo } from '@/lib/live-video-batch';
 import yijingTemplateCatalog from '@/data/yijing-template-catalog.json';
 import yijingFontCatalog from '@/data/yijing-font-catalog.json';
+import { resolveYijingFontFamily } from '@/lib/yijing-fonts';
 
 type ScriptItem = {
   id: number;
@@ -351,9 +353,11 @@ const STUDIO_WORKSPACES = [
 
 const DECORATION_TABS = [
   { id: 'template', label: '模板', icon: Layers3 },
+  { id: 'component', label: '组件', icon: Shapes },
   { id: 'image', label: '图片', icon: ImageIcon },
   { id: 'text', label: '文字', icon: Type },
 ] as const;
+const COMPONENT_CATEGORIES = ['顶部', '底部', '商品', '形状', '装饰'] as const;
 
 type StudioWorkspace = (typeof STUDIO_WORKSPACES)[number]['id'];
 type MaterialTab = (typeof DECORATION_TABS)[number]['id'] | 'host';
@@ -379,6 +383,16 @@ type StudioTemplate = {
     speed: number;
     pitch: number;
   };
+};
+
+type StudioComponent = {
+  id: string;
+  name: string;
+  category: string;
+  image: string;
+  width: number;
+  height: number;
+  uses: number;
 };
 
 type TemplateLayerDocument = {
@@ -509,8 +523,7 @@ const FONT_OPTIONS = [
 const fontFamilyCss = (value = '默认字体') => {
   const legacy = LEGACY_FONT_FAMILIES[value];
   if (legacy) return legacy;
-  const imported = (yijingFontCatalog as Array<{ value: string; family: string }>).find(font => font.value === value);
-  const family = imported?.family ?? value;
+  const family = resolveYijingFontFamily(value, yijingFontCatalog);
   return `'${family.replaceAll("'", "\\'")}', 'Noto Sans SC', sans-serif`;
 };
 const FONT_FAMILIES = Object.fromEntries(FONT_OPTIONS.map(font => [font.value, fontFamilyCss(font.value)]));
@@ -1126,6 +1139,11 @@ export function LiveStudio({
   const [hostFilters, setHostFilters] = useState({ gender: '全部', scene: '全部场景' });
   const [assetScope, setAssetScope] = useState<'mine' | 'square'>('mine');
   const [assetQuery, setAssetQuery] = useState('');
+  const [components, setComponents] = useState<StudioComponent[]>([]);
+  const [componentStatus, setComponentStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [componentCategory, setComponentCategory] = useState('全部');
+  const [componentQuery, setComponentQuery] = useState('');
+  const [visibleComponentCount, setVisibleComponentCount] = useState(60);
   const [assets, setAssets] = useState<Record<'image' | 'video', AssetItem[]>>({ image: [], video: [] });
   const [assetBatchMode, setAssetBatchMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
@@ -1330,6 +1348,26 @@ export function LiveStudio({
   const currentAssets = materialTab === 'image'
     ? (assetScope === 'mine' ? assets.image : SQUARE_ASSETS.image).filter((item) => item.name.includes(assetQuery.trim()))
     : [];
+  const componentCategories = useMemo(() => {
+    const available = new Set(components.map(item => item.category));
+    return ['全部', ...COMPONENT_CATEGORIES.filter(category => available.has(category))];
+  }, [components]);
+  const filteredComponents = useMemo(() => components.filter(item =>
+    (componentCategory === '全部' || item.category === componentCategory)
+    && item.name.toLowerCase().includes(componentQuery.trim().toLowerCase()),
+  ), [components, componentCategory, componentQuery]);
+
+  useEffect(() => {
+    if (studioWorkspace !== 'decorate' || materialTab !== 'component' || componentStatus !== 'idle') return;
+    setComponentStatus('loading');
+    void fetch('/assets/xiling-live/yijing/components.json').then(async response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const catalog = await response.json() as { list?: StudioComponent[] };
+      if (!Array.isArray(catalog.list)) throw new Error('组件目录无效');
+      setComponents(catalog.list);
+      setComponentStatus('ready');
+    }).catch(() => setComponentStatus('error'));
+  }, [studioWorkspace, materialTab, componentStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3825,7 +3863,7 @@ export function LiveStudio({
     setInspectorLayerId(id);
     setStudioWorkspace('decorate');
     if (layer.kind === 'text') setMaterialTab('text');
-    if (layer.kind === 'image' && layer.sceneKey !== 'templateBackground') setMaterialTab('image');
+    if (layer.kind === 'image' && layer.sceneKey !== 'templateBackground') setMaterialTab(layer.id.startsWith('component-') ? 'component' : 'image');
     if (layer.sceneKey === 'templateBackground') setMaterialTab('template');
   };
 
@@ -3851,8 +3889,20 @@ export function LiveStudio({
   const updateLayer = (id: string, values: Partial<LayerItem>) => {
     setGeneratedVideoVisible(false);
     const changesTextRendering = Object.keys(values).some((key) => TEXT_RENDER_KEYS.has(key as keyof LayerItem));
+    const original = layers.find(item => item.id === id);
+    const fontFamily = values.fontFamily ?? original?.fontFamily ?? '默认字体';
+    const font = `16px ${fontFamilyCss(fontFamily)}`;
+    const waitForFont = original?.kind === 'text' && Boolean(original.preview) && changesTextRendering
+      && typeof document !== 'undefined' && !document.fonts.check(font);
+    if (waitForFont) {
+      void document.fonts.load(font).catch(() => []).then(() => setLayers(items => items.map(item =>
+        item.id === id && item.kind === 'text' && item.preview === original?.preview && (item.fontFamily ?? '默认字体') === fontFamily
+          ? { ...item, preview: undefined }
+          : item,
+      )));
+    }
     setLayers((items) => items.map((item) => item.id === id
-      ? { ...item, ...values, ...(item.kind === 'text' && changesTextRendering ? { preview: undefined } : {}) }
+      ? { ...item, ...values, ...(item.kind === 'text' && changesTextRendering && !waitForFont ? { preview: undefined } : {}) }
       : item));
   };
 
@@ -3997,6 +4047,19 @@ export function LiveStudio({
     setInspectorLayerId(null);
     setMaterialTab('image');
     setNotice(`${asset.kind === 'image' ? '图片' : '视频'}素材已添加到画面`);
+  };
+
+  const addComponentToCanvas = (component: StudioComponent) => {
+    const id = `component-${component.id}-${Date.now()}`;
+    setLayers(items => [{
+      id, kind: 'image', value: component.name, preview: component.image,
+      sceneKey: 'templateElement', x: 50, y: 50,
+      width: component.width, height: component.height, rotation: 0, opacity: 100,
+    }, ...items]);
+    setGeneratedVideoVisible(false);
+    setSelectedLayerId(id);
+    setInspectorLayerId(null);
+    setNotice(`已添加“${component.name}”`);
   };
 
   const addTextToCanvas = () => {
@@ -4576,7 +4639,7 @@ export function LiveStudio({
                       {templateLoadError && <div className="xlTemplateStorageError">{templateLoadError}</div>}
                       {(selectedTemplate.pageCount ?? 1) > 1 && <div className="xlTemplatePages"><span>画布页面</span><div>{Array.from({ length: selectedTemplate.pageCount ?? 1 }, (_, pageIndex) => <button className={selectedTemplatePage === pageIndex ? 'active' : ''} type="button" disabled={roomLoading || templateLoadingId === selectedTemplate.id} aria-label={`切换到第 ${pageIndex + 1} 页`} aria-pressed={selectedTemplatePage === pageIndex} onClick={() => void applyTemplate(selectedTemplate.id, pageIndex)} key={pageIndex}>{pageIndex + 1}</button>)}</div></div>}
                       <div className="xlMaterialFilters"><label><select aria-label="模板类型" value={templateCategory} onChange={(event) => { setTemplateCategory(event.target.value); setVisibleTemplateCount(80); }}>{templateCategories.map((item) => <option value={item} key={item}>类型：{item}</option>)}</select><ChevronDown size={12} /></label><label><select aria-label="模板颜色" value={templateColor} onChange={(event) => { setTemplateColor(event.target.value); setVisibleTemplateCount(80); }}>{templateColors.map((item) => <option value={item} key={item}>颜色：{item}</option>)}</select><ChevronDown size={12} /></label></div>
-                      <div className="xlTemplateGrid">{filteredTemplates.map((template) => <article className={`xlTemplateCard ${selectedTemplateId === template.id ? 'selected' : ''}`} key={template.id}><button type="button" disabled={roomLoading || templateLoadingId === template.id} aria-busy={templateLoadingId === template.id} onClick={() => void applyTemplate(template.id)}><span className="xlTemplateCover"><img src={template.image} alt={template.name} loading="lazy" decoding="async" />{template.custom ? <i>我的</i> : template.source && <i>{templateLoadingId === template.id ? '读取中' : '一镜'}</i>}{(template.pageCount ?? 1) > 1 && <small>{template.pageCount} 页</small>}</span><strong>{template.name}</strong></button></article>)}</div>
+                      <div className="xlTemplateGrid">{filteredTemplates.map((template) => <article className={`xlTemplateCard ${selectedTemplateId === template.id ? 'selected' : ''}`} key={template.id}><button type="button" disabled={roomLoading || templateLoadingId === template.id} aria-busy={templateLoadingId === template.id} onClick={() => void applyTemplate(template.id)}><span className="xlTemplateCover"><img src={template.image} alt={template.name} loading="lazy" decoding="async" />{template.custom ? <i>我的</i> : templateLoadingId === template.id ? <i>读取中</i> : null}{(template.pageCount ?? 1) > 1 && <small>{template.pageCount} 页</small>}</span><strong>{template.name}</strong></button></article>)}</div>
                       {filteredTemplates.length < matchingTemplates.length && <button className="xlTemplateLoadMore" type="button" onClick={() => setVisibleTemplateCount((count) => count + 80)}>加载更多（{filteredTemplates.length}/{matchingTemplates.length}）</button>}
                       {!filteredTemplates.length && <div className="xlMaterialNoResult">没有找到匹配模板</div>}
                     </div>}
@@ -4590,6 +4653,19 @@ export function LiveStudio({
                         {visibleHosts.map((item) => <button className={`xlHostCard ${avatarId === item.id ? 'selected' : ''}`} type="button" key={item.id} disabled={roomLoading || onAir} aria-label={`选择数字人 ${item.name}`} aria-pressed={avatarId === item.id} onClick={() => { if (item.id === avatarId) { setNotice('当前已使用该主播'); return; } applyAvatar(item.id); }}><span className="xlHostPortrait"><img src={item.image} alt="" loading="lazy" decoding="async" />{avatarId === item.id && <i><Check size={13} /></i>}</span><span className="xlHostMeta"><strong>{item.name}</strong><small>{item.role}</small></span></button>)}
                       </div>
                       {!visibleHosts.length && <div className="xlMaterialNoResult">没有找到匹配主播</div>}
+                    </div>}
+
+                    {studioWorkspace === 'decorate' && materialTab === 'component' && <div className="xlComponentPanel">
+                      <label className="xlMaterialSearch"><input value={componentQuery} onChange={(event) => { setComponentQuery(event.target.value); setVisibleComponentCount(60); }} placeholder="搜索组件" /><Search size={15} /></label>
+                      {componentStatus === 'loading' && <div className="xlMaterialNoResult" role="status">正在读取组件</div>}
+                      {componentStatus === 'error' && <div className="xlMaterialEmpty"><strong>组件读取失败</strong><button type="button" onClick={() => setComponentStatus('idle')}><RefreshCw size={14} />重试</button></div>}
+                      {componentStatus === 'ready' && <>
+                        <div className="xlComponentCategories" aria-label="组件分类">{componentCategories.map(category => <button type="button" className={componentCategory === category ? 'active' : ''} aria-pressed={componentCategory === category} onClick={() => { setComponentCategory(category); setVisibleComponentCount(60); }} key={category}>{category}</button>)}</div>
+                        <div className="xlComponentCount">{filteredComponents.length} 个组件</div>
+                        <div className="xlComponentGrid">{filteredComponents.slice(0, visibleComponentCount).map(component => <button type="button" className="xlComponentCard" title={`添加“${component.name}”`} aria-label={`添加组件 ${component.name}`} onClick={() => addComponentToCanvas(component)} key={component.id}><span><img src={component.image} alt="" loading="lazy" decoding="async" /></span><strong>{component.name}</strong></button>)}</div>
+                        {filteredComponents.length > visibleComponentCount && <button type="button" className="xlTemplateLoadMore" onClick={() => setVisibleComponentCount(count => count + 60)}>加载更多（{visibleComponentCount}/{filteredComponents.length}）</button>}
+                        {!filteredComponents.length && <div className="xlMaterialNoResult">没有找到匹配组件</div>}
+                      </>}
                     </div>}
 
                     {studioWorkspace === 'decorate' && materialTab === 'image' && <div className="xlAssetPanel"><label className="xlMaterialSearch"><input value={assetQuery} onChange={(event) => setAssetQuery(event.target.value)} placeholder="搜索图片名称" /><Search size={15} /></label><div className="xlAssetToolbar"><div><button className={assetScope === 'mine' ? 'active' : ''} type="button" onClick={() => { setAssetScope('mine'); setSelectedAssetIds([]); }}>我的</button><button className={assetScope === 'square' ? 'active' : ''} type="button" onClick={() => { setAssetScope('square'); setSelectedAssetIds([]); }}>广场</button></div><span><button type="button" onClick={() => imageInputRef.current?.click()}><Upload size={13} />导入</button><button className={assetBatchMode ? 'active' : ''} type="button" onClick={() => { setAssetBatchMode((value) => !value); setSelectedAssetIds([]); }}>批量</button></span></div>{assetBatchMode && <div className="xlAssetBatchToolbar"><button type="button" onClick={() => setSelectedAssetIds(selectedAssetIds.length === currentAssets.length ? [] : currentAssets.map((item) => item.id))}>{currentAssets.length > 0 && selectedAssetIds.length === currentAssets.length ? <CheckSquare size={14} /> : <span className="xlEmptyCheck" />}全选</button><button type="button" disabled={!selectedAssetIds.length || assetScope !== 'mine'} onClick={deleteSelectedAssets}><Trash2 size={14} />删除已选</button></div>}{assetScope === 'mine' && currentAssets.length === 0 ? <div className="xlMaterialEmpty"><span><ImageIcon size={26} /></span><strong>暂无图片素材</strong><p>导入只会加入“我的素材”，点击素材卡片才会添加到直播画面。</p><button type="button" onClick={() => imageInputRef.current?.click()}><Plus size={14} />导入素材</button></div> : <div className="xlAssetCards">{currentAssets.map((asset) => { const selected = selectedAssetIds.includes(asset.id); return <article className="xlAssetCardWrap" key={asset.id}><button className={`xlAssetCard ${selected ? 'selected' : ''}`} type="button" onClick={() => assetBatchMode ? toggleAssetSelection(asset.id) : addAssetToCanvas(asset)}>{asset.preview ? <img src={asset.preview} alt="" /> : <span><ImageIcon size={22} /></span>}<strong>{asset.name}</strong>{assetBatchMode && <i>{selected ? <Check size={12} /> : null}</i>}</button>{assetScope === 'mine' && !assetBatchMode && <button className="xlAssetDelete" type="button" title={`删除图片“${asset.name}”`} aria-label={`删除图片“${asset.name}”`} onClick={() => deleteAsset(asset.id)}><Trash2 size={12} /></button>}</article>; })}</div>}</div>}

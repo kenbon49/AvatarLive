@@ -247,6 +247,14 @@
 }
 
 @font-face {
+  font-family: 'MaKeBi';
+  src: url('/assets/xiling-live/yijing/fonts/MaKeBi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: 'SanJiXingKaiJianTi';
   src: url('/assets/xiling-live/yijing/fonts/SanJiXingKaiJianTi.ttf') format('truetype');
   font-weight: normal;
@@ -281,6 +289,14 @@
 @font-face {
   font-family: 'XinYiGuanHeiTi';
   src: url('/assets/xiling-live/yijing/fonts/XinYiGuanHeiTi.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'YanShiChunFengKai';
+  src: url('/assets/xiling-live/yijing/fonts/YanShiChunFengKai.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: swap;

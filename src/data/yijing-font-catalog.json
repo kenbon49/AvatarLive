@@ -180,6 +180,12 @@
     "path": "/assets/xiling-live/yijing/fonts/KdamThmor.ttf"
   },
   {
+    "value": "MaKeBi",
+    "label": "马克笔",
+    "family": "MaKeBi",
+    "path": "/assets/xiling-live/yijing/fonts/MaKeBi.ttf"
+  },
+  {
     "value": "NanShenTi",
     "label": "男神体",
     "family": "NanShenTi",
@@ -214,6 +220,12 @@
     "label": "欣意冠黑体",
     "family": "XinYiGuanHeiTi",
     "path": "/assets/xiling-live/yijing/fonts/XinYiGuanHeiTi.ttf"
+  },
+  {
+    "value": "YanShiChunFengKai",
+    "label": "演示春风楷",
+    "family": "YanShiChunFengKai",
+    "path": "/assets/xiling-live/yijing/fonts/YanShiChunFengKai.ttf"
   },
   {
     "value": "YuMoTi",

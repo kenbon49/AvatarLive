@@ -83,7 +83,11 @@ const cssColorToHex = (value, fallback = '#ffffff') => {
   if (!rgba) return fallback;
   return `#${rgba.slice(1, 4).map(part => clamp(Math.round(Number(part)), 0, 255).toString(16).padStart(2, '0')).join('')}`;
 };
-const sourceFontFamily = value => String(value ?? '').split(',')[0].trim() || 'SiYuanHeiTi';
+const unavailablePrimaryFonts = new Set(['YuMoTi']);
+const sourceFontFamily = value => {
+  const families = String(value ?? '').split(',').map(item => item.trim()).filter(Boolean);
+  return families.find(family => !unavailablePrimaryFonts.has(family)) ?? 'SiYuanHeiTi';
+};
 const layerName = (element, index) => {
   if (element.type === 'bg') return '场景背景';
   const name = String(element.name ?? '').trim();
@@ -392,6 +396,14 @@ const legacyFontSources = [
   {
     name: '真帅体', value: 'ZhenShuaiTi',
     path: 'https://live-cecom-image.bj.bcebos.com/huibo_font/cn/%E7%9C%9F%E5%B8%85%E4%BD%93.ttf',
+  },
+  {
+    name: '马克笔', value: 'MaKeBi',
+    path: 'https://live-cecom-image.bj.bcebos.com/huibo_font/cn/%E9%A9%AC%E5%85%8B%E7%AC%94.ttf',
+  },
+  {
+    name: '演示春风楷', value: 'YanShiChunFengKai',
+    path: 'https://live-cecom-image.bj.bcebos.com/huibo_font/cn/%E6%BC%94%E7%A4%BA%E6%98%A5%E9%A3%8E%E6%A5%B7.ttf',
   },
 ];
 const remoteFonts = new Map([

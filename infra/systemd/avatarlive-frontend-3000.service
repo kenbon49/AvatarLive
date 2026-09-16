@@ -1,0 +1,16 @@
+[Unit]
+Description=AvatarLive frontend on port 3000
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=super
+WorkingDirectory=/data/yangcheng/AvatarLive
+Environment=NEXT_TELEMETRY_DISABLED=1
+ExecStart=/data/yangcheng/AvatarLive/node_modules/.bin/next start -H 0.0.0.0 -p 3000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

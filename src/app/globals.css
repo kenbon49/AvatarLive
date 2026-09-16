@@ -519,6 +519,7 @@ img, video, canvas { display: block; }
 .xlCanvasText { padding: 3px 7px; position: absolute; z-index: 7; left: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: clamp(7px, .8vw, 11px); overflow: hidden; overflow-wrap: anywhere; pointer-events: none; white-space: pre-wrap; }
 .xlCanvasRenderedText { padding: 0; background: transparent; }
 .xlCanvasRenderedText img { width: 100%; height: 100%; display: block; object-fit: fill; }
+.xlCanvasText.templateElement { padding: 0; }
 .xlCanvasText.custom { border-radius: 4px; background: rgba(13, 20, 34, .68); }
 .xlCanvasText.templateTitle, .xlCanvasText.templateTag, .xlCanvasText.templateFooter { border-radius: 4px; background: rgba(14, 20, 18, .08); text-shadow: 0 1px 4px rgba(0, 0, 0, .48); backdrop-filter: blur(3px); }
 .xlCustomSceneAsset { width: 31%; min-height: 10%; position: absolute; z-index: 7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; overflow: hidden; border-radius: 5px; color: white; background: rgba(20, 32, 45, .78); box-shadow: 0 5px 14px rgba(0, 0, 0, .18); pointer-events: none; }
@@ -2135,6 +2136,16 @@ img, video, canvas { display: block; }
 .xlTemplateCard.selected .xlTemplateCover { box-shadow: 0 0 0 2px rgba(104, 106, 248, .13); }
 .xlTemplateLoadMore { width: calc(100% - 32px); min-height: 31px; margin: 0 16px 12px; border: 1px solid #dfe1eb; border-radius: 5px; color: #62667b; background: #f8f9fc; font-size: 9px; }
 .xlTemplateLoadMore:hover { border-color: #b9baf8; color: #5659e7; background: #f1f1ff; }
+.xlComponentCategories { margin: 0 16px 10px; padding-bottom: 3px; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; }
+.xlComponentCategories button { flex: 0 0 auto; height: 26px; padding: 0 9px; border: 1px solid #e2e5ed; border-radius: 4px; color: #6e7485; background: #fff; font-size: 10px; }
+.xlComponentCategories button.active { border-color: #1764f2; color: #1764f2; background: #edf3ff; }
+.xlComponentCount { margin: 0 16px 8px; color: #9095a3; font-size: 10px; }
+.xlComponentGrid { padding: 0 16px 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.xlComponentCard { min-width: 0; padding: 0 0 6px; border: 1px solid #e5e8ef; border-radius: 5px; overflow: hidden; display: flex; flex-direction: column; align-items: stretch; color: #555d6d; background: #fff; text-align: center; }
+.xlComponentCard:hover, .xlComponentCard:focus-visible { border-color: #1764f2; outline: none; }
+.xlComponentCard > span { width: 100%; aspect-ratio: 1; padding: 7px; display: grid; place-items: center; background: #f6f7fa; }
+.xlComponentCard img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.xlComponentCard strong { height: 16px; margin: 5px 5px 0; overflow: hidden; font-size: 9px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 
 .xlHostFilters { margin-bottom: 10px; padding: 9px; border: 1px solid #e7e8ef; border-radius: 6px; display: grid; grid-template-columns: 1fr; gap: 9px; background: #f9f9fb; }
 .xlHostGenderFilter { height: 30px; display: grid; grid-template-columns: auto repeat(3, 1fr); align-items: center; gap: 3px; }
@@ -2639,7 +2650,7 @@ img, video, canvas { display: block; }
 .xlYijingStudio .xlScriptPanel, .xlYijingStudio .xlMaterialsPanel { height: 100%; min-height: 0; margin: 0; grid-area: workspace; border: 0; border-right: 1px solid #eceef2; border-radius: 0; box-shadow: none; }
 .xlYijingStudio .xlPreviewPanel { height: 100%; min-height: 0; margin: 0; grid-area: preview; border: 0; border-radius: 0; box-shadow: none; }
 .xlYijingStudio .xlScriptPanel[hidden], .xlYijingStudio .xlMaterialsPanel[hidden], .xlYijingStudio .xlLayersPanel[hidden] { display: none; }
-.xlYijingStudio .xlMaterialTabs { height: 48px; grid-template-columns: repeat(3, 1fr); }
+.xlYijingStudio .xlMaterialTabs { height: 48px; grid-template-columns: repeat(4, 1fr); }
 .xlYijingStudio .xlMaterialsPanel.decorate .xlMaterialsWorkspace { height: calc(100% - 48px); display: block; }
 .xlYijingStudio .xlMaterialsPanel.host .xlMaterialsWorkspace { height: 100%; display: block; }
 .xlYijingStudio .xlMaterialsPanel .xlMaterialsScroll { height: 100%; }
