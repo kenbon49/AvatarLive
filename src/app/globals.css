@@ -294,9 +294,8 @@ img, video, canvas { display: block; }
 .floatingScript p { margin: 13px 0 0; color: #5f6579; font-size: 10px; line-height: 1.7; }
 .floatingScenes { width: 225px; right: -18px; bottom: 15%; padding: 15px; }
 .floatingScenes div { margin-top: 13px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
-.floatingScenes div i { height: 58px; border-radius: 7px; background: linear-gradient(145deg, #d9d5cf, #f7f4ef); }
-.floatingScenes div i:nth-child(2) { background: linear-gradient(145deg, #dce5ee, #fff); }
-.floatingScenes div i:nth-child(3) { border: 2px solid #788aff; background: linear-gradient(145deg, #d9e7df, #f5fbf7); }
+.floatingScenes div img { width: 100%; aspect-ratio: 1; border-radius: 7px; display: block; object-fit: cover; }
+.floatingScenes div img:nth-child(3) { border: 2px solid #788aff; }
 .landingGlow { width: 80px; height: 80px; position: absolute; right: 12%; top: 6%; border-radius: 50%; background: linear-gradient(145deg, rgba(111, 132, 255, .25), rgba(255, 255, 255, .2)); filter: blur(2px); }
 .liveBackLanding { margin-bottom: 9px; padding: 0; border: 0; display: flex; align-items: center; gap: 5px; color: #7b8297; background: transparent; font-size: 9px; cursor: pointer; }
 
@@ -1693,7 +1692,6 @@ img, video, canvas { display: block; }
   .liveWindow { width: 82%; height: 440px; }
   .floatingScript { width: 190px; left: 0; padding: 13px; }
   .floatingScenes { width: 165px; right: 0; padding: 11px; }
-  .floatingScenes div i { height: 44px; }
   .creatorTopbar { padding: 0 10px; gap: 7px; }
   .creatorTopbar { top: 58px; }
   .creatorRail { top: 114px; }

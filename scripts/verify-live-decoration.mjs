@@ -65,8 +65,9 @@ try {
   await evaluate('Array.from(document.querySelectorAll(".xlMaterialTabs button")).find(button => button.textContent?.trim() === "组件").click()');
   await waitFor('document.querySelectorAll(".xlComponentCard").length === 60');
   const count = await evaluate('document.querySelector(".xlComponentCount").textContent');
-  await evaluate('Array.from(document.querySelectorAll(".xlComponentCategories button")).find(button => button.textContent === "顶部").click()');
-  const categoryCount = await waitFor('document.querySelector(".xlComponentCount")?.textContent?.startsWith("2018 ") && document.querySelectorAll(".xlComponentCard").length === 60');
+  if (count !== '3042 个组件') throw new Error(`Unexpected component count: ${count}`);
+  await evaluate('Array.from(document.querySelectorAll(".xlComponentCategories button")).find(button => button.textContent === "直播标题").click()');
+  const categoryCount = await waitFor('document.querySelector(".xlComponentCount")?.textContent === "429 个组件" && document.querySelectorAll(".xlComponentCard").length === 60');
   if (process.env.VIEWPORT_WIDTH && screenshotPath) {
     await evaluate('document.querySelector(".xlComponentCategories").scrollIntoView({ block: "center" })');
     const panel = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
@@ -75,6 +76,8 @@ try {
   const name = await evaluate('document.querySelector(".xlComponentCard strong")?.textContent');
   await evaluate('document.querySelector(".xlComponentCard").click()');
   await waitFor('document.querySelectorAll(".xlCustomSceneAsset.templateElement img").length > 0');
+  const componentPosition = await evaluate('(() => { const item = document.querySelector(".xlCustomSceneAsset.templateElement"); return item ? { left: item.style.left, top: item.style.top, width: item.style.width, height: item.style.height } : null; })()');
+  if (!componentPosition || Number.parseFloat(componentPosition.top) > 30) throw new Error(`Official title component was not placed at the top: ${JSON.stringify(componentPosition)}`);
 
   const fontProbe = await evaluate('(() => { const input = document.querySelector(".xlLayerRow input"); if (!input) return "no editable text"; const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; setter.call(input, input.value + "测"); input.dispatchEvent(new Event("input", { bubbles: true })); return "edited"; })()');
   if (fontProbe === 'edited') await waitFor('Boolean(document.querySelector(".xlCanvasText.templateElement:not(.xlCanvasRenderedText)"))');
@@ -86,7 +89,7 @@ try {
     const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     await writeFile(screenshotPath, Buffer.from(shot.data, 'base64'));
   }
-  console.log(JSON.stringify({ tabs, oldBadges, count, categoryCount: Boolean(categoryCount), selectedComponent: name, fontProbe, renderedFont, supplementalFonts }));
+  console.log(JSON.stringify({ tabs, oldBadges, count, categoryCount: Boolean(categoryCount), selectedComponent: name, componentPosition, fontProbe, renderedFont, supplementalFonts }));
 } finally {
   socket.close();
 }

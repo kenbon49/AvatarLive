@@ -59,13 +59,18 @@ test('templates with the unavailable YuMoTi primary font use their local source 
   }
 });
 
-test('component catalog uses distinct downloaded Yijing decoration images', async () => {
+test('component catalog uses the official Yijing component library', async () => {
   const catalog = JSON.parse(await readFile(path.join(assetDirectory, 'components.json'), 'utf8'));
-  assert.equal(catalog.templateCount, 994);
+  assert.equal(catalog.source, 'https://yijing.baidu.com/ai_anchor/paster/component_list');
   assert.equal(catalog.count, catalog.list.length);
-  assert.ok(catalog.count > 10_000);
+  assert.ok(catalog.count > 2_000);
+  assert.deepEqual(catalog.categories.map(category => category.name), [
+    '直播标题', '优惠信息', '商品卡', '保障信息', '主播名片', '擅长项目',
+  ]);
   assert.equal(new Set(catalog.list.map(item => item.image)).size, catalog.count);
-  for (const component of catalog.list.slice(0, 100)) {
+  for (const component of catalog.list) {
+    assert.ok(component.x >= 0 && component.x <= 100);
+    assert.ok(component.y >= 0 && component.y <= 100);
     assert.ok(component.width > 0 && component.height > 0);
     assert.ok((await stat(path.resolve('public', component.image.slice(1)))).size > 0, component.image);
   }

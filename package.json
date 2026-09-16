@@ -21,6 +21,7 @@
     "test:live-product-ai": "node --experimental-strip-types --test tests/live-product-ai.test.mjs",
     "fetch:yijing-templates": "node scripts/fetch-yijing-template-catalog.mjs",
     "fetch:yijing-fonts": "node scripts/fetch-yijing-font-catalog.mjs",
+    "fetch:yijing-components": "node scripts/fetch-yijing-component-catalog.mjs",
     "import:yijing-templates": "node scripts/import-yijing-editable-templates.mjs .cache/yijing-all-templates.json",
     "audit:yijing-templates": "node scripts/audit-yijing-template-visuals.mjs",
     "typecheck": "tsc --noEmit"

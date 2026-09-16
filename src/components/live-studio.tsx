@@ -357,7 +357,7 @@ const DECORATION_TABS = [
   { id: 'image', label: '图片', icon: ImageIcon },
   { id: 'text', label: '文字', icon: Type },
 ] as const;
-const COMPONENT_CATEGORIES = ['顶部', '底部', '商品', '形状', '装饰'] as const;
+const COMPONENT_CATEGORIES = ['直播标题', '优惠信息', '商品卡', '保障信息', '主播名片', '擅长项目'] as const;
 
 type StudioWorkspace = (typeof STUDIO_WORKSPACES)[number]['id'];
 type MaterialTab = (typeof DECORATION_TABS)[number]['id'] | 'host';
@@ -390,9 +390,11 @@ type StudioComponent = {
   name: string;
   category: string;
   image: string;
+  x: number;
+  y: number;
   width: number;
   height: number;
-  uses: number;
+  color?: string;
 };
 
 type TemplateLayerDocument = {
@@ -4053,7 +4055,7 @@ export function LiveStudio({
     const id = `component-${component.id}-${Date.now()}`;
     setLayers(items => [{
       id, kind: 'image', value: component.name, preview: component.image,
-      sceneKey: 'templateElement', x: 50, y: 50,
+      sceneKey: 'templateElement', x: component.x, y: component.y,
       width: component.width, height: component.height, rotation: 0, opacity: 100,
     }, ...items]);
     setGeneratedVideoVisible(false);
@@ -4332,7 +4334,7 @@ export function LiveStudio({
               <div className="liveWindowLower"><strong>{FEATURED_LIVE_AVATAR_NAME}</strong><span>官方公共数字人</span></div>
             </div>
             <article className="floatingScript"><span><FileText size={14} />话术编排</span><p>欢迎进入今天的数字人直播间，我们马上开始本期内容。</p></article>
-            <article className="floatingScenes"><span><Video size={14} />直播画面</span><div><i /><i /><i /></div></article>
+            <article className="floatingScenes"><span><Video size={14} />直播画面</span><div><img src="/assets/live/scenes/beauty-live-scene.webp" alt="美妆直播间画面" /><img src="/assets/live/scenes/tech-live-scene.webp" alt="数码直播间画面" /><img src="/assets/live/scenes/lifestyle-live-scene.webp" alt="生活直播间画面" /></div></article>
             <div className="landingGlow" />
           </section>
 
