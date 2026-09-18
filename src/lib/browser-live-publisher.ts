@@ -435,7 +435,7 @@ export class SceneCompositor {
   private drawTextLayer(context: CanvasRenderingContext2D, layer: BroadcastSceneLayer) {
     this.withLayer(context, layer, (width, height) => {
       const scale = this.canvas.width / (layer.sceneKey === 'templateElement' ? 378 : 340);
-      const fontSize = Math.max(20, (layer.fontSize ?? 16) * scale);
+      const fontSize = Math.max(1, (layer.fontSize ?? 16) * scale);
       const lineHeight = fontSize * (layer.lineHeight ?? 1.2);
       if (layer.backgroundEnabled) {
         const radius = Math.max(0, (layer.backgroundRadius ?? 6) * scale);
@@ -502,7 +502,7 @@ export class SceneCompositor {
   }
 }
 
-function createSilentAudio(): { context: AudioContext; track: MediaStreamTrack } {
+export function createSilentAudio(): { context: AudioContext; track: MediaStreamTrack } {
   const context = new AudioContext({ sampleRate: 48_000 });
   const destination = context.createMediaStreamDestination();
   const oscillator = context.createOscillator();

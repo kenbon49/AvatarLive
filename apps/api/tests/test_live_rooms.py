@@ -265,6 +265,37 @@ class LiveRoomApiTest(unittest.TestCase):
         self.assertEqual(len(self.client.get("/api/v1/live-rooms").json()), 1)
         self.assertEqual(self.client.delete(f"/api/v1/live-rooms/{copied_room_id}").status_code, 404)
 
+    def test_editor_draft_survives_updates_without_becoming_a_storyboard(self) -> None:
+        config = room_config()
+        config["editorDraft"] = "尚未加入分镜的编辑内容"
+        created_response = self.client.post(
+            "/api/v1/live-rooms", json={"name": "编辑稿测试", "config": config},
+        )
+        self.assertEqual(created_response.status_code, 201, created_response.text)
+        created = created_response.json()
+        self.assertEqual(created["config"]["editorDraft"], config["editorDraft"])
+        self.assertEqual(len(created["config"]["scripts"]), 1)
+
+        config["editorDraft"] = "自动保存后的新编辑稿"
+        updated_response = self.client.put(
+            f"/api/v1/live-rooms/{created['id']}",
+            json={"name": created["name"], "expectedVersion": created["version"], "config": config},
+        )
+        self.assertEqual(updated_response.status_code, 200, updated_response.text)
+        self.assertEqual(updated_response.json()["config"]["editorDraft"], config["editorDraft"])
+        self.assertEqual(len(updated_response.json()["config"]["scripts"]), 1)
+        self.assertEqual(
+            self.client.get(f"/api/v1/live-rooms/{created['id']}").json()["config"]["editorDraft"],
+            config["editorDraft"],
+        )
+
+        config["editorDraft"] = "a" * 20001
+        rejected_response = self.client.put(
+            f"/api/v1/live-rooms/{created['id']}",
+            json={"name": created["name"], "expectedVersion": updated_response.json()["version"], "config": config},
+        )
+        self.assertEqual(rejected_response.status_code, 422)
+
     def test_rejects_invalid_control_console_config(self) -> None:
         invalid = room_config()
         invalid["goods"] = []

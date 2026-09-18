@@ -21,7 +21,13 @@ const [source, catalog, sceneBackgrounds] = await Promise.all([
 const rawTemplates = Array.isArray(source.list)
   ? source.list
   : (source.data?.list ?? []).flatMap(category => category.template_list ?? []);
-const sourceTemplates = [...new Map(rawTemplates.map(template => [Number(template.id), template])).values()];
+const curation = JSON.parse(await readFile('src/data/yijing-template-curation.json', 'utf8'));
+const retiredTemplateIds = new Set([
+  ...curation.obscuredHost,
+  ...Object.keys(curation.duplicateOf).map(Number),
+]);
+const sourceTemplates = [...new Map(rawTemplates.map(template => [Number(template.id), template])).values()]
+  .filter(template => !retiredTemplateIds.has(Number(template.id)));
 const catalogBySourceId = new Map(catalog.map(template => [Number(template.sourceId), template]));
 const restoredByPage = new Map(sceneBackgrounds.map(item => [`${item.templateId}:${item.pageIndex}`, item]));
 const clipPattern = /^inset\(\s*([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s*\)$/;

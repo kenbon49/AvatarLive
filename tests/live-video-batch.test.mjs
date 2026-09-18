@@ -27,6 +27,19 @@ test('stopping during a poll promptly cancels further work', async () => {
   await assert.rejects(waiting, { name: 'AbortError' });
 });
 
+test('waits for local download and stops when it fails', async () => {
+  let calls = 0;
+  await waitForAvatarVideo('task-current', {
+    signal: new AbortController().signal, pollInterval: 0,
+    fetcher: async () => Response.json({ video: { status: 'SUCCESS', download: { status: ++calls === 1 ? 'downloading' : 'ready' } } }),
+  });
+  assert.equal(calls, 2);
+  await assert.rejects(waitForAvatarVideo('task-current', {
+    signal: new AbortController().signal,
+    fetcher: async () => Response.json({ video: { status: 'SUCCESS', download: { status: 'failed', error: '下载失败' } } }),
+  }), /下载失败/);
+});
+
 test('failure, invalid status and timeout prevent automatic continuation', async () => {
   const signal = new AbortController().signal;
   await assert.rejects(waitForAvatarVideo('task-current', { signal, fetcher: async () => Response.json({ video: { status: 'ERROR' } }) }), /合成失败/);

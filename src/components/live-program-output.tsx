@@ -7,21 +7,7 @@ type LiveProgramOutputProps = {
   orientation: 'portrait' | 'landscape';
 };
 
-function waitForIceGathering(peer: RTCPeerConnection): Promise<void> {
-  if (peer.iceGatheringState === 'complete') return Promise.resolve();
-  return new Promise((resolve) => {
-    const finish = () => {
-      window.clearTimeout(timeout);
-      peer.removeEventListener('icegatheringstatechange', handleChange);
-      resolve();
-    };
-    const handleChange = () => {
-      if (peer.iceGatheringState === 'complete') finish();
-    };
-    const timeout = window.setTimeout(finish, 5_000);
-    peer.addEventListener('icegatheringstatechange', handleChange);
-  });
-}
+type ProgramWindow = Window & { __avatarProgramStream?: MediaStream | null };
 
 export function LiveProgramOutput({ sessionId, orientation }: LiveProgramOutputProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -30,7 +16,6 @@ export function LiveProgramOutput({ sessionId, orientation }: LiveProgramOutputP
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Give window-capture tools a stable, recognizable window title.
     const previousTitle = document.title;
     document.title = `AvatarLive 节目输出 · ${orientation === 'portrait' ? '9:16' : '16:9'}`;
     return () => {
@@ -44,61 +29,51 @@ export function LiveProgramOutput({ sessionId, orientation }: LiveProgramOutputP
       return;
     }
 
-    const peer = new RTCPeerConnection();
-    const outputStream = new MediaStream();
     let readyTimer: number | null = null;
     let stopped = false;
     const opener = window.opener;
     const sendReady = () => opener.postMessage({ type: 'program-ready', sessionId }, window.location.origin);
-    const tryPlay = () => {
+    const tryPlay = async () => {
       const video = videoRef.current;
       if (!video) return;
-      video.srcObject = outputStream;
-      void video.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
-    };
-
-    peer.ontrack = (event) => {
-      if (!outputStream.getTracks().some((track) => track.id === event.track.id)) outputStream.addTrack(event.track);
-      tryPlay();
-    };
-    peer.onconnectionstatechange = () => {
-      if (peer.connectionState === 'connected') {
+      const stream = (window as ProgramWindow).__avatarProgramStream;
+      if (!stream?.getVideoTracks().length) {
+        opener.postMessage({ type: 'program-error', sessionId, message: '节目画面媒体流不可用' }, window.location.origin);
+        return;
+      }
+      video.srcObject = stream;
+      try {
+        try {
+          await video.play();
+          setAudioBlocked(false);
+        } catch {
+          video.muted = true;
+          await video.play();
+          setAudioBlocked(true);
+        }
+        if (stopped) return;
         setConnected(true);
+        setError('');
         if (readyTimer !== null) window.clearInterval(readyTimer);
         readyTimer = null;
-        tryPlay();
-      } else if (['failed', 'disconnected'].includes(peer.connectionState)) {
-        if (readyTimer !== null) window.clearInterval(readyTimer);
-        readyTimer = null;
-        setConnected(false);
-        setError('节目媒体连接已中断，请回到控制台重试');
+        opener.postMessage({ type: 'program-live', sessionId }, window.location.origin);
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : '节目画面播放失败';
+        setError(message);
+        opener.postMessage({ type: 'program-error', sessionId, message }, window.location.origin);
       }
     };
 
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== opener) return;
-      const message = event.data as { type?: string; sessionId?: string; sdp?: string } | null;
+      const message = event.data as { type?: string; sessionId?: string } | null;
       if (!message || message.sessionId !== sessionId) return;
       if (message.type === 'stop') {
         stopped = true;
-        peer.close();
         window.close();
-        return;
+      } else if (message.type === 'direct-start' && !stopped) {
+        void tryPlay();
       }
-      if (message.type !== 'offer' || !message.sdp || stopped) return;
-      void (async () => {
-        try {
-          await peer.setRemoteDescription({ type: 'offer', sdp: message.sdp! });
-          const answer = await peer.createAnswer();
-          await peer.setLocalDescription(answer);
-          await waitForIceGathering(peer);
-          if (peer.localDescription?.sdp) {
-            opener.postMessage({ type: 'answer', sessionId, sdp: peer.localDescription.sdp }, window.location.origin);
-          }
-        } catch (caught) {
-          setError(caught instanceof Error ? caught.message : '节目媒体连接失败');
-        }
-      })();
     };
 
     window.addEventListener('message', handleMessage);
@@ -112,8 +87,7 @@ export function LiveProgramOutput({ sessionId, orientation }: LiveProgramOutputP
       if (readyTimer !== null) window.clearInterval(readyTimer);
       window.removeEventListener('message', handleMessage);
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      outputStream.getTracks().forEach((track) => track.stop());
-      peer.close();
+      if (videoRef.current) videoRef.current.srcObject = null;
     };
   }, [sessionId]);
 

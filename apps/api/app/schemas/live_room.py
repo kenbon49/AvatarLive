@@ -158,6 +158,7 @@ class LiveRoomConfig(CamelModel):
     goods: list[LiveRoomGoodsItem] = Field(min_length=1, max_length=500)
     active_goods_id: str | int
     scripts: list[LiveRoomScriptItem] = Field(default_factory=list, max_length=5000)
+    editor_draft: str | None = Field(default=None, max_length=20000)
     qa_items: list[LiveRoomQaItem] = Field(default_factory=list, max_length=5000)
     selected_template_id: str = Field(min_length=1, max_length=160)
     selected_template_page: int = Field(default=0, ge=0, le=20)

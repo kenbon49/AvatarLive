@@ -16,6 +16,25 @@ type SceneLayer = {
   chromaKeySoftness?: number;
 };
 
+export function createDefaultHostLayer<T extends SceneLayer>(hostName: string): T {
+  return {
+    id: 'host',
+    kind: 'host',
+    sceneKey: 'host',
+    value: hostName,
+    x: 50,
+    y: 64,
+    width: 76,
+    height: 70,
+    rotation: 0,
+    opacity: 100,
+    chromaKeyEnabled: false,
+    chromaKeyColor: '#ffffff',
+    chromaKeyTolerance: 4,
+    chromaKeySoftness: 6,
+  } as T;
+}
+
 export function repairLegacyTemplateBackground<T extends SceneLayer>(
   templateLayers: readonly T[],
   currentLayers: readonly T[],
@@ -56,11 +75,7 @@ export function applyTemplateLayersPreservingHost<T extends SceneLayer>(
   const preservedHost = currentHost ? {
     ...currentHost,
     value: currentHostName ?? currentHost.value,
-  } : currentHostName !== undefined ? {
-    id: 'host', kind: 'host', sceneKey: 'host', value: currentHostName,
-    x: 50, y: 64, width: 76, height: 70, rotation: 0, opacity: 100,
-    chromaKeyEnabled: false, chromaKeyColor: '#ffffff', chromaKeyTolerance: 4, chromaKeySoftness: 6,
-  } : null;
+  } : currentHostName !== undefined ? createDefaultHostLayer<T>(currentHostName) : null;
   if (!preservedHost) return nextLayers;
 
   const backgroundIndex = nextLayers.findIndex((layer) => layer.sceneKey === 'templateBackground');

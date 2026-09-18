@@ -1,6 +1,18 @@
 export type DynamicScriptOperation = 'expand' | 'condense' | 'polish';
 
 export const DYNAMIC_SCRIPT_SYSTEM_PROMPT = '你是专业的数字人直播带货脚本编导。严格遵守用户要求的目标篇幅、事实边界和输出格式；扩写时要形成内容充实、节奏自然、可直接连续播报的长稿，不要因为默认追求简洁而提前结束。';
+export const SCRIPT_SAFETY_SYSTEM_PROMPT = '你是直播口播稿的合规编辑。只修订有风险的表达，保留原文事实、篇幅和段落，不新增承诺或未经证实的信息。';
+export const DEFAULT_SCRIPT_SAFETY_GUIDANCE = '避免绝对化承诺、极限价格、未经证实的功效和保证性用语。只陈述已提供且可以核实的商品信息；遇到高风险表述时，改为中性、具体的描述，不拆字、谐音或换符号规避审核。';
+
+const DEFAULT_RISK_WORDS = ['全网最低', '绝对', '百分之百', '100%', '包治', '稳赚', '零风险', '永久'];
+
+export function scriptRiskWords(productRiskWords: string[] = []): string[] {
+  return [...new Set([...DEFAULT_RISK_WORDS, ...productRiskWords].map((word) => word.trim()).filter(Boolean))];
+}
+
+export function isScriptSafetyError(message: string): boolean {
+  return /风控|风险词|敏感词|违规|内容审核|内容安全|moderation|content.policy|safety/i.test(message);
+}
 
 export type DynamicScriptContext = {
   operation?: DynamicScriptOperation;
@@ -10,6 +22,8 @@ export type DynamicScriptContext = {
   draftText?: string;
   uploadedMaterials?: Array<{ name: string; content: string }>;
   uploadedImages?: string[];
+  safetyGuidance?: string;
+  riskWords?: string[];
 };
 
 export function dynamicScriptComparisonTexts(
@@ -61,8 +75,60 @@ export function buildDynamicScriptPrompt(context: DynamicScriptContext): string 
     images.length ? `同时参考随消息上传的 ${images.length} 张图片（${images.join('、')}）。包装上清晰可辨的专有名称、数字、单位和并列短句必须逐字保留；不确定的信息直接忽略。` : '',
     '最近已播内容（请避免重复）：',
     recent,
+    `风控要求：避免出现${scriptRiskWords(context.riskWords).join('、')}；${context.safetyGuidance?.trim() || DEFAULT_SCRIPT_SAFETY_GUIDANCE}`,
     `要求：${outputInstruction}；保留用户原意和已确认事实；有素材时融合素材里的信息；图片只可用于描述清晰可辨的外观、原文文字和使用场景，不得由外观推断口感、功效、品质、适用人群或送礼价值；成稿中不得出现“图片”“画面”“包装上看到”“根据资料”等幕后措辞；不要编造价格、库存、功效、品牌承诺或绝对化用语；${lengthInstruction}`,
   ].filter(Boolean).join('\n');
+}
+
+export function buildScriptSafetyRevisionPrompt(text: string, riskWords: string[], guidance: string): string {
+  return [
+    '请对下面的直播口播稿做一次合规修订。只改写包含风险表述的句子，其他内容、事实、自然段结构和篇幅尽量保持不变。',
+    `必须移除的词语：${riskWords.join('、')}。不要用拆字、谐音或符号变形来替代。`,
+    `修订要求：${guidance.trim() || DEFAULT_SCRIPT_SAFETY_GUIDANCE}`,
+    '同时检查未经证实的功效、价格、保证性承诺等不在词表中的风险表述；如果没有需要修订的内容，原样返回全文。',
+    '不增加未经提供的价格、功效、材质或品牌承诺。只输出修订后的完整正文，不加说明或标题。',
+    '待修订正文：',
+    text,
+  ].join('\n');
+}
+
+export type ScriptSafetyChange = { before: string; after: string };
+
+export function scriptSafetyChanges(before: string, after: string): ScriptSafetyChange[] {
+  if (before === after) return [];
+  const sentences = (text: string) => text.match(/[^。！？!?；;\n]+[。！？!?；;]*/g)?.map((part) => part.trim()).filter(Boolean) ?? [];
+  const left = sentences(before);
+  const right = sentences(after);
+  if (!left.length || !right.length || left.length > 160 || right.length > 160) return [{ before, after }];
+
+  const shared = Array.from({ length: left.length + 1 }, () => new Uint16Array(right.length + 1));
+  for (let i = left.length - 1; i >= 0; i--) {
+    for (let j = right.length - 1; j >= 0; j--) {
+      shared[i][j] = left[i] === right[j] ? shared[i + 1][j + 1] + 1 : Math.max(shared[i + 1][j], shared[i][j + 1]);
+    }
+  }
+
+  const changes: ScriptSafetyChange[] = [];
+  let removed = '';
+  let added = '';
+  const flush = () => {
+    if (removed || added) changes.push({ before: removed, after: added });
+    removed = '';
+    added = '';
+  };
+  for (let i = 0, j = 0; i < left.length || j < right.length;) {
+    if (i < left.length && j < right.length && left[i] === right[j]) {
+      flush();
+      i++;
+      j++;
+    } else if (i < left.length && (j === right.length || shared[i + 1][j] >= shared[i][j + 1])) {
+      removed += left[i++];
+    } else {
+      added += right[j++];
+    }
+  }
+  flush();
+  return changes.length ? changes : [{ before, after }];
 }
 
 export function normalizeGeneratedScript(value: unknown): string {
@@ -77,8 +143,6 @@ export function normalizeGeneratedScript(value: unknown): string {
     .trim()
     .slice(0, 20_000);
 }
-
-const DEFAULT_RISK_WORDS = ['全网最低', '绝对', '百分之百', '100%', '包治', '稳赚', '零风险', '永久'];
 
 function duplicateText(value: string): string {
   return value.toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '');
@@ -108,8 +172,8 @@ export function isNearDuplicateScript(left: string, right: string): boolean {
   return containment >= 0.82 && dice >= 0.72;
 }
 
-export function validateDynamicScript(text: string, recentTexts: string[], riskWords = DEFAULT_RISK_WORDS): { ok: boolean; riskWords: string[]; duplicate: boolean } {
-  const matchedRiskWords = riskWords.filter((word) => word && text.includes(word));
+export function validateDynamicScript(text: string, recentTexts: string[], riskWords: string[] = []): { ok: boolean; riskWords: string[]; duplicate: boolean } {
+  const matchedRiskWords = scriptRiskWords(riskWords).filter((word) => text.includes(word));
   const duplicate = recentTexts.some((recent) => isNearDuplicateScript(text, recent));
   return { ok: matchedRiskWords.length === 0, riskWords: matchedRiskWords, duplicate };
 }

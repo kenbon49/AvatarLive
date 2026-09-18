@@ -1,10 +1,11 @@
 'use client';
 
-import { FormEvent, PointerEvent as ReactPointerEvent, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, PointerEvent as ReactPointerEvent, type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  AudioLines,
   ArrowLeft,
   ArrowRight,
   ArrowDown,
@@ -37,6 +38,7 @@ import {
   Plus,
   Pencil,
   Radio,
+  Redo2,
   RotateCcw,
   RefreshCw,
   Save,
@@ -52,6 +54,7 @@ import {
   Trash2,
   Type,
   Upload,
+  Undo2,
   UserRound,
   Video,
   Volume2,
@@ -71,6 +74,7 @@ import { getPregeneratedLiveVideo } from '@/lib/pre-generated-live-videos';
 import { ALIYUN_PUBLIC_VOICES, type AliyunVoiceLanguage } from '@/lib/aliyun-voice-catalog';
 import {
   BrowserLivePublisher,
+  createSilentAudio,
   layerChromaKeySettings,
   SceneCompositor,
   type BroadcastSceneSnapshot,
@@ -79,9 +83,12 @@ import {
 import { ChromaKeyRenderer, type ChromaKeySettings } from '@/lib/chroma-key';
 import {
   openWindowCaptureWindow,
+  PictureInPictureCaptureSession,
+  supportsPictureInPictureOutput,
   WindowCaptureSession,
   type WindowCaptureState,
 } from '@/lib/window-capture-session';
+import { StoryboardVideoPlaylist, type StoryboardVideoItem } from '@/lib/storyboard-video-playlist';
 import { ProductShell } from '@/components/product-shell';
 import { PersonSegmentedImagePreview, type PersonImageSegmentationState } from '@/components/person-segmented-image-preview';
 import { API_BASE } from '@/lib/api';
@@ -128,7 +135,7 @@ import {
 } from '@/lib/platform-connection-api';
 import { LivePlaybackQueue, type PlaybackQueueStatus } from '@/lib/live-playback-queue';
 import { MuseTalkMicrophoneStream } from '@/lib/musetalk-microphone';
-import { buildDynamicScriptPrompt, DYNAMIC_SCRIPT_SYSTEM_PROMPT, dynamicScriptComparisonTexts, normalizeGeneratedScript, validateDynamicScript, type DynamicScriptOperation } from '@/lib/live-dynamic-script';
+import { buildDynamicScriptPrompt, buildScriptSafetyRevisionPrompt, DEFAULT_SCRIPT_SAFETY_GUIDANCE, DYNAMIC_SCRIPT_SYSTEM_PROMPT, SCRIPT_SAFETY_SYSTEM_PROMPT, dynamicScriptComparisonTexts, isScriptSafetyError, normalizeGeneratedScript, scriptRiskWords, scriptSafetyChanges, validateDynamicScript, type DynamicScriptOperation, type ScriptSafetyChange } from '@/lib/live-dynamic-script';
 import { readLiveAiText } from '@/lib/live-ai-stream';
 import { buildProductStarterScripts } from '@/lib/live-product-scripts';
 import {
@@ -147,11 +154,28 @@ import { scriptAvatarVideoInputSignature, scriptAvatarVideoIsBusy } from '@/lib/
 import { StoryboardScenePreview } from '@/components/storyboard-scene-preview';
 import { SCRIPT_EDITOR_LIMIT, duplicateStoryboardScript, estimateScriptSeconds, formatScriptDuration, reviseStoryboardScript } from '@/lib/live-script-editor';
 import { loadScriptPreviewAudio } from '@/lib/live-script-preview';
-import { applyTemplateLayersPreservingHost, repairLegacyTemplateBackground } from '@/lib/live-template-layers';
+import { applyTemplateLayersPreservingHost, createDefaultHostLayer, repairLegacyTemplateBackground } from '@/lib/live-template-layers';
+import {
+  componentBounds,
+  instantiateComponentLayers,
+  moveComponentLayers,
+  resizeComponentLayers,
+  rotateComponentLayers,
+  type ComponentBounds,
+} from '@/lib/live-component-layers';
 import { waitForAvatarVideo } from '@/lib/live-video-batch';
 import yijingTemplateCatalog from '@/data/yijing-template-catalog.json';
 import yijingFontCatalog from '@/data/yijing-font-catalog.json';
 import { resolveYijingFontFamily } from '@/lib/yijing-fonts';
+import {
+  canRedoLiveScene,
+  canUndoLiveScene,
+  createLiveSceneHistory,
+  recordLiveSceneSnapshot,
+  redoLiveScene,
+  undoLiveScene,
+  type LiveSceneHistory,
+} from '@/lib/live-scene-history';
 
 type ScriptItem = {
   id: number;
@@ -204,6 +228,12 @@ type LayerItem = {
   chromaKeyColor?: string;
   chromaKeyTolerance?: number;
   chromaKeySoftness?: number;
+  componentInstanceId?: string;
+  componentSourceId?: string;
+  componentName?: string;
+  componentLayerId?: string;
+  componentRole?: string;
+  componentTextLimit?: number;
 };
 
 const TEXT_RENDER_KEYS = new Set<keyof LayerItem>([
@@ -214,6 +244,13 @@ const TEXT_RENDER_KEYS = new Set<keyof LayerItem>([
 ]);
 
 type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
+
+type SceneHistorySnapshot = {
+  layers: LayerItem[];
+  selectedTemplateId: string;
+  selectedTemplatePage: number;
+  avatarId: string;
+};
 
 type CanvasGesture = {
   mode: 'move' | 'resize' | 'rotate';
@@ -230,6 +267,30 @@ type CanvasGesture = {
   centerClientX: number;
   centerClientY: number;
   startPointerAngle: number;
+  historySnapshot: SceneHistorySnapshot;
+};
+
+type ComponentCanvasGesture = {
+  mode: 'move' | 'resize' | 'rotate';
+  pointerId: number;
+  instanceId: string;
+  handle?: ResizeHandle;
+  startClientX: number;
+  startClientY: number;
+  startBounds: ComponentBounds;
+  startLayers: LayerItem[];
+  centerClientX: number;
+  centerClientY: number;
+  startPointerAngle: number;
+  historySnapshot: SceneHistorySnapshot;
+};
+
+type MultiCanvasGesture = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startLayers: LayerItem[];
+  historySnapshot: SceneHistorySnapshot;
 };
 
 type AssetItem = {
@@ -265,6 +326,7 @@ type AliyunVideoResult = {
   videoUrl: string;
   coverUrl: string;
   error?: string;
+  download?: { status: 'downloading' | 'failed' | 'ready'; downloadedBytes: number; totalBytes: number; error?: string };
 };
 
 type ScriptVideoBatch = {
@@ -277,11 +339,24 @@ type ScriptVideoBatch = {
 const ALIYUN_VIDEO_READY_STATES = new Set(['SUCCESS', 'SUCCEEDED', 'COMPLETED']);
 const ALIYUN_VIDEO_FAILED_STATES = new Set(['FAIL', 'FAILED', 'ERROR', 'CANCELED', 'CANCELLED', 'EXPIRED']);
 
-function aliyunVideoState(status: string) {
-  const normalized = status.trim().toUpperCase();
-  if (ALIYUN_VIDEO_READY_STATES.has(normalized)) return 'ready';
+function aliyunVideoState(video: AliyunVideoResult) {
+  const normalized = video.status.trim().toUpperCase();
+  if (ALIYUN_VIDEO_READY_STATES.has(normalized)) {
+    if (video.download?.status === 'failed') return 'downloadFailed';
+    return video.videoUrl ? 'ready' : 'downloading';
+  }
   if (ALIYUN_VIDEO_FAILED_STATES.has(normalized)) return 'failed';
   return 'processing';
+}
+
+function videoDownloadProgress(video?: AliyunVideoResult) {
+  const download = video?.download;
+  return download?.totalBytes ? `${Math.min(100, Math.floor(download.downloadedBytes / download.totalBytes * 100))}%` : '';
+}
+
+function videoDownloadLabel(video?: AliyunVideoResult) {
+  const progress = videoDownloadProgress(video);
+  return progress ? `下载 ${progress}` : '下载中';
 }
 
 type CloneVoiceDraft = {
@@ -291,7 +366,8 @@ type CloneVoiceDraft = {
   previewAudio: string;
 };
 
-type DialogName = 'settings' | 'voice' | 'livePlatform' | 'productPicker' | 'scriptImport' | null;
+type DialogName = 'settings' | 'voice' | 'livePlatform' | 'productPicker' | 'scriptImport' | 'scriptSafety' | null;
+type ScriptSafetyReview = { roomId: string | number | null; scriptId: number | null; status: 'corrected' | 'clean' | 'failed'; message: string; changes: ScriptSafetyChange[] };
 type SettingsTab = 'qa' | 'dynamic' | 'ambience' | 'product' | 'output' | 'environment';
 type OutputConfig = { resolution: string; frameRate: string; codec: string; protocol: string };
 type ProductPickerTab = 'platform' | 'script_library' | 'self_built';
@@ -390,11 +466,18 @@ type StudioComponent = {
   name: string;
   category: string;
   image: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  layersUrl: string;
+  layerCount: number;
+  textLayerCount: number;
+  editable: boolean;
   color?: string;
+};
+
+type ComponentLayerDocument = {
+  sourceId: number;
+  name: string;
+  category: string;
+  layers: LayerItem[];
 };
 
 type TemplateLayerDocument = {
@@ -409,6 +492,21 @@ type TemplateLayerDocument = {
 type ProductDemoStage = 'idle' | 'analyzing' | 'rendering' | 'ready' | 'failed';
 
 const yijingPageCache = new Map<string, Promise<LayerItem[][]>>();
+const yijingComponentCache = new Map<string, Promise<LayerItem[]>>();
+
+async function loadComponentLayers(component: StudioComponent): Promise<LayerItem[]> {
+  const cached = yijingComponentCache.get(component.layersUrl);
+  if (cached) return cached;
+  const request = fetch(component.layersUrl).then(async response => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const document = await response.json() as ComponentLayerDocument;
+    if (!Array.isArray(document.layers)) throw new Error('组件图层数据无效');
+    return document.layers;
+  });
+  yijingComponentCache.set(component.layersUrl, request);
+  request.catch(() => yijingComponentCache.delete(component.layersUrl));
+  return request;
+}
 
 async function loadTemplatePages(template: StudioTemplate): Promise<LayerItem[][]> {
   if (template.layers?.length) return [template.layers];
@@ -449,11 +547,15 @@ const LIVE_TEMPLATES: StudioTemplate[] = [
 
 const DEFAULT_LIVE_TEMPLATE = LIVE_TEMPLATES[0];
 const DEFAULT_LIVE_TEMPLATE_ID = DEFAULT_LIVE_TEMPLATE.id;
+const EMPTY_LIVE_TEMPLATE_ID = 'none';
 const LEGACY_TEMPLATE_IDS = new Set(['home', 'sale', 'spring', 'food', 'study', 'snack', 'fruit', 'fashion']);
 
 const CUSTOM_TEMPLATE_STORAGE_KEY = 'synlive.customTemplates.v1';
+const CUSTOM_TEMPLATE_TWO_CLEANUP_KEY = 'synlive.customTemplateTwoCleanup.v1';
+const SCRIPT_SAFETY_STORAGE_KEY = 'synlive.scriptSafetyGuidance.v1';
 const ACTIVE_LIVE_ROOM_STORAGE_KEY = 'synlive.activeLiveRoom.v1';
 const YIJING_BLANK_BACKGROUND = '/assets/xiling-live/yijing/blank.png';
+const SHOW_CANVAS_POSITION_INSPECTOR = false;
 
 const INITIAL_SCRIPTS: ScriptItem[] = [{
   id: 1,
@@ -530,6 +632,43 @@ const fontFamilyCss = (value = '默认字体') => {
 };
 const FONT_FAMILIES = Object.fromEntries(FONT_OPTIONS.map(font => [font.value, fontFamilyCss(font.value)]));
 const canvasFontSize = (value = 16) => `${roundCanvasValue(value / 3.78)}cqw`;
+const canvasLength = (value = 0) => `${roundCanvasValue(value / 3.78)}cqw`;
+
+function CanvasTextContent({ layer }: { layer: LayerItem }) {
+  const contentRef = useRef<HTMLSpanElement>(null);
+  const [horizontalScale, setHorizontalScale] = useState(1);
+  const singleLine = layer.sceneKey === 'templateElement'
+    && !layer.value.includes('\n')
+    && layer.height * 6.72 < (layer.fontSize ?? 16) * (layer.lineHeight ?? 1.2) * 1.8;
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    const container = content?.parentElement;
+    if (!singleLine || !content || !container) {
+      setHorizontalScale(1);
+      return;
+    }
+    const measure = () => {
+      const availableWidth = container.getBoundingClientRect().width;
+      const naturalWidth = content.scrollWidth;
+      setHorizontalScale(naturalWidth > 0 ? Math.min(1, availableWidth / naturalWidth) : 1);
+    };
+    measure();
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, [layer.fontFamily, layer.fontSize, layer.fontStyle, layer.fontWeight, layer.letterSpacing, layer.value, singleLine]);
+
+  if (!singleLine) return <>{layer.value}</>;
+  return <span
+    ref={contentRef}
+    className="xlCanvasTextContent"
+    style={{
+      transform: `scaleX(${horizontalScale})`,
+      transformOrigin: layer.textAlign === 'left' ? 'left center' : layer.textAlign === 'right' ? 'right center' : 'center',
+    }}
+  >{layer.value}</span>;
+}
 
 const roundCanvasValue = (value: number) => Math.round(value * 10) / 10;
 const clampCanvasValue = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
@@ -614,8 +753,11 @@ async function prepareTemplateBackground(file: File): Promise<string> {
   if (typeof createImageBitmap !== 'function') return fileAsDataUrl(file);
   const bitmap = await createImageBitmap(file);
   try {
-    const targetWidth = 540;
-    const targetHeight = 960;
+    if (bitmap.width <= 1080 && bitmap.height <= 1920 && file.size <= 3 * 1024 * 1024) {
+      return fileAsDataUrl(file);
+    }
+    const targetWidth = 1080;
+    const targetHeight = 1920;
     const scale = Math.max(targetWidth / bitmap.width, targetHeight / bitmap.height);
     const drawWidth = bitmap.width * scale;
     const drawHeight = bitmap.height * scale;
@@ -625,7 +767,7 @@ async function prepareTemplateBackground(file: File): Promise<string> {
     const context = canvas.getContext('2d');
     if (!context) return fileAsDataUrl(file);
     context.drawImage(bitmap, (targetWidth - drawWidth) / 2, (targetHeight - drawHeight) / 2, drawWidth, drawHeight);
-    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
+    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.95));
     return fileAsDataUrl(compressed ?? file);
   } finally {
     bitmap.close();
@@ -664,7 +806,7 @@ const createTemplateLayers = (templateId: string, avatarName: string): LayerItem
   ];
 };
 
-const INITIAL_LAYERS = createTemplateLayers(DEFAULT_LIVE_TEMPLATE_ID, '灵婉');
+const INITIAL_LAYERS: LayerItem[] = [createDefaultHostLayer<LayerItem>('灵婉')];
 
 const SQUARE_ASSETS: Record<'image' | 'video', AssetItem[]> = {
   image: [
@@ -704,6 +846,12 @@ const PLATFORMS = [
 const FEATURED_LIVE_AVATAR_ID = 'aliyun-M1xuUWr440XEDhA6QPRvRiDQ';
 const FEATURED_LIVE_AVATAR_NAME = '灵婉';
 const DEFAULT_VOICE_ID = 'longbaizhi';
+const LANDING_LIVE_SCENES = [
+  { id: 'nature', src: '/assets/live/scenes/nature-live-background.webp', alt: '自然直播背景' },
+  { id: 'home', src: '/assets/live/scenes/home-live-background.webp', alt: '家居直播背景' },
+  { id: 'technology', src: '/assets/live/scenes/technology-live-background.webp', alt: '科技直播背景' },
+] as const;
+const LANDING_SCENE_INTERVAL_MS = 5000;
 
 const VOICES: VoiceOption[] = ALIYUN_PUBLIC_VOICES.map((voice) => ({
   ...voice,
@@ -724,9 +872,9 @@ const createDefaultRoomConfig = (selectedAvatarId = FEATURED_LIVE_AVATAR_ID): Li
   activeGoodsId: 1,
   scripts: INITIAL_SCRIPTS.map((item) => ({ ...item, state: 'ready' })),
   qaItems: [],
-  selectedTemplateId: DEFAULT_LIVE_TEMPLATE_ID,
+  selectedTemplateId: EMPTY_LIVE_TEMPLATE_ID,
   selectedTemplatePage: 0,
-  layers: createTemplateLayers(DEFAULT_LIVE_TEMPLATE_ID, selectedAvatar.name),
+  layers: [createDefaultHostLayer<LayerItem>(selectedAvatar.name)],
   liveOptions: { qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: true },
   outputConfig: { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' },
   selectedPlatforms: [],
@@ -962,6 +1110,137 @@ function ChromaKeyVideoPreview({
   </>;
 }
 
+function LandingAvatarPreview({ src, poster }: { src: string; poster: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d', { willReadFrequently: true });
+    if (!video || !canvas || !context) return;
+    const width = 540;
+    const height = 960;
+    canvas.width = width;
+    canvas.height = height;
+    let cancelled = false;
+    let backdropEdges: Uint8Array | null = null;
+    let frameHandle: number | null = null;
+    let animationHandle: number | null = null;
+    const timedVideo = video as HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: () => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    const cover = new Image();
+    cover.onload = () => {
+      if (!cancelled && video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        context.drawImage(cover, 0, 0, width, height);
+      }
+    };
+    cover.src = poster;
+
+    const scheduleFrame = () => {
+      if (cancelled || video.paused || frameHandle !== null || animationHandle !== null) return;
+      if (timedVideo.requestVideoFrameCallback) {
+        frameHandle = timedVideo.requestVideoFrameCallback(() => {
+          frameHandle = null;
+          renderFrame();
+        });
+      } else {
+        animationHandle = window.requestAnimationFrame(() => {
+          animationHandle = null;
+          renderFrame();
+        });
+      }
+    };
+    const renderFrame = () => {
+      if (cancelled) return;
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        context.drawImage(video, 0, 0, width, height);
+        try {
+          const frame = context.getImageData(0, 0, width, height);
+          const pixels = frame.data;
+          const sample = (Math.floor(height * 0.2) * width + 3) * 4;
+          if (pixels[sample + 3] < 240 || pixels[sample] < 110 || pixels[sample + 2] - pixels[sample] < 5) {
+            if (cover.complete && cover.naturalWidth) context.drawImage(cover, 0, 0, width, height);
+            scheduleFrame();
+            return;
+          }
+          if (!backdropEdges) {
+            backdropEdges = new Uint8Array(height * 6);
+            for (let y = 0; y < height; y += 1) {
+              const row = y * width * 4;
+              const edge = y * 6;
+              for (let channel = 0; channel < 3; channel += 1) {
+                backdropEdges[edge + channel] = pixels[row + 3 * 4 + channel];
+                backdropEdges[edge + 3 + channel] = pixels[row + (width - 4) * 4 + channel];
+              }
+            }
+          }
+          // The video backdrop is stable but varies by row; compare each moving frame with its original edges.
+          for (let y = 0; y < height; y += 1) {
+            const row = y * width * 4;
+            const edge = y * 6;
+            const red = backdropEdges[edge];
+            const green = backdropEdges[edge + 1];
+            const blue = backdropEdges[edge + 2];
+            const redStep = (backdropEdges[edge + 3] - red) / (width - 1);
+            const greenStep = (backdropEdges[edge + 4] - green) / (width - 1);
+            const blueStep = (backdropEdges[edge + 5] - blue) / (width - 1);
+            for (let x = 0; x < width; x += 1) {
+              const index = row + x * 4;
+              const pixelRed = pixels[index];
+              const pixelGreen = pixels[index + 1];
+              const pixelBlue = pixels[index + 2];
+              if (y > height * 0.79
+                && Math.min(pixelRed, pixelGreen, pixelBlue) > 135
+                && Math.max(pixelRed, pixelGreen, pixelBlue) - Math.min(pixelRed, pixelGreen, pixelBlue) < 24) {
+                pixels[index + 3] = 0;
+                continue;
+              }
+              const difference = Math.max(
+                Math.abs(pixelRed - (red + redStep * x)),
+                Math.abs(pixelGreen - (green + greenStep * x)),
+                Math.abs(pixelBlue - (blue + blueStep * x)),
+              );
+              const opacity = Math.max(0, Math.min(1, (difference - 8) / 19));
+              pixels[index + 3] = Math.round(255 * opacity);
+            }
+          }
+          context.putImageData(frame, 0, 0);
+        } catch {
+          // Keep the moving video visible if pixel reads are blocked.
+        }
+      }
+      scheduleFrame();
+    };
+    const startPlayback = () => {
+      renderFrame();
+      void video.play().catch(() => undefined);
+    };
+    video.addEventListener('loadeddata', startPlayback);
+    video.addEventListener('play', scheduleFrame);
+    video.src = src;
+    video.load();
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) startPlayback();
+    return () => {
+      cancelled = true;
+      video.removeEventListener('loadeddata', startPlayback);
+      video.removeEventListener('play', scheduleFrame);
+      if (frameHandle !== null) timedVideo.cancelVideoFrameCallback?.(frameHandle);
+      if (animationHandle !== null) window.cancelAnimationFrame(animationHandle);
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    };
+  }, [poster, src]);
+
+  return <>
+    <video ref={videoRef} muted loop playsInline crossOrigin="anonymous" aria-hidden="true" style={{ display: 'none' }} />
+    <canvas ref={canvasRef} className="liveWindowAvatar" role="img" aria-label="数字人主播静音演示" />
+  </>;
+}
+
 function validateRtmpDraft(draft: RtmpConnectionDraft, editing: boolean): string | null {
   if (!draft.name.trim()) return '请填写连接名称';
   if (!draft.platformLabel.trim()) return '请填写平台备注';
@@ -990,18 +1269,26 @@ export function LiveStudio({
   settingsTab: initialSettingsTab = 'qa',
 }: LiveStudioInitialState = {}) {
   const [entered, setEntered] = useState(initialEntered);
+  const [landingSceneIndex, setLandingSceneIndex] = useState(0);
   const [avatarId, setAvatarId] = useState(FEATURED_LIVE_AVATAR_ID);
   const avatar = AVATARS.find((item) => item.id === avatarId) ?? AVATARS[0];
+  const featuredLiveAvatar = ALIYUN_PUBLIC_AVATARS.find((item) => item.id === FEATURED_LIVE_AVATAR_ID);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLDivElement>(null);
   const canvasGestureRef = useRef<CanvasGesture | null>(null);
+  const componentCanvasGestureRef = useRef<ComponentCanvasGesture | null>(null);
+  const multiCanvasGestureRef = useRef<MultiCanvasGesture | null>(null);
+  const textEditInputRef = useRef<HTMLTextAreaElement>(null);
+  const skipTextEditCommitRef = useRef(false);
   const streamRef = useRef<MuseTalkTotalStream | null>(null);
   const playbackQueueRef = useRef<LivePlaybackQueue<number> | null>(null);
   const microphoneRef = useRef<MuseTalkMicrophoneStream | null>(null);
   const resumeQueueAfterMicrophoneRef = useRef(false);
   const browserPublisherRef = useRef<BrowserLivePublisher | null>(null);
   const captureCompositorRef = useRef<SceneCompositor | null>(null);
-  const windowCaptureSessionRef = useRef<WindowCaptureSession | null>(null);
+  const windowCaptureSessionRef = useRef<WindowCaptureSession | PictureInPictureCaptureSession | null>(null);
+  const storyboardPlaylistRef = useRef<StoryboardVideoPlaylist | null>(null);
+  const captureSilentAudioRef = useRef<{ context: AudioContext; track: MediaStreamTrack } | null>(null);
   const capturePopupRef = useRef<Window | null>(null);
   const broadcastSceneRef = useRef<BroadcastSceneSnapshot | null>(null);
   const runRecoveryAttemptedRef = useRef(false);
@@ -1017,8 +1304,12 @@ export function LiveStudio({
   const [browserPublisherMessage, setBrowserPublisherMessage] = useState('');
   const [publishMode, setPublishMode] = useState<'window_capture' | 'manual_rtmp'>('window_capture');
   const [captureOrientation, setCaptureOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [captureWindowStyle, setCaptureWindowStyle] = useState<'picture_in_picture' | 'browser_window'>('picture_in_picture');
+  const [pictureInPictureSupported, setPictureInPictureSupported] = useState(false);
+  useEffect(() => setPictureInPictureSupported(supportsPictureInPictureOutput()), []);
   const [windowCaptureState, setWindowCaptureState] = useState<WindowCaptureState>('stopped');
   const [windowCaptureMessage, setWindowCaptureMessage] = useState('');
+  const [programStoryboard, setProgramStoryboard] = useState<{ title: string; status: 'playing' | 'paused' | 'finished' } | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   useEffect(() => {
@@ -1026,6 +1317,13 @@ export function LiveStudio({
     const timer = window.setTimeout(() => setNotice(''), 4500);
     return () => window.clearTimeout(timer);
   }, [notice]);
+  useEffect(() => {
+    if (entered) return;
+    const timer = window.setTimeout(() => {
+      setLandingSceneIndex((current) => (current + 1) % LANDING_LIVE_SCENES.length);
+    }, LANDING_SCENE_INTERVAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [entered, landingSceneIndex]);
   const [room, setRoom] = useState<LiveRoom | null>(null);
   const [roomLoading, setRoomLoading] = useState(false);
   const [roomSaving, setRoomSaving] = useState(false);
@@ -1033,6 +1331,8 @@ export function LiveStudio({
   const [savedAt, setSavedAt] = useState('');
   const [rooms, setRooms] = useState<LiveRoom[]>([]);
   const [roomMenuOpen, setRoomMenuOpen] = useState(false);
+  const roomMenuRef = useRef<HTMLDivElement>(null);
+  const roomSavePromiseRef = useRef<Promise<boolean> | null>(null);
   const [roomActionBusy, setRoomActionBusy] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
   const [landingCreateOpen, setLandingCreateOpen] = useState(false);
@@ -1045,6 +1345,7 @@ export function LiveStudio({
   const [editingRoomName, setEditingRoomName] = useState(false);
   const [savedConfigSignature, setSavedConfigSignature] = useState('');
   const roomInitializationRef = useRef(false);
+  const roomHydratingRef = useRef(false);
   const [dialog, setDialog] = useState<DialogName>(initialEntered ? initialDialog : null);
   const [studioWorkspace, setStudioWorkspace] = useState<StudioWorkspace>('script');
   const [materialTab, setMaterialTab] = useState<MaterialTab>('template');
@@ -1076,6 +1377,8 @@ export function LiveStudio({
   const [aliyunVideoSubmitting, setAliyunVideoSubmitting] = useState(false);
   const [aliyunVideoError, setAliyunVideoError] = useState('');
   const [scriptVideoResults, setScriptVideoResults] = useState<Record<number, AliyunVideoResult>>({});
+  const [scriptVideoRefreshVersion, setScriptVideoRefreshVersion] = useState(0);
+  const [videoDownloadRetryingId, setVideoDownloadRetryingId] = useState<string | null>(null);
   const [scriptVideoSubmissionErrors, setScriptVideoSubmissionErrors] = useState<Record<number, string>>({});
   const [scriptVideoBatch, setScriptVideoBatch] = useState<ScriptVideoBatch | null>(null);
   const scriptVideoBatchAbortRef = useRef<AbortController | null>(null);
@@ -1090,6 +1393,7 @@ export function LiveStudio({
   const [playbackMode, setPlaybackMode] = useState<'sequence' | 'random'>('sequence');
   const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
   const [playbackLoop, setPlaybackLoop] = useState(true);
+  const [programPlaybackLoop, setProgramPlaybackLoop] = useState(true);
   const [personImageState, setPersonImageState] = useState<PersonImageSegmentationState>('loading');
   const [playbackQueueStatus, setPlaybackQueueStatus] = useState<PlaybackQueueStatus>('idle');
   const [currentPlaybackScriptId, setCurrentPlaybackScriptId] = useState<number | null>(null);
@@ -1125,7 +1429,7 @@ export function LiveStudio({
   const [templateQuery, setTemplateQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState('全部');
   const [templateColor, setTemplateColor] = useState('全部');
-  const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_LIVE_TEMPLATE_ID);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(EMPTY_LIVE_TEMPLATE_ID);
   const [selectedTemplatePage, setSelectedTemplatePage] = useState(0);
   const [templateLoadingId, setTemplateLoadingId] = useState('');
   const [templateLoadError, setTemplateLoadError] = useState('');
@@ -1137,12 +1441,14 @@ export function LiveStudio({
   const [templateDraftName, setTemplateDraftName] = useState('');
   const [templateDraftBackground, setTemplateDraftBackground] = useState('');
   const [templateDraftBusy, setTemplateDraftBusy] = useState(false);
+  const [backgroundReplacing, setBackgroundReplacing] = useState(false);
   const [templateStorageError, setTemplateStorageError] = useState('');
   const [hostFilters, setHostFilters] = useState({ gender: '全部', scene: '全部场景' });
   const [assetScope, setAssetScope] = useState<'mine' | 'square'>('mine');
   const [assetQuery, setAssetQuery] = useState('');
   const [components, setComponents] = useState<StudioComponent[]>([]);
   const [componentStatus, setComponentStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [componentLoadingId, setComponentLoadingId] = useState<string | null>(null);
   const [componentCategory, setComponentCategory] = useState('全部');
   const [componentQuery, setComponentQuery] = useState('');
   const [visibleComponentCount, setVisibleComponentCount] = useState(60);
@@ -1150,6 +1456,7 @@ export function LiveStudio({
   const [assetBatchMode, setAssetBatchMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const backgroundInputRef = useRef<HTMLInputElement>(null);
   const templateInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const productDocumentInputRef = useRef<HTMLInputElement>(null);
@@ -1159,7 +1466,20 @@ export function LiveStudio({
   const [customText, setCustomText] = useState('直播间专属福利');
   const [customTextStyle, setCustomTextStyle] = useState<TextMaterialStyle>(DEFAULT_TEXT_MATERIAL_STYLE);
   const [layers, setLayers] = useState<LayerItem[]>(INITIAL_LAYERS);
+  const sceneStateRef = useRef<SceneHistorySnapshot>({
+    layers: INITIAL_LAYERS,
+    selectedTemplateId: EMPTY_LIVE_TEMPLATE_ID,
+    selectedTemplatePage: 0,
+    avatarId: FEATURED_LIVE_AVATAR_ID,
+  });
+  const sceneHistoryRef = useRef<LiveSceneHistory<SceneHistorySnapshot>>(createLiveSceneHistory());
+  const [sceneHistoryRevision, setSceneHistoryRevision] = useState(0);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [selectedComponentInstanceId, setSelectedComponentInstanceId] = useState<string | null>(null);
+  const [multiSelectedLayerIds, setMultiSelectedLayerIds] = useState<string[]>([]);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
+  const [editingTextDraft, setEditingTextDraft] = useState('');
   const [inspectorLayerId, setInspectorLayerId] = useState<string | null>(null);
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null);
   const [layerDropTarget, setLayerDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
@@ -1168,6 +1488,13 @@ export function LiveStudio({
   const [qaItems, setQaItems] = useState<QaItem[]>([]);
   const [dynamicGenerating, setDynamicGenerating] = useState(false);
   const [scriptRewriteMode, setScriptRewriteMode] = useState<DynamicScriptOperation>('expand');
+  const [scriptSafetyStage, setScriptSafetyStage] = useState<'checking' | 'correcting' | null>(null);
+  const [scriptSafetyWarning, setScriptSafetyWarning] = useState('');
+  const [scriptSafetyReview, setScriptSafetyReview] = useState<ScriptSafetyReview | null>(null);
+  const [scriptSafetyGuidance, setScriptSafetyGuidance] = useState(DEFAULT_SCRIPT_SAFETY_GUIDANCE);
+  const [scriptSafetyGuidanceDraft, setScriptSafetyGuidanceDraft] = useState(DEFAULT_SCRIPT_SAFETY_GUIDANCE);
+  const [scriptSafetySaving, setScriptSafetySaving] = useState(false);
+  const [scriptSafetyStorageError, setScriptSafetyStorageError] = useState('');
   const [draftPreviewState, setDraftPreviewState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   const draftPreviewing = draftPreviewState !== 'idle';
   const draftPreviewStateRef = useRef(draftPreviewState);
@@ -1207,6 +1534,67 @@ export function LiveStudio({
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState('00:00:00');
 
+  sceneStateRef.current = { layers, selectedTemplateId, selectedTemplatePage, avatarId };
+
+  const captureSceneSnapshot = (): SceneHistorySnapshot => ({
+    ...sceneStateRef.current,
+    layers: sceneStateRef.current.layers.map((layer) => ({ ...layer })),
+  });
+
+  const sceneSnapshotsEqual = (left: SceneHistorySnapshot, right: SceneHistorySnapshot) => (
+    left.avatarId === right.avatarId
+    && left.selectedTemplateId === right.selectedTemplateId
+    && left.selectedTemplatePage === right.selectedTemplatePage
+    && JSON.stringify(left.layers) === JSON.stringify(right.layers)
+  );
+
+  const replaceSceneSnapshotWithoutHistory = (snapshot: SceneHistorySnapshot) => {
+    const nextSnapshot = {
+      ...snapshot,
+      layers: snapshot.layers.map((layer) => ({ ...layer })),
+    };
+    sceneStateRef.current = nextSnapshot;
+    setLayers(nextSnapshot.layers);
+    setSelectedTemplateId(nextSnapshot.selectedTemplateId);
+    setSelectedTemplatePage(nextSnapshot.selectedTemplatePage);
+    setAvatarId(nextSnapshot.avatarId);
+  };
+
+  const replaceSceneLayersWithoutHistory = (nextLayers: LayerItem[]) => {
+    sceneStateRef.current = { ...sceneStateRef.current, layers: nextLayers };
+    setLayers(nextLayers);
+  };
+
+  const pushSceneHistory = (snapshot: SceneHistorySnapshot, coalesceKey?: string) => {
+    sceneHistoryRef.current = recordLiveSceneSnapshot(sceneHistoryRef.current, snapshot, {
+      coalesceKey,
+      equals: sceneSnapshotsEqual,
+    });
+    setSceneHistoryRevision((revision) => revision + 1);
+  };
+
+  const resetSceneHistory = () => {
+    sceneHistoryRef.current = createLiveSceneHistory();
+    setSceneHistoryRevision((revision) => revision + 1);
+  };
+
+  const mutateSceneLayers = (updater: (items: LayerItem[]) => LayerItem[], coalesceKey?: string) => {
+    const current = captureSceneSnapshot();
+    const nextLayers = updater(current.layers);
+    const next = { ...current, layers: nextLayers };
+    if (sceneSnapshotsEqual(current, next)) return false;
+    pushSceneHistory(current, coalesceKey);
+    replaceSceneLayersWithoutHistory(nextLayers);
+    return true;
+  };
+
+  void sceneHistoryRevision;
+  const renderedSceneSnapshot = captureSceneSnapshot();
+  const canUndoScene = canUndoLiveScene(sceneHistoryRef.current)
+    && sceneHistoryRef.current.past.some((snapshot) => !sceneSnapshotsEqual(snapshot, renderedSceneSnapshot));
+  const canRedoScene = canRedoLiveScene(sceneHistoryRef.current)
+    && sceneHistoryRef.current.future.some((snapshot) => !sceneSnapshotsEqual(snapshot, renderedSceneSnapshot));
+
   useEffect(() => {
     if (storyboardScriptId === null || scripts.some(item => item.id === storyboardScriptId)) return;
     const next = scripts[0];
@@ -1226,8 +1614,8 @@ export function LiveStudio({
     if (catalogProduct) return catalogProduct;
     return goods.find((item) => item.id === id);
   }).filter((product): product is ProductCatalogItem | LiveRoomGoodsItem => Boolean(product));
-  const allTemplates = useMemo(() => [...LIVE_TEMPLATES, ...customTemplates], [customTemplates]);
-  const selectedTemplate = allTemplates.find((item) => item.id === selectedTemplateId) ?? DEFAULT_LIVE_TEMPLATE;
+  const allTemplates = useMemo(() => [...customTemplates].reverse().concat(LIVE_TEMPLATES), [customTemplates]);
+  const selectedTemplate = allTemplates.find((item) => item.id === selectedTemplateId) ?? null;
   const matchingTemplates = useMemo(() => allTemplates.filter((item) => (
     item.name.includes(templateQuery.trim())
     && (templateCategory === '全部' || item.category === templateCategory || item.categories?.includes(templateCategory))
@@ -1249,15 +1637,21 @@ export function LiveStudio({
     if (!script.avatarVideo) return scriptVideoSubmissionErrors[script.id] ? 'failed' as const : 'missing' as const;
     if (script.avatarVideo.inputSignature !== scriptVideoInputSignatureFor(script.text)) return 'stale' as const;
     const result = scriptVideoResults[script.id];
-    if (result?.id === script.avatarVideo.taskId && aliyunVideoState(result.status) === 'ready') return 'ready' as const;
+    if (result?.id === script.avatarVideo.taskId && aliyunVideoState(result) === 'ready') return 'ready' as const;
     if (scriptVideoSubmissionErrors[script.id]) return 'failed' as const;
     if (!result || result.id !== script.avatarVideo.taskId) return 'processing' as const;
-    return aliyunVideoState(result.status);
+    return aliyunVideoState(result);
   };
   const scriptVideosReady = scripts.filter((script) => (
     !scriptVideoBatch?.scriptIds.includes(script.id)
     && scriptVideoState(script) === 'ready'
   )).length;
+  const programVideos: StoryboardVideoItem[] = scripts.flatMap((script) => {
+    const result = scriptVideoResults[script.id];
+    return scriptVideoState(script) === 'ready' && result?.videoUrl
+      ? [{ id: script.id, title: script.title, url: result.videoUrl }]
+      : [];
+  });
   const scriptsNeedingVideo = scripts.filter((script) => ['missing', 'stale', 'failed'].includes(scriptVideoState(script)));
   const scriptVideosProcessing = scripts.filter((script) => scriptVideoState(script) === 'processing').length;
   const scriptVideoBatchBusy = scriptVideoBatch !== null;
@@ -1289,6 +1683,16 @@ export function LiveStudio({
     return matchesFilters;
   }), [hostFilters]);
   const selectedLayer = layers.find((item) => item.id === selectedLayerId) ?? null;
+  const editingTextLayer = layers.find((item) => item.id === editingTextLayerId && item.kind === 'text') ?? null;
+  const selectedComponentLayers = selectedComponentInstanceId
+    ? layers.filter(item => item.componentInstanceId === selectedComponentInstanceId)
+    : [];
+  const selectedCanvasLayerIds = multiSelectedLayerIds.length
+    ? multiSelectedLayerIds
+    : selectedComponentInstanceId ? selectedComponentLayers.map(item => item.id) : selectedLayerId ? [selectedLayerId] : [];
+  const selectedComponentBounds = componentBounds(selectedComponentLayers);
+  const selectedComponentName = selectedComponentLayers[0]?.componentName ?? '组件';
+  const selectedComponentSourceId = selectedComponentLayers[0]?.componentSourceId ?? null;
   const selectedTextLayer = selectedLayer?.kind === 'text' ? selectedLayer : null;
   const canvasProductImage = layers.find((item) => item.kind === 'image' && item.sceneKey === 'custom' && Boolean(item.preview));
   const productDemoImage = importedMaterialImages[0]
@@ -1318,7 +1722,7 @@ export function LiveStudio({
     ? { enabled: true, color: '#b9bcc9', tolerance: 9, softness: 10 }
     : hostChromaKey;
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
-  const previewBackground = backgroundLayer?.preview ?? selectedTemplate.image;
+  const previewBackground = backgroundLayer?.preview ?? YIJING_BLANK_BACKGROUND;
   const speakingScript = scripts.find((item) => item.id === currentPlaybackScriptId)
     ?? scripts.find((item) => item.state === 'playing');
   const speakingGoods = speakingScript?.productId === undefined
@@ -1334,7 +1738,7 @@ export function LiveStudio({
     hostUrl: avatar.image,
     hostVideoElement: generatedVideoVisible
       && aliyunVideo?.videoUrl
-      && aliyunVideoState(aliyunVideo.status) === 'ready'
+      && aliyunVideoState(aliyunVideo) === 'ready'
       ? generatedVideoRef.current
       : null,
     mediaActive,
@@ -1373,20 +1777,42 @@ export function LiveStudio({
 
   useEffect(() => {
     let cancelled = false;
+    void readStudioSetting(SCRIPT_SAFETY_STORAGE_KEY).then((value) => {
+      if (!cancelled && value?.trim()) setScriptSafetyGuidance(value.trim());
+    }).catch((cause: unknown) => {
+      if (!cancelled) setScriptSafetyStorageError(cause instanceof Error ? cause.message : '风控提示词读取失败');
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     const loadTemplates = async () => {
       const legacyTemplates = window.localStorage.getItem(CUSTOM_TEMPLATE_STORAGE_KEY);
+      let fallbackTemplates = parseCustomTemplates(legacyTemplates);
       try {
         const storedTemplates = await readStudioSetting(CUSTOM_TEMPLATE_STORAGE_KEY);
         if (cancelled) return;
-        setCustomTemplates(parseCustomTemplates(storedTemplates ?? legacyTemplates));
-        if (!storedTemplates && legacyTemplates) {
-          await writeStudioSetting(CUSTOM_TEMPLATE_STORAGE_KEY, legacyTemplates);
+        const templates = parseCustomTemplates(storedTemplates ?? legacyTemplates);
+        fallbackTemplates = templates;
+        const templateTwo = templates.filter((item) => /^自定义模[板版]\s*2$/.test(item.name.trim()));
+        const removeTemplateTwo = window.localStorage.getItem(CUSTOM_TEMPLATE_TWO_CLEANUP_KEY) !== '1'
+          && templateTwo.length === 1
+          && templates.some((item) => /^自定义模[板版]\s*1$/.test(item.name.trim()));
+        const keptTemplates = removeTemplateTwo
+          ? templates.filter((item) => item.id !== templateTwo[0].id)
+          : templates;
+        if (removeTemplateTwo || (!storedTemplates && legacyTemplates)) {
+          await writeStudioSetting(CUSTOM_TEMPLATE_STORAGE_KEY, JSON.stringify(keptTemplates));
         }
+        if (cancelled) return;
+        setCustomTemplates(keptTemplates);
+        window.localStorage.setItem(CUSTOM_TEMPLATE_TWO_CLEANUP_KEY, '1');
         window.localStorage.removeItem(CUSTOM_TEMPLATE_STORAGE_KEY);
         setTemplateStorageError('');
       } catch (cause) {
         if (!cancelled) {
-          setCustomTemplates(parseCustomTemplates(legacyTemplates));
+          setCustomTemplates(fallbackTemplates);
           setTemplateStorageError(cause instanceof Error ? cause.message : '自定义模板读取失败');
         }
       } finally {
@@ -1423,6 +1849,7 @@ export function LiveStudio({
     goods,
     activeGoodsId,
     scripts: scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item),
+    ...(newScriptDraftRef.current ? { editorDraft: newScriptDraftRef.current } : {}),
     qaItems,
     selectedTemplateId,
     selectedTemplatePage,
@@ -1446,6 +1873,8 @@ export function LiveStudio({
     playbackMode,
     qaItems,
     scripts,
+    draft,
+    storyboardScriptId,
     selectedPlatformConnectionIds,
     selectedPlatforms,
     selectedTemplateId,
@@ -1456,6 +1885,16 @@ export function LiveStudio({
   ]);
 
   const roomConfigSignature = useMemo(() => JSON.stringify(buildRoomConfig()), [buildRoomConfig]);
+  useEffect(() => {
+    if (!roomHydratingRef.current) return;
+    roomHydratingRef.current = false;
+    savedSignatureRef.current = roomConfigSignature;
+    setSavedConfigSignature(roomConfigSignature);
+  }, [roomConfigSignature, room?.id, room?.version]);
+  const newRoomBaselineRef = useRef(roomConfigSignature);
+  const latestRoomSaveRef = useRef({ room, config: buildRoomConfig(), signature: roomConfigSignature });
+  latestRoomSaveRef.current = { room, config: buildRoomConfig(), signature: roomConfigSignature };
+  const savedSignatureRef = useRef(savedConfigSignature);
   useEffect(() => {
     const templateFonts = new Set(layers.flatMap((layer) => layer.kind === 'text' && layer.fontFamily
       ? [`${layer.fontStyle ?? 'normal'} ${layer.fontWeight ?? 'normal'} ${layer.fontSize ?? 16}px ${fontFamilyCss(layer.fontFamily)}`]
@@ -1468,11 +1907,14 @@ export function LiveStudio({
     voiceId: selectedVoiceId,
     speed: voiceSpeed,
   }), [avatar.rendererProfile, scripts, selectedVoiceId, voiceSpeed]);
-  const roomDirty = Boolean(room && savedConfigSignature && (roomConfigSignature !== savedConfigSignature || (storyboardScriptId === null && draft.trim())));
+  const roomDirty = room
+    ? Boolean(savedConfigSignature && roomConfigSignature !== savedConfigSignature)
+    : entered && roomInitializationRef.current && !roomLoading && roomConfigSignature !== newRoomBaselineRef.current;
   const selectedPlatformConnections = platformConnections.filter((connection) => (
     selectedPlatformConnectionIds.includes(connection.id)
   ));
   const windowCaptureMode = publishMode === 'window_capture';
+  const windowCaptureUsesStoryboard = !avatar.rendererProfile;
   const playbackBusy = draftPreviewing || ['llm_start', 'speak_start', 'tts_start', 'playing'].includes(stage);
   useEffect(() => {
     if (!entered) scriptVideoBatchAbortRef.current?.abort();
@@ -1481,7 +1923,7 @@ export function LiveStudio({
   const platformPreflightChecks = windowCaptureMode
     ? [
       { label: '节目输出窗口比例已选择', passed: true },
-      { label: '直播间画面已初始化', passed: Boolean(!roomLoading && streamReady) },
+      { label: '直播间画面已初始化', passed: Boolean(!roomLoading && (windowCaptureUsesStoryboard ? canvasRef.current && broadcastSceneRef.current : streamReady)) },
     ]
     : [
       { label: '直播间配置已保存', passed: Boolean(room && !roomDirty && !roomSaving) },
@@ -1512,6 +1954,13 @@ export function LiveStudio({
     windowCaptureSessionRef.current = null;
     captureCompositorRef.current?.stop();
     captureCompositorRef.current = null;
+    storyboardPlaylistRef.current?.stop();
+    storyboardPlaylistRef.current = null;
+    captureSilentAudioRef.current?.track.stop();
+    if (captureSilentAudioRef.current) void captureSilentAudioRef.current.context.close();
+    captureSilentAudioRef.current = null;
+    setProgramStoryboard(null);
+    setCurrentPlaybackScriptId(null);
     capturePopupRef.current = null;
     setWindowCaptureState('stopped');
     setWindowCaptureMessage('');
@@ -1522,32 +1971,62 @@ export function LiveStudio({
     const sourceCanvas = canvasRef.current;
     const avatarStream = streamRef.current;
     const scene = broadcastSceneRef.current;
-    if (!sourceCanvas || !avatarStream || !scene) throw new Error('直播最终画面尚未初始化完成');
+    const useStoryboards = !avatar.rendererProfile;
+    if (!sourceCanvas || !scene || (!useStoryboards && !avatarStream)) throw new Error('直播最终画面尚未初始化完成');
     const sessionId = globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    // Open synchronously from the button event so the browser does not block it.
-    const popup = openWindowCaptureWindow(sessionId, captureOrientation);
-    if (!popup) throw new Error('节目输出窗口被浏览器拦截，请允许本站打开弹窗后重试');
+    const usePictureInPicture = captureWindowStyle === 'picture_in_picture' && supportsPictureInPictureOutput();
+    // Ordinary windows must be opened synchronously within the button click.
+    const popup = usePictureInPicture ? null : openWindowCaptureWindow(sessionId, captureOrientation);
+    if (!usePictureInPicture && !popup) throw new Error('节目输出窗口被浏览器拦截，请允许本站打开弹窗后重试');
     capturePopupRef.current = popup;
     setWindowCaptureState('connecting');
     setWindowCaptureMessage('正在连接节目输出窗口');
     let compositor: SceneCompositor | null = null;
     try {
-      await avatarStream.startLive();
+      if (!useStoryboards) await avatarStream!.startLive();
+      if (useStoryboards) {
+        generatedVideoPlaybackRequestRef.current = null;
+        generatedVideoRef.current?.pause();
+        setGeneratedVideoVisible(false);
+      }
+      if (useStoryboards && programVideos.length) {
+        const playlist = new StoryboardVideoPlaylist({
+          items: programVideos,
+          loop: programPlaybackLoop,
+          onItem: (item, status) => {
+            setProgramStoryboard(item ? { title: item.title, status } : null);
+            setCurrentPlaybackScriptId(status === 'finished' ? null : item?.id ?? null);
+          },
+          onError: (message) => {
+            setError(message);
+            setOnAir(false);
+            stopWindowCapture();
+          },
+        });
+        storyboardPlaylistRef.current = playlist;
+        playlist.start();
+      } else if (useStoryboards) {
+        const silentAudio = createSilentAudio();
+        captureSilentAudioRef.current = silentAudio;
+        void silentAudio.context.resume().catch(() => undefined);
+      }
       const rate = Number.parseInt(outputConfig.frameRate, 10) || 25;
       compositor = new SceneCompositor(
         sourceCanvas,
         outputConfig.resolution,
         rate,
-        () => broadcastSceneRef.current ?? scene,
+        () => {
+          const current = broadcastSceneRef.current ?? scene;
+          return useStoryboards
+            ? { ...current, hostVideoElement: storyboardPlaylistRef.current?.video ?? null, mediaActive: false }
+            : current;
+        },
         captureOrientation,
       );
       const mediaStream = compositor.start();
-      const audioTrack = avatarStream.getOutputAudioTrack();
+      const audioTrack = storyboardPlaylistRef.current?.audioTrack ?? captureSilentAudioRef.current?.track ?? avatarStream?.getOutputAudioTrack();
       if (audioTrack?.readyState === 'live') mediaStream.addTrack(audioTrack);
-      const session = new WindowCaptureSession({
-        popup,
-        sessionId,
-        onState: (state, message) => {
+      const onState = (state: WindowCaptureState, message?: string) => {
           setWindowCaptureState(state);
           setWindowCaptureMessage(message || '');
           if (state === 'failed') {
@@ -1555,15 +2034,18 @@ export function LiveStudio({
             setError(message || '节目输出窗口连接失败');
             stopWindowCapture();
           }
-        },
-      });
+        };
+      const session = usePictureInPicture
+        ? new PictureInPictureCaptureSession({ onState })
+        : new WindowCaptureSession({ popup: popup!, sessionId, onState });
       captureCompositorRef.current = compositor;
       windowCaptureSessionRef.current = session;
       try {
         await session.start(mediaStream);
-        avatarStream.setMonitorMuted(true);
+        if (useStoryboards && !storyboardPlaylistRef.current && !captureSilentAudioRef.current) throw new Error('节目画面输出已停止');
+        avatarStream?.setMonitorMuted(true);
       } catch (caught) {
-        avatarStream.setMonitorMuted(false);
+        avatarStream?.setMonitorMuted(false);
         session.stop();
         compositor.stop();
         compositor = null;
@@ -1572,16 +2054,23 @@ export function LiveStudio({
         throw caught;
       }
     } catch (caught) {
-      avatarStream.setMonitorMuted(false);
-      if (!popup.closed) popup.close();
+      avatarStream?.setMonitorMuted(false);
+      if (popup && !popup.closed) popup.close();
       compositor?.stop();
       compositor = null;
-      await avatarStream.stopLive().catch(() => undefined);
+      storyboardPlaylistRef.current?.stop();
+      storyboardPlaylistRef.current = null;
+      captureSilentAudioRef.current?.track.stop();
+      if (captureSilentAudioRef.current) void captureSilentAudioRef.current.context.close();
+      captureSilentAudioRef.current = null;
+      setProgramStoryboard(null);
+      setCurrentPlaybackScriptId(null);
+      await avatarStream?.stopLive().catch(() => undefined);
       capturePopupRef.current = null;
       setWindowCaptureState('failed');
       throw caught;
     }
-  }, [captureOrientation, outputConfig.frameRate, outputConfig.resolution, stopWindowCapture]);
+  }, [avatar.rendererProfile, captureOrientation, captureWindowStyle, outputConfig.frameRate, outputConfig.resolution, programPlaybackLoop, programVideos, stopWindowCapture]);
 
   const startBrowserPublisher = useCallback(async (run: LiveRun) => {
     if (browserPublisherRef.current) return;
@@ -1616,6 +2105,8 @@ export function LiveStudio({
   }, [outputConfig.frameRate, outputConfig.resolution]);
 
   const applyRoom = useCallback((loadedRoom: LiveRoom) => {
+    resetSceneHistory();
+    roomHydratingRef.current = true;
     const config = loadedRoom.config;
     const restoredAvatar = AVATARS.find((item) => item.id === config.avatarId)
       ?? AVATARS.find((item) => item.id === FEATURED_LIVE_AVATAR_ID)
@@ -1633,9 +2124,9 @@ export function LiveStudio({
     setGoods(config.goods);
     setActiveGoodsId(config.goods.some((item) => item.id === config.activeGoodsId) ? config.activeGoodsId : config.goods[0].id);
     setScripts(config.scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
-    setStoryboardScriptId(config.scripts[0]?.id ?? null);
-    setDraft(config.scripts[0]?.text ?? '');
-    newScriptDraftRef.current = '';
+    setStoryboardScriptId(config.editorDraft ? null : config.scripts[0]?.id ?? null);
+    setDraft(config.editorDraft || config.scripts[0]?.text || '');
+    newScriptDraftRef.current = config.editorDraft ?? '';
     setScriptVideoResults({});
     setScriptVideoSubmissionErrors({});
     setScriptVideoBatch(null);
@@ -1666,7 +2157,17 @@ export function LiveStudio({
     const restoredLayers = config.layers.map((layer) => layer.sceneKey === 'host'
       ? { ...layer, value: restoredAvatar.name }
       : layer);
+    sceneStateRef.current = {
+      layers: restoredLayers,
+      selectedTemplateId: restoredTemplateId,
+      selectedTemplatePage: restoredTemplatePage,
+      avatarId: restoredAvatar.id,
+    };
     setLayers(restoredLayers);
+    setSelectedLayerId(null);
+    setSelectedComponentInstanceId(null);
+    setMultiSelectedLayerIds([]);
+    setEditingTextLayerId(null);
     if ((shouldUpgradeFlattenedTemplate || shouldRepairLegacyBackground) && builtInTemplate) {
       setTemplateLoadingId(builtInTemplate.id);
       setTemplateLoadError('');
@@ -1675,13 +2176,15 @@ export function LiveStudio({
         const pageIndex = Math.min(restoredTemplatePage, pages.length - 1);
         const templateLayers = pages[pageIndex].map((layer) => ({ ...layer }));
         setSelectedTemplatePage(pageIndex);
-        setLayers(shouldUpgradeFlattenedTemplate
+        const migratedLayers = shouldUpgradeFlattenedTemplate
           ? applyTemplateLayersPreservingHost(templateLayers, restoredLayers, restoredAvatar.name)
           : repairLegacyTemplateBackground(
             templateLayers,
             restoredLayers,
             [YIJING_BLANK_BACKGROUND, builtInTemplate.image],
-          ));
+          );
+        sceneStateRef.current = { ...sceneStateRef.current, layers: migratedLayers, selectedTemplatePage: pageIndex };
+        setLayers(migratedLayers);
       }).catch((cause: unknown) => {
         if (templateRequestIdRef.current === templateRequestId) {
           setTemplateLoadError(cause instanceof Error ? cause.message : '模板图层读取失败');
@@ -1701,13 +2204,81 @@ export function LiveStudio({
     setImportedDocumentText('');
     setImportedScripts([]);
     setRoom(loadedRoom);
+    latestRoomSaveRef.current.room = loadedRoom;
     setLiveRun(null);
     setLiveRunPreflight(null);
     setRenameRoomName(loadedRoom.name);
     setSavedAt(formatSavedAt(loadedRoom.updatedAt));
-    setSavedConfigSignature(JSON.stringify({ ...config, selectedTemplatePage: config.selectedTemplatePage ?? 0 }));
+    const signature = JSON.stringify({ ...config, selectedTemplatePage: config.selectedTemplatePage ?? 0 });
+    savedSignatureRef.current = signature;
+    setSavedConfigSignature(signature);
     setRoomError('');
     window.localStorage.setItem(ACTIVE_LIVE_ROOM_STORAGE_KEY, loadedRoom.id);
+  }, []);
+
+  const resetRoomDraft = useCallback(() => {
+    resetSceneHistory();
+    const config = createDefaultRoomConfig();
+    const defaultAvatar = AVATARS.find((item) => item.id === config.avatarId) ?? AVATARS[0];
+    setAvatarId(defaultAvatar.id);
+    setSelectedVoiceId(config.voice.voiceId);
+    setPendingVoiceId(config.voice.voiceId);
+    setVoiceSpeed(config.voice.speed);
+    setVoicePitch(config.voice.pitch);
+    setPendingVoiceSpeed(config.voice.speed);
+    setPendingVoicePitch(config.voice.pitch);
+    setPlaybackMode(config.playbackMode);
+    setPlaybackLoop(Boolean(config.liveOptions.loopPlayback));
+    setGoods(config.goods);
+    setActiveGoodsId(config.activeGoodsId);
+    setScripts(config.scripts);
+    setStoryboardScriptId(config.scripts[0]?.id ?? null);
+    setDraft(config.scripts[0]?.text ?? '');
+    newScriptDraftRef.current = '';
+    setScriptVideoResults({});
+    setScriptVideoSubmissionErrors({});
+    setScriptVideoBatch(null);
+    setAliyunVideo(null);
+    setGeneratedVideoVisible(false);
+    setQaItems(config.qaItems);
+    templateRequestIdRef.current += 1;
+    setTemplateLoadingId('');
+    setTemplateLoadError('');
+    setSelectedTemplateId(EMPTY_LIVE_TEMPLATE_ID);
+    setSelectedTemplatePage(0);
+    sceneStateRef.current = {
+      layers: config.layers,
+      selectedTemplateId: EMPTY_LIVE_TEMPLATE_ID,
+      selectedTemplatePage: 0,
+      avatarId: defaultAvatar.id,
+    };
+    setLayers(config.layers);
+    setSelectedLayerId(null);
+    setSelectedComponentInstanceId(null);
+    setMultiSelectedLayerIds([]);
+    setMultiSelectMode(false);
+    setEditingTextLayerId(null);
+    setInspectorLayerId(null);
+    setLiveOptions(config.liveOptions);
+    setOutputConfig(config.outputConfig);
+    setSelectedPlatforms(config.selectedPlatforms);
+    setSelectedPlatformConnectionIds(config.selectedPlatformConnectionIds ?? []);
+    setAssets(config.assets);
+    setImportedMaterialImages([]);
+    setImportedDocumentName('');
+    setImportedDocumentText('');
+    setImportedScripts([]);
+    setRoom(null);
+    latestRoomSaveRef.current.room = null;
+    setLiveRun(null);
+    setLiveRunPreflight(null);
+    setRenameRoomName('');
+    setSavedAt('');
+    setSavedConfigSignature('');
+    savedSignatureRef.current = '';
+    newRoomBaselineRef.current = JSON.stringify(config);
+    setRoomError('');
+    roomInitializationRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -1718,15 +2289,11 @@ export function LiveStudio({
     const initializeRoom = async () => {
       try {
         const existingRooms = await listLiveRooms();
+        setRooms(existingRooms);
         const activeRoomId = window.localStorage.getItem(ACTIVE_LIVE_ROOM_STORAGE_KEY);
-        const loadedRoom = existingRooms.find((item) => item.id === activeRoomId)
-          ?? existingRooms[0]
-          ?? await createLiveRoom(
-          `直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
-          buildRoomConfig(),
-        );
-        setRooms(existingRooms.length ? existingRooms : [loadedRoom]);
-        applyRoom(loadedRoom);
+        const lastRoom = existingRooms.find((item) => item.id === activeRoomId);
+        if (lastRoom) applyRoom(lastRoom);
+        else if (activeRoomId) window.localStorage.removeItem(ACTIVE_LIVE_ROOM_STORAGE_KEY);
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : '未知错误';
         setRoomError(message);
@@ -1737,7 +2304,7 @@ export function LiveStudio({
       }
     };
     void initializeRoom();
-  }, [applyRoom, buildRoomConfig, entered, room]);
+  }, [entered, room, applyRoom]);
 
   useEffect(() => {
     if (!liveRun || !['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) return;
@@ -1932,7 +2499,7 @@ export function LiveStudio({
   }, [stopBrowserPublisher, stopWindowCapture]);
 
   useEffect(() => {
-    setLayers((items) => items.map((item) => item.sceneKey === 'host' ? { ...item, value: avatar.name } : item));
+    replaceSceneLayersWithoutHistory(sceneStateRef.current.layers.map((item) => item.sceneKey === 'host' ? { ...item, value: avatar.name } : item));
   }, [avatar.name]);
 
   const stopVoicePreview = useCallback((updateState = true) => {
@@ -1975,6 +2542,10 @@ export function LiveStudio({
   useEffect(() => {
     materialsScrollRef.current?.scrollTo({ top: 0 });
   }, [inspectorLayerId, materialTab]);
+
+  useEffect(() => {
+    if (editingTextLayerId) textEditInputRef.current?.focus();
+  }, [editingTextLayerId]);
 
   useEffect(() => {
     if (!selectedLayerId) return;
@@ -2176,8 +2747,8 @@ export function LiveStudio({
     if (text.length < 8) {
       throw new Error('口播至少需要 3 秒，请输入不少于 8 个字符的完整文案');
     }
-    if (text.length > 1000) {
-      throw new Error('云端数字人口播单条脚本不能超过 1000 个字符');
+    if (text.length > SCRIPT_EDITOR_LIMIT) {
+      throw new Error(`单条脚本不能超过 ${SCRIPT_EDITOR_LIMIT} 个字符`);
     }
     if (selectedVoice.scope !== 'public') {
       throw new Error('云端成片只能使用已接入的公共音色');
@@ -2218,7 +2789,7 @@ export function LiveStudio({
       );
       const payload = { video };
       setAliyunVideo(payload.video);
-      const state = aliyunVideoState(payload.video.status);
+      const state = aliyunVideoState(payload.video);
       if (state === 'ready') {
         setAliyunVideoSubmitting(false);
       } else if (state === 'failed') {
@@ -2290,8 +2861,10 @@ export function LiveStudio({
             const savedRoom = await updateLiveRoom(activeRoom, config);
             activeRoom = savedRoom;
             setRoom(savedRoom);
+            latestRoomSaveRef.current.room = savedRoom;
             setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
-            setSavedConfigSignature(JSON.stringify(savedRoom.config));
+            savedSignatureRef.current = JSON.stringify(savedRoom.config);
+            setSavedConfigSignature(savedSignatureRef.current);
             setSavedAt(formatSavedAt(savedRoom.updatedAt));
           } catch (cause) {
             const message = cause instanceof Error ? cause.message : '视频任务关联保存失败';
@@ -2330,6 +2903,30 @@ export function LiveStudio({
     }
   };
 
+  const retryVideoDownload = async (video: AliyunVideoResult, scriptId?: number) => {
+    if (videoDownloadRetryingId) return;
+    setVideoDownloadRetryingId(video.id);
+    setError('');
+    try {
+      const response = await fetch(`/aliyun-avatar-video-api/videos/${encodeURIComponent(video.id)}/download`, { method: 'POST' });
+      const payload = await response.json() as { video?: AliyunVideoResult; message?: string };
+      if (!response.ok || !payload.video) throw new Error(payload.message || '视频下载重试失败');
+      const updated = payload.video;
+      if (scriptId !== undefined) setScriptVideoResults((items) => ({ ...items, [scriptId]: updated }));
+      setAliyunVideo((current) => current?.id === updated.id ? updated : current);
+      if (scriptId === undefined && !updated.videoUrl) {
+        setProductDemoStage('rendering');
+        setProductDemoMessage('正在重新下载视频到服务器');
+      }
+      setScriptVideoRefreshVersion((value) => value + 1);
+      setNotice(updated.videoUrl ? '视频已下载到服务器' : '正在重新下载视频，不会重复合成');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '视频下载重试失败');
+    } finally {
+      setVideoDownloadRetryingId(null);
+    }
+  };
+
   const stopRemainingScriptVideos = () => {
     scriptVideoBatchAbortRef.current?.abort();
     setNotice('已停止后续合成；已提交的数字人任务会继续完成');
@@ -2354,7 +2951,10 @@ export function LiveStudio({
           if (!response.ok || !payload.video) {
             throw new Error(typeof payload.message === 'string' ? payload.message : '数字人口播状态读取失败');
           }
-          if (aliyunVideoState(payload.video.status) === 'processing') shouldRetry = true;
+          if (['processing', 'downloading'].includes(aliyunVideoState(payload.video))) shouldRetry = true;
+          if (aliyunVideoState(payload.video) === 'downloadFailed') {
+            setError(payload.video.download?.error || '视频下载到服务器失败，可重试下载');
+          }
           return { ...task, video: payload.video };
         } catch {
           shouldRetry = true;
@@ -2383,10 +2983,10 @@ export function LiveStudio({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [entered, scriptVideoInputSignatureFor, scriptVideoTaskSignature]);
+  }, [entered, scriptVideoInputSignatureFor, scriptVideoTaskSignature, scriptVideoRefreshVersion]);
 
   useEffect(() => {
-    if (!aliyunVideo?.id || aliyunVideoState(aliyunVideo.status) !== 'processing') return;
+    if (!aliyunVideo?.id || !['processing', 'downloading'].includes(aliyunVideoState(aliyunVideo))) return;
     let cancelled = false;
     let timer: number | null = null;
     const refresh = async () => {
@@ -2396,19 +2996,20 @@ export function LiveStudio({
         if (!response.ok || !payload.video) throw new Error(typeof payload.message === 'string' ? payload.message : '数字人口播状态读取失败');
         if (cancelled) return;
         setAliyunVideo(payload.video);
-        const state = aliyunVideoState(payload.video.status);
+        const state = aliyunVideoState(payload.video);
         if (state === 'ready') {
           setAliyunVideoSubmitting(false);
           setProductDemoStage('ready');
           setProductDemoMessage(`已用“${avatar.name}”和“${selectedVoice.name}”生成数字人口播，可手动预览`);
           setNotice('数字人口播成片已生成，可手动预览');
-        } else if (state === 'failed') {
+        } else if (state === 'failed' || state === 'downloadFailed') {
           setAliyunVideoSubmitting(false);
-          const message = payload.video.error || '数字人口播生成失败，请检查形象、音色和应用配置';
+          const message = payload.video.download?.error || payload.video.error || '数字人口播生成失败，请检查形象、音色和应用配置';
           setAliyunVideoError(message);
           setProductDemoStage('failed');
           setProductDemoMessage(message);
         } else {
+          if (state === 'downloading') setProductDemoMessage(`云端合成完成，正在下载到服务器${videoDownloadProgress(payload.video) ? ` ${videoDownloadProgress(payload.video)}` : ''}`);
           timer = window.setTimeout(() => void refresh(), 4_000);
         }
       } catch (cause) {
@@ -2424,7 +3025,7 @@ export function LiveStudio({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [aliyunVideo?.id, aliyunVideo?.status]);
+  }, [aliyunVideo?.id, aliyunVideo?.status, aliyunVideo?.download?.status]);
 
   const restoreAvatarOutputAudio = async () => {
     generatedVideoCaptureRef.current?.getTracks().forEach((track) => track.stop());
@@ -2593,6 +3194,82 @@ export function LiveStudio({
     setNotice('分镜已复制，请保存直播间');
   };
 
+  const openScriptSafetyDialog = () => {
+    setScriptSafetyGuidanceDraft(scriptSafetyGuidance);
+    setScriptSafetyStorageError('');
+    setDialog('scriptSafety');
+  };
+
+  const saveScriptSafetyGuidance = async () => {
+    const guidance = scriptSafetyGuidanceDraft.trim();
+    if (!guidance) {
+      setScriptSafetyStorageError('请填写风控提示词');
+      return;
+    }
+    setScriptSafetySaving(true);
+    setScriptSafetyStorageError('');
+    try {
+      await writeStudioSetting(SCRIPT_SAFETY_STORAGE_KEY, guidance);
+      setScriptSafetyGuidance(guidance);
+      setDialog(null);
+      setNotice('风控提示词已保存');
+    } catch (cause) {
+      setScriptSafetyStorageError(cause instanceof Error ? cause.message : '风控提示词保存失败');
+    } finally {
+      setScriptSafetySaving(false);
+    }
+  };
+
+  const reviseScriptForSafety = async (text: string, matchedWords: string[], guidance: string, comparisonTexts: string[], sourceError = '') => {
+    setScriptSafetyStage('correcting');
+    try {
+      const correctionResponse = await fetch('/live-ai-api/expand', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: buildScriptSafetyRevisionPrompt(text, matchedWords.length ? matchedWords : scriptRiskWords(activeGoods?.riskWords), guidance),
+          systemPrompt: SCRIPT_SAFETY_SYSTEM_PROMPT,
+          maxTokens: 8_000,
+        }),
+      });
+      const correction = await correctionResponse.json().catch(() => ({})) as { content?: unknown; message?: unknown };
+      if (!correctionResponse.ok) throw new Error(typeof correction.message === 'string' ? correction.message : `HTTP ${correctionResponse.status}`);
+      const corrected = normalizeGeneratedScript(correction.content);
+      if (!corrected) throw new Error('未返回修订后的正文');
+      if (corrected.length < text.length * 0.8) throw new Error('修订稿删减过多');
+      const remaining = validateDynamicScript(corrected, comparisonTexts, activeGoods?.riskWords);
+      if (remaining.riskWords.length) throw new Error(`仍包含：${remaining.riskWords.join('、')}`);
+      const changes = scriptSafetyChanges(text, corrected);
+      if (corrected !== text) updateScriptDraft(corrected);
+      const status = changes.length ? 'corrected' : 'clean';
+      const message = changes.length ? `已修订 ${changes.length} 处内容` : '本次检查未调整文本';
+      setScriptSafetyReview({ roomId: room?.id ?? null, scriptId: storyboardScriptId, status, message, changes });
+      setNotice(message);
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      const message = `${sourceError || (matchedWords.length ? `检测到 ${matchedWords.join('、')}` : '脚本检查')}；修订未完成（${detail}）。原稿已保留，请检查后使用。`;
+      setScriptSafetyWarning(message);
+      setScriptSafetyReview({ roomId: room?.id ?? null, scriptId: storyboardScriptId, status: 'failed', message, changes: [] });
+    }
+  };
+
+  const checkCurrentScriptSafety = async () => {
+    if (dynamicGenerating || scriptSafetySaving || !draft.trim()) return;
+    const text = draft;
+    const comparisonTexts = dynamicScriptComparisonTexts(activeProductScripts, storyboardScriptId);
+    const matchedWords = validateDynamicScript(text, comparisonTexts, activeGoods?.riskWords).riskWords;
+    setDynamicGenerating(true);
+    setScriptSafetyStage('checking');
+    setScriptSafetyWarning('');
+    setError('');
+    try {
+      await reviseScriptForSafety(text, matchedWords, scriptSafetyGuidanceDraft.trim() || scriptSafetyGuidance, comparisonTexts);
+    } finally {
+      setScriptSafetyStage(null);
+      setDynamicGenerating(false);
+    }
+  };
+
   const generateDynamicScript = async (mode: DynamicScriptOperation = 'expand') => {
     if (dynamicGenerating) return;
     const originalDraft = draft;
@@ -2612,7 +3289,10 @@ export function LiveStudio({
     }
     setScriptRewriteMode(mode);
     const actionLabel = mode === 'condense' ? '精简' : mode === 'polish' ? '润色' : '扩写';
+    let receivedDraft = '';
     setDynamicGenerating(true);
+    setScriptSafetyStage(null);
+    setScriptSafetyWarning('');
     setError('');
     try {
       const imageDataUrls = await Promise.all(
@@ -2630,6 +3310,8 @@ export function LiveStudio({
             draftText,
             uploadedMaterials,
             uploadedImages,
+            safetyGuidance: scriptSafetyGuidance,
+            riskWords: activeGoods?.riskWords,
           }),
           systemPrompt: DYNAMIC_SCRIPT_SYSTEM_PROMPT,
           imageDataUrls,
@@ -2639,6 +3321,7 @@ export function LiveStudio({
       });
       const streamedText = await readLiveAiText(response, {
         onText: (text) => {
+          receivedDraft = text;
           setDraft(text.slice(0, SCRIPT_EDITOR_LIMIT));
           requestAnimationFrame(() => {
             const textarea = draftTextareaRef.current;
@@ -2648,18 +3331,32 @@ export function LiveStudio({
       });
       const text = normalizeGeneratedScript(streamedText);
       if (!text) throw new Error('LLM 未返回有效话术');
-      const validation = validateDynamicScript(text, comparisonTexts, activeGoods?.riskWords);
-      if (!validation.ok) {
-        if (validation.riskWords.length) throw new Error(`命中风险词：${validation.riskWords.join('、')}`);
-      }
       updateScriptDraft(text);
+      setScriptSafetyStage('checking');
+      const validation = validateDynamicScript(text, comparisonTexts, activeGoods?.riskWords);
+      if (validation.riskWords.length) {
+        await reviseScriptForSafety(text, validation.riskWords, scriptSafetyGuidance, comparisonTexts);
+        return;
+      }
       setNotice(validation.duplicate
         ? `AI 已完成${actionLabel}，内容与已有分镜较接近，请确认后使用`
         : `AI 已根据当前输入${uploadedMaterials.length || uploadedImages.length ? '和上传素材' : ''}完成${actionLabel}`);
     } catch (cause) {
-      setDraft(originalDraft);
-      setError(`AI 话术${actionLabel}失败：${cause instanceof Error ? cause.message : String(cause)}`);
+      const partialText = normalizeGeneratedScript(receivedDraft);
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (partialText && isScriptSafetyError(message)) {
+        updateScriptDraft(partialText);
+        const matchedWords = validateDynamicScript(partialText, comparisonTexts, activeGoods?.riskWords).riskWords;
+        await reviseScriptForSafety(partialText, matchedWords, scriptSafetyGuidance, comparisonTexts, message);
+      } else if (partialText) {
+        updateScriptDraft(partialText);
+        setError(`AI 话术${actionLabel}失败：${message}；已保留生成内容，请检查后使用`);
+      } else {
+        setDraft(originalDraft);
+        setError(`AI 话术${actionLabel}失败：${message}`);
+      }
     } finally {
+      setScriptSafetyStage(null);
       setDynamicGenerating(false);
     }
   };
@@ -2720,7 +3417,7 @@ export function LiveStudio({
 
       const video = await submitAliyunVideo(generated.text);
       if (!video) throw new Error('数字人口播任务未能提交');
-      if (aliyunVideoState(video.status) === 'ready') {
+      if (aliyunVideoState(video) === 'ready') {
         setProductDemoStage('ready');
         setProductDemoMessage(`已用“${avatar.name}”和“${selectedVoice.name}”生成数字人口播，可手动预览`);
         setNotice('商品图片脚本与数字人口播成片已生成');
@@ -3243,52 +3940,90 @@ export function LiveStudio({
     }
   };
 
-  const saveLiveRoom = async () => {
-    if (roomSaving || roomLoading || scriptVideoBatchBusy) return;
-    setRoomSaving(true);
-    setRoomError('');
+  const flushLiveRoom = async (forceCreate = false): Promise<boolean> => {
+    if (roomSavePromiseRef.current) return roomSavePromiseRef.current;
+    if (roomLoading || scriptVideoBatchBusy || roomActionBusy) return false;
+    const save = async () => {
+      setRoomSaving(true);
+      setRoomError('');
+      try {
+        while (true) {
+          const { room: activeRoom, config, signature } = latestRoomSaveRef.current;
+          if (activeRoom ? signature === savedSignatureRef.current : !forceCreate && signature === newRoomBaselineRef.current) return true;
+          if (config.scripts.some(item => !item.text.trim())) throw new Error('分镜正文不能为空，请填写内容或删除空分镜');
+          const savedRoom = activeRoom
+            ? await updateLiveRoom(activeRoom, config)
+            : await createLiveRoom(`直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`, config);
+          latestRoomSaveRef.current.room = savedRoom;
+          setRoom(savedRoom);
+          setRooms((items) => items.some((item) => item.id === savedRoom.id)
+            ? items.map((item) => item.id === savedRoom.id ? savedRoom : item)
+            : [...items, savedRoom]);
+          setRenameRoomName(savedRoom.name);
+          savedSignatureRef.current = JSON.stringify(savedRoom.config);
+          setSavedConfigSignature(savedSignatureRef.current);
+          setSavedAt(formatSavedAt(savedRoom.updatedAt));
+          roomInitializationRef.current = true;
+          if (latestRoomSaveRef.current.signature === signature) return true;
+        }
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : '未知错误';
+        setRoomError(message);
+        setNotice(`直播间保存失败：${message}`);
+        return false;
+      } finally {
+        setRoomSaving(false);
+      }
+    };
+    const pending = save();
+    roomSavePromiseRef.current = pending;
     try {
-      const config = buildRoomConfig();
-      if (config.scripts.some(item => !item.text.trim())) throw new Error('分镜正文不能为空，请填写内容或删除空分镜');
-      if (storyboardScriptId === null && draft.trim()) {
-        const item: ScriptItem = { id: Date.now(), title: `主播口播 ${scripts.length + 1}`, category: '讲品', text: draft.trim(), duration: draftEstimatedDuration, state: 'ready', productId: activeGoods?.id };
-        config.scripts = [...config.scripts, item];
-      }
-      let activeRoom = room;
-      if (!activeRoom) {
-        const existingRooms = await listLiveRooms(1);
-        activeRoom = existingRooms[0] ?? null;
-      }
-      const savedRoom = activeRoom
-        ? await updateLiveRoom(activeRoom, config)
-        : await createLiveRoom(
-            `直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
-            config,
-          );
-      setRoom(savedRoom);
-      if (storyboardScriptId === null && draft.trim()) {
-        setScripts(savedRoom.config.scripts);
-        setStoryboardScriptId(savedRoom.config.scripts.at(-1)?.id ?? null);
-        newScriptDraftRef.current = '';
-      }
-      setRooms((items) => items.some((item) => item.id === savedRoom.id)
-        ? items.map((item) => item.id === savedRoom.id ? savedRoom : item)
-        : [...items, savedRoom]);
-      setRenameRoomName(savedRoom.name);
-      setSavedConfigSignature(JSON.stringify(savedRoom.config));
-      setSavedAt(formatSavedAt(savedRoom.updatedAt));
-      roomInitializationRef.current = true;
-      setNotice(`直播间配置已保存（版本 ${savedRoom.version}）`);
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : '未知错误';
-      setRoomError(message);
-      setNotice(`直播间保存失败：${message}`);
+      return await pending;
     } finally {
-      setRoomSaving(false);
+      if (roomSavePromiseRef.current === pending) roomSavePromiseRef.current = null;
     }
   };
 
-  const selectLiveRoom = (nextRoom: LiveRoom) => {
+  useEffect(() => {
+    if (!entered || roomLoading || !roomInitializationRef.current || roomActionBusy
+      || scriptVideoBatchBusy || productSelectionSaving || productRemovingId !== null || !roomDirty) return;
+    const timer = window.setTimeout(() => { void flushLiveRoom(); }, 900);
+    return () => window.clearTimeout(timer);
+  }, [entered, roomLoading, roomActionBusy, scriptVideoBatchBusy, productSelectionSaving, productRemovingId, roomDirty, roomConfigSignature, room?.id]);
+
+  useEffect(() => {
+    if (!entered || (!roomDirty && !roomSaving)) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [entered, roomDirty, roomSaving]);
+
+  useEffect(() => {
+    if (!roomMenuOpen) return;
+    const dismissOnOutsideClick = (event: globalThis.PointerEvent) => {
+      if (!roomMenuRef.current?.contains(event.target as Node)) setRoomMenuOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setRoomMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', dismissOnOutsideClick);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOnOutsideClick);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [roomMenuOpen]);
+
+  const saveLiveRoom = async () => {
+    if (await flushLiveRoom(true)) {
+      setNotice(`直播间配置已保存（版本 ${latestRoomSaveRef.current.room?.version ?? 1}）`);
+    }
+  };
+
+  const selectLiveRoom = async (nextRoom: LiveRoom) => {
     if (nextRoom.id === room?.id) {
       setRoomMenuOpen(false);
       return;
@@ -3301,8 +4036,9 @@ export function LiveStudio({
       setNotice('直播进行中不能切换直播间，请先结束直播');
       return;
     }
-    if (roomSaving || roomDirty) {
-      setNotice('当前直播间有未保存修改，请保存后再切换');
+    if (roomLoading || roomActionBusy) return;
+    if ((roomDirty || roomSavePromiseRef.current) && !await flushLiveRoom()) {
+      setNotice('当前直播间未能保存，已取消切换，请检查保存错误');
       return;
     }
     stopVoicePreview();
@@ -3320,8 +4056,8 @@ export function LiveStudio({
       setNotice('直播进行中不能新建并切换直播间');
       return;
     }
-    if (roomDirty) {
-      setNotice('当前直播间有未保存修改，请保存后再新建');
+    if ((roomDirty || roomSavePromiseRef.current) && !await flushLiveRoom()) {
+      setNotice('当前直播间未能保存，已取消新建');
       return;
     }
     setRoomActionBusy(true);
@@ -3374,8 +4110,8 @@ export function LiveStudio({
       setNotice('直播进行中不能复制并切换直播间');
       return;
     }
-    if (roomDirty) {
-      setNotice('当前直播间有未保存修改，请保存后再复制');
+    if ((roomDirty || roomSavePromiseRef.current) && !await flushLiveRoom()) {
+      setNotice('当前直播间未能保存，已取消复制');
       return;
     }
     setRoomActionBusy(true);
@@ -3687,6 +4423,7 @@ export function LiveStudio({
 
   const applyProductSelection = async () => {
     if (!room?.id || productSelectionSaving) return;
+    if (roomSavePromiseRef.current && !await roomSavePromiseRef.current) return;
     const selectedIds = [...new Set(selectedCatalogProductIds)];
     if (!selectedIds.length) {
       setProductCatalogError('直播间至少需要选择一个商品');
@@ -3757,10 +4494,12 @@ export function LiveStudio({
         activeGoodsId: nextActiveGoodsId,
         scripts: nextScripts,
       };
-      const savedRoom = await updateLiveRoom(room, nextConfig);
+      const savedRoom = await updateLiveRoom(latestRoomSaveRef.current.room ?? room, nextConfig);
       setRoom(savedRoom);
+      latestRoomSaveRef.current.room = savedRoom;
       setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
-      setSavedConfigSignature(JSON.stringify(savedRoom.config));
+      savedSignatureRef.current = JSON.stringify(savedRoom.config);
+      setSavedConfigSignature(savedSignatureRef.current);
       setSavedAt(formatSavedAt(savedRoom.updatedAt));
       setPendingProductScripts((items) => {
         const next = { ...items };
@@ -3786,6 +4525,7 @@ export function LiveStudio({
       setNotice('直播商品单至少需要保留一个商品');
       return;
     }
+    if (roomSavePromiseRef.current && !await roomSavePromiseRef.current) return;
     setProductRemovingId(product.id);
     try {
       const nextGoods = goods.filter((item) => item.id !== product.id);
@@ -3793,15 +4533,17 @@ export function LiveStudio({
       const nextActiveGoodsId = activeGoodsId === product.id ? nextGoods[0].id : activeGoodsId;
       if (room && typeof product.id === 'string') await detachLiveRoomProduct(room.id, product.id);
       if (room) {
-        const savedRoom = await updateLiveRoom(room, {
+        const savedRoom = await updateLiveRoom(latestRoomSaveRef.current.room ?? room, {
           ...buildRoomConfig(),
           goods: nextGoods,
           activeGoodsId: nextActiveGoodsId,
           scripts: nextScripts,
         });
         setRoom(savedRoom);
+        latestRoomSaveRef.current.room = savedRoom;
         setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
-        setSavedConfigSignature(JSON.stringify(savedRoom.config));
+        savedSignatureRef.current = JSON.stringify(savedRoom.config);
+        setSavedConfigSignature(savedSignatureRef.current);
         setSavedAt(formatSavedAt(savedRoom.updatedAt));
       }
       setGoods(nextGoods);
@@ -3855,14 +4597,11 @@ export function LiveStudio({
   const openLayerInspector = (id: string) => {
     const layer = layers.find((item) => item.id === id);
     if (!layer) return;
+    setMultiSelectedLayerIds([]);
+    setSelectedComponentInstanceId(null);
     setSelectedLayerId(id);
-    if (layer.kind === 'host') {
-      setInspectorLayerId(null);
-      setStudioWorkspace('host');
-      setMaterialTab('host');
-      return;
-    }
-    setInspectorLayerId(id);
+    setInspectorLayerId(null);
+    if (layer.kind === 'host') return;
     setStudioWorkspace('decorate');
     if (layer.kind === 'text') setMaterialTab('text');
     if (layer.kind === 'image' && layer.sceneKey !== 'templateBackground') setMaterialTab(layer.id.startsWith('component-') ? 'component' : 'image');
@@ -3873,9 +4612,55 @@ export function LiveStudio({
     openLayerInspector(layer.id);
   };
 
+  const selectComponentInstance = (instanceId: string) => {
+    if (!layers.some(item => item.componentInstanceId === instanceId)) return;
+    setMultiSelectedLayerIds([]);
+    setSelectedComponentInstanceId(instanceId);
+    setSelectedLayerId(null);
+    setInspectorLayerId(null);
+    setStudioWorkspace('decorate');
+    setMaterialTab('component');
+  };
+
   const closeLayerInspector = () => {
     setSelectedLayerId(null);
     setInspectorLayerId(null);
+    setSelectedComponentInstanceId(null);
+    setMultiSelectedLayerIds([]);
+    setEditingTextLayerId(null);
+  };
+
+  const toggleLayerSelection = (layer: LayerItem) => {
+    const ids = layer.componentInstanceId
+      ? layers.filter(item => item.componentInstanceId === layer.componentInstanceId).map(item => item.id)
+      : [layer.id];
+    const previous = new Set(selectedCanvasLayerIds);
+    const remove = ids.every(id => previous.has(id));
+    ids.forEach(id => remove ? previous.delete(id) : previous.add(id));
+    setSelectedLayerId(null);
+    setSelectedComponentInstanceId(null);
+    setInspectorLayerId(null);
+    setMultiSelectedLayerIds([...previous]);
+    setStudioWorkspace('decorate');
+  };
+
+  const startTextEdit = (layer: LayerItem) => {
+    if (layer.kind !== 'text') return;
+    skipTextEditCommitRef.current = false;
+    openLayerInspector(layer.id);
+    setEditingTextDraft(layer.value);
+    setEditingTextLayerId(layer.id);
+  };
+
+  const commitTextEdit = () => {
+    if (skipTextEditCommitRef.current) {
+      skipTextEditCommitRef.current = false;
+      return;
+    }
+    if (editingTextLayer && editingTextDraft !== editingTextLayer.value) {
+      updateLayer(editingTextLayer.id, { value: editingTextDraft });
+    }
+    setEditingTextLayerId(null);
   };
 
   const openStudioWorkspace = (workspace: StudioWorkspace) => {
@@ -3888,7 +4673,7 @@ export function LiveStudio({
     if (workspace === 'decorate' && materialTab === 'host') setMaterialTab('template');
   };
 
-  const updateLayer = (id: string, values: Partial<LayerItem>) => {
+  const updateLayer = (id: string, values: Partial<LayerItem>, options: { history?: boolean; coalesceKey?: string } = {}) => {
     setGeneratedVideoVisible(false);
     const changesTextRendering = Object.keys(values).some((key) => TEXT_RENDER_KEYS.has(key as keyof LayerItem));
     const original = layers.find(item => item.id === id);
@@ -3897,15 +4682,23 @@ export function LiveStudio({
     const waitForFont = original?.kind === 'text' && Boolean(original.preview) && changesTextRendering
       && typeof document !== 'undefined' && !document.fonts.check(font);
     if (waitForFont) {
-      void document.fonts.load(font).catch(() => []).then(() => setLayers(items => items.map(item =>
-        item.id === id && item.kind === 'text' && item.preview === original?.preview && (item.fontFamily ?? '默认字体') === fontFamily
-          ? { ...item, preview: undefined }
-          : item,
-      )));
+      void document.fonts.load(font).catch(() => []).then(() => {
+        replaceSceneLayersWithoutHistory(sceneStateRef.current.layers.map(item =>
+          item.id === id && item.kind === 'text' && item.preview === original?.preview && (item.fontFamily ?? '默认字体') === fontFamily
+            ? { ...item, preview: undefined }
+            : item,
+        ));
+      });
     }
-    setLayers((items) => items.map((item) => item.id === id
+    const updater = (items: LayerItem[]) => items.map((item) => item.id === id
       ? { ...item, ...values, ...(item.kind === 'text' && changesTextRendering && !waitForFont ? { preview: undefined } : {}) }
-      : item));
+      : item);
+    if (options.history === false) {
+      replaceSceneLayersWithoutHistory(updater(sceneStateRef.current.layers));
+      return;
+    }
+    const keys = Object.keys(values).sort().join(',');
+    mutateSceneLayers(updater, options.coalesceKey ?? (keys ? `layer:${id}:${keys}` : undefined));
   };
 
   const updateTextMaterialValue = (value: string) => {
@@ -3918,10 +4711,36 @@ export function LiveStudio({
     else setCustomTextStyle((style) => ({ ...style, ...values }));
   };
 
+  const beginMultiGesture = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!previewCanvasRef.current) return;
+    multiCanvasGestureRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startLayers: layers.filter(item => multiSelectedLayerIds.includes(item.id)),
+      historySnapshot: captureSceneSnapshot(),
+    };
+    try {
+      previewCanvasRef.current.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic pointer events do not own an active pointer.
+    }
+    setCanvasGestureMode('move');
+  };
+
   const beginCanvasGesture = (event: ReactPointerEvent<HTMLElement>, layer: LayerItem, mode: CanvasGesture['mode'], handle?: ResizeHandle) => {
     if (event.button !== 0 || !previewCanvasRef.current) return;
     event.preventDefault();
     event.stopPropagation();
+    previewCanvasRef.current.focus({ preventScroll: true });
+    if (mode === 'move' && (event.shiftKey || event.ctrlKey || event.metaKey || multiSelectMode)) {
+      toggleLayerSelection(layer);
+      return;
+    }
+    if (mode === 'move' && multiSelectedLayerIds.length > 1 && multiSelectedLayerIds.includes(layer.id)) {
+      beginMultiGesture(event);
+      return;
+    }
     selectCanvasLayer(layer);
     const canvasBounds = previewCanvasRef.current.getBoundingClientRect();
     const centerClientX = canvasBounds.left + (layer.x / 100) * canvasBounds.width;
@@ -3941,6 +4760,7 @@ export function LiveStudio({
       centerClientX,
       centerClientY,
       startPointerAngle: Math.atan2(event.clientY - centerClientY, event.clientX - centerClientX) * 180 / Math.PI,
+      historySnapshot: captureSceneSnapshot(),
     };
     try {
       previewCanvasRef.current.setPointerCapture(event.pointerId);
@@ -3956,7 +4776,105 @@ export function LiveStudio({
     beginCanvasGesture(event, layer, target.dataset.rotateHandle === 'true' ? 'rotate' : handle ? 'resize' : 'move', handle);
   };
 
+  const beginComponentGesture = (event: ReactPointerEvent<HTMLElement>, instanceId: string, mode: ComponentCanvasGesture['mode'], handle?: ResizeHandle) => {
+    if (event.button !== 0 || !previewCanvasRef.current) return;
+    const instanceLayers = layers.filter(item => item.componentInstanceId === instanceId);
+    const bounds = componentBounds(instanceLayers);
+    if (!bounds) return;
+    event.preventDefault();
+    event.stopPropagation();
+    previewCanvasRef.current.focus({ preventScroll: true });
+    if (mode === 'move' && (event.shiftKey || event.ctrlKey || event.metaKey || multiSelectMode)) {
+      toggleLayerSelection(instanceLayers[0]);
+      return;
+    }
+    if (mode === 'move' && multiSelectedLayerIds.length > 1 && instanceLayers.some(item => multiSelectedLayerIds.includes(item.id))) {
+      beginMultiGesture(event);
+      return;
+    }
+    selectComponentInstance(instanceId);
+    const canvasBounds = previewCanvasRef.current.getBoundingClientRect();
+    const centerClientX = canvasBounds.left + (bounds.x / 100) * canvasBounds.width;
+    const centerClientY = canvasBounds.top + (bounds.y / 100) * canvasBounds.height;
+    componentCanvasGestureRef.current = {
+      mode,
+      pointerId: event.pointerId,
+      instanceId,
+      handle,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startBounds: bounds,
+      startLayers: instanceLayers.map(layer => ({ ...layer })),
+      centerClientX,
+      centerClientY,
+      startPointerAngle: Math.atan2(event.clientY - centerClientY, event.clientX - centerClientX) * 180 / Math.PI,
+      historySnapshot: captureSceneSnapshot(),
+    };
+    try {
+      previewCanvasRef.current.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic pointer events used by automated UI checks do not own an active pointer.
+    }
+    setCanvasGestureMode(mode);
+  };
+
+  const beginComponentSelectionGesture = (event: ReactPointerEvent<HTMLDivElement>, instanceId: string) => {
+    const target = event.target as HTMLElement;
+    const handle = target.dataset.resizeHandle as ResizeHandle | undefined;
+    beginComponentGesture(event, instanceId, target.dataset.rotateHandle === 'true' ? 'rotate' : handle ? 'resize' : 'move', handle);
+  };
+
   const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const multiGesture = multiCanvasGestureRef.current;
+    if (multiGesture?.pointerId === event.pointerId) {
+      event.preventDefault();
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const moved = moveComponentLayers(multiGesture.startLayers,
+        (event.clientX - multiGesture.startClientX) / bounds.width * 100,
+        (event.clientY - multiGesture.startClientY) / bounds.height * 100);
+      const replacements = new Map(moved.map(layer => [layer.id, layer]));
+      replaceSceneLayersWithoutHistory(sceneStateRef.current.layers.map(item => replacements.get(item.id) ?? item));
+      return;
+    }
+    const componentGesture = componentCanvasGestureRef.current;
+    if (componentGesture && componentGesture.pointerId === event.pointerId) {
+      event.preventDefault();
+      const canvasBounds = event.currentTarget.getBoundingClientRect();
+      if (!canvasBounds.width || !canvasBounds.height) return;
+      const deltaX = (event.clientX - componentGesture.startClientX) / canvasBounds.width * 100;
+      const deltaY = (event.clientY - componentGesture.startClientY) / canvasBounds.height * 100;
+      let transformed = componentGesture.startLayers;
+      if (componentGesture.mode === 'move') {
+        transformed = moveComponentLayers(componentGesture.startLayers, deltaX, deltaY);
+      } else if (componentGesture.mode === 'resize' && componentGesture.handle) {
+        const start = componentGesture.startBounds;
+        let left = start.x - start.width / 2;
+        let right = start.x + start.width / 2;
+        let top = start.y - start.height / 2;
+        let bottom = start.y + start.height / 2;
+        if (componentGesture.handle.includes('w')) left = Math.min(right - 2, left + deltaX);
+        if (componentGesture.handle.includes('e')) right = Math.max(left + 2, right + deltaX);
+        if (componentGesture.handle.includes('n')) top = Math.min(bottom - 2, top + deltaY);
+        if (componentGesture.handle.includes('s')) bottom = Math.max(top + 2, bottom + deltaY);
+        transformed = resizeComponentLayers(componentGesture.startLayers, start, {
+          x: (left + right) / 2,
+          y: (top + bottom) / 2,
+          width: clampCanvasValue(right - left, 2, 200),
+          height: clampCanvasValue(bottom - top, 2, 200),
+        });
+      } else if (componentGesture.mode === 'rotate') {
+        const pointerAngle = Math.atan2(event.clientY - componentGesture.centerClientY, event.clientX - componentGesture.centerClientX) * 180 / Math.PI;
+        transformed = rotateComponentLayers(
+          componentGesture.startLayers,
+          componentGesture.startBounds,
+          pointerAngle - componentGesture.startPointerAngle,
+        );
+      }
+      const replacements = new Map(transformed.map(layer => [layer.id, layer]));
+      replaceSceneLayersWithoutHistory(sceneStateRef.current.layers.map(item => replacements.get(item.id) ?? item));
+      return;
+    }
     const gesture = canvasGestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     event.preventDefault();
@@ -3969,7 +4887,7 @@ export function LiveStudio({
       updateLayer(gesture.layerId, {
         x: roundCanvasValue(clampCanvasValue(gesture.startX + deltaX, -100, 200)),
         y: roundCanvasValue(clampCanvasValue(gesture.startY + deltaY, -100, 200)),
-      });
+      }, { history: false });
       return;
     }
 
@@ -3989,7 +4907,7 @@ export function LiveStudio({
         y: roundCanvasValue((top + bottom) / 2),
         width: roundCanvasValue(width),
         height: roundCanvasValue(height),
-      });
+      }, { history: false });
       return;
     }
 
@@ -3997,14 +4915,34 @@ export function LiveStudio({
       const pointerAngle = Math.atan2(event.clientY - gesture.centerClientY, event.clientX - gesture.centerClientX) * 180 / Math.PI;
       const rawRotation = gesture.startRotation + pointerAngle - gesture.startPointerAngle;
       const rotation = ((rawRotation + 180) % 360 + 360) % 360 - 180;
-      updateLayer(gesture.layerId, { rotation: Math.round(rotation) });
+      updateLayer(gesture.layerId, { rotation: Math.round(rotation) }, { history: false });
     }
   };
 
   const finishCanvasGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const multiGesture = multiCanvasGestureRef.current;
+    if (multiGesture?.pointerId === event.pointerId) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      const current = captureSceneSnapshot();
+      if (!sceneSnapshotsEqual(multiGesture.historySnapshot, current)) pushSceneHistory(multiGesture.historySnapshot);
+      multiCanvasGestureRef.current = null;
+      setCanvasGestureMode(null);
+      return;
+    }
+    const componentGesture = componentCanvasGestureRef.current;
+    if (componentGesture?.pointerId === event.pointerId) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      const current = captureSceneSnapshot();
+      if (!sceneSnapshotsEqual(componentGesture.historySnapshot, current)) pushSceneHistory(componentGesture.historySnapshot);
+      componentCanvasGestureRef.current = null;
+      setCanvasGestureMode(null);
+      return;
+    }
     const gesture = canvasGestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    const current = captureSceneSnapshot();
+    if (!sceneSnapshotsEqual(gesture.historySnapshot, current)) pushSceneHistory(gesture.historySnapshot);
     canvasGestureRef.current = null;
     setCanvasGestureMode(null);
   };
@@ -4043,31 +4981,46 @@ export function LiveStudio({
       rotation: 0,
       opacity: 100,
     };
-    setLayers((items) => [layer, ...items]);
+    mutateSceneLayers((items) => [layer, ...items]);
     setGeneratedVideoVisible(false);
+    setMultiSelectedLayerIds([]);
     setSelectedLayerId(id);
     setInspectorLayerId(null);
     setMaterialTab('image');
     setNotice(`${asset.kind === 'image' ? '图片' : '视频'}素材已添加到画面`);
   };
 
-  const addComponentToCanvas = (component: StudioComponent) => {
-    const id = `component-${component.id}-${Date.now()}`;
-    setLayers(items => [{
-      id, kind: 'image', value: component.name, preview: component.image,
-      sceneKey: 'templateElement', x: component.x, y: component.y,
-      width: component.width, height: component.height, rotation: 0, opacity: 100,
-    }, ...items]);
-    setGeneratedVideoVisible(false);
-    setSelectedLayerId(id);
-    setInspectorLayerId(null);
-    setNotice(`已添加“${component.name}”`);
+  const addComponentToCanvas = async (component: StudioComponent) => {
+    if (componentLoadingId) return;
+    setComponentLoadingId(component.id);
+    try {
+      const sourceLayers = await loadComponentLayers(component);
+      if (!sourceLayers.length) throw new Error('组件没有可用图层');
+      const instanceId = `component-${component.id}-${Date.now()}`;
+      const instanceLayers = instantiateComponentLayers(sourceLayers, {
+        id: instanceId,
+        sourceId: component.id,
+        name: component.name,
+      });
+      mutateSceneLayers(items => [...instanceLayers, ...items]);
+      setGeneratedVideoVisible(false);
+      setMultiSelectedLayerIds([]);
+      setSelectedComponentInstanceId(instanceId);
+      setSelectedLayerId(null);
+      setInspectorLayerId(null);
+      setMaterialTab('component');
+      setNotice(`已添加“${component.name}”，包含 ${instanceLayers.length} 个可编辑图层`);
+    } catch (cause) {
+      setNotice(`组件添加失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setComponentLoadingId(null);
+    }
   };
 
   const addTextToCanvas = () => {
     if (!textMaterialValue.trim() || selectedTextLayer) return;
     const id = `text-${Date.now()}`;
-    setLayers((items) => [{
+    mutateSceneLayers((items) => [{
       id,
       kind: 'text',
       value: textMaterialValue.trim(),
@@ -4092,6 +5045,7 @@ export function LiveStudio({
       opacity: textMaterialStyle.opacity,
     }, ...items]);
     setGeneratedVideoVisible(false);
+    setMultiSelectedLayerIds([]);
     setSelectedLayerId(id);
     setInspectorLayerId(null);
     setMaterialTab('text');
@@ -4141,7 +5095,7 @@ export function LiveStudio({
   };
 
   const moveLayer = (id: string, action: 'forward' | 'backward' | 'front' | 'back') => {
-    setLayers((items) => {
+    mutateSceneLayers((items) => {
       const currentIndex = items.findIndex((item) => item.id === id);
       if (currentIndex < 0 || items[currentIndex].sceneKey === 'templateBackground') return items;
       const backgroundIndex = items.findIndex((item) => item.sceneKey === 'templateBackground');
@@ -4157,7 +5111,7 @@ export function LiveStudio({
 
   const reorderLayer = (draggedId: string, targetId: string, position: 'before' | 'after') => {
     if (draggedId === targetId) return;
-    setLayers((items) => {
+    mutateSceneLayers((items) => {
       const dragged = items.find((item) => item.id === draggedId);
       const target = items.find((item) => item.id === targetId);
       if (!dragged || !target || dragged.sceneKey === 'templateBackground') return items;
@@ -4175,10 +5129,44 @@ export function LiveStudio({
   };
 
   const deleteLayer = (id: string) => {
-    setLayers((items) => items.filter((item) => item.id !== id));
+    mutateSceneLayers((items) => items.filter((item) => item.id !== id));
     if (selectedLayerId === id) setSelectedLayerId(null);
     if (inspectorLayerId === id) setInspectorLayerId(null);
+    setMultiSelectedLayerIds(ids => ids.filter(item => item !== id));
     setNotice('图层已删除');
+  };
+
+  const deleteSelectedCanvasLayers = () => {
+    if (!selectedCanvasLayerIds.length) return;
+    const ids = new Set(selectedCanvasLayerIds);
+    mutateSceneLayers(items => items.filter(item => !ids.has(item.id)));
+    setSelectedLayerId(null);
+    setSelectedComponentInstanceId(null);
+    setInspectorLayerId(null);
+    setMultiSelectedLayerIds([]);
+    setEditingTextLayerId(null);
+    setNotice(`已删除 ${ids.size} 个图层`);
+  };
+
+  const updateSelectedComponentBounds = (values: Partial<ComponentBounds>) => {
+    if (!selectedComponentInstanceId || !selectedComponentBounds) return;
+    const nextBounds = {
+      x: values.x ?? selectedComponentBounds.x,
+      y: values.y ?? selectedComponentBounds.y,
+      width: values.width ?? selectedComponentBounds.width,
+      height: values.height ?? selectedComponentBounds.height,
+    };
+    const transformed = resizeComponentLayers(selectedComponentLayers, selectedComponentBounds, nextBounds);
+    const replacements = new Map(transformed.map(layer => [layer.id, layer]));
+    mutateSceneLayers(items => items.map(item => replacements.get(item.id) ?? item), `component:${selectedComponentInstanceId}:bounds`);
+  };
+
+  const deleteSelectedComponent = () => {
+    if (!selectedComponentInstanceId) return;
+    mutateSceneLayers(items => items.filter(item => item.componentInstanceId !== selectedComponentInstanceId));
+    setSelectedComponentInstanceId(null);
+    setMultiSelectedLayerIds([]);
+    setNotice(`已删除“${selectedComponentName}”`);
   };
 
   const templateLayersWithBackground = (background: string) => {
@@ -4212,6 +5200,29 @@ export function LiveStudio({
     }
   };
 
+  const replaceLiveBackground = async (file?: File) => {
+    if (!file) return;
+    const currentRoomId = room?.id;
+    const currentTemplateId = selectedTemplateId;
+    setBackgroundReplacing(true);
+    setTemplateStorageError('');
+    try {
+      const preview = await prepareTemplateBackground(file);
+      if (latestRoomSaveRef.current.room?.id !== currentRoomId || sceneStateRef.current.selectedTemplateId !== currentTemplateId) return;
+      mutateSceneLayers((items) => {
+        const background = items.find((item) => item.sceneKey === 'templateBackground');
+        return background
+          ? items.map((item) => item === background ? { ...item, value: '模板背景', preview } : item)
+          : [...items, { id: `background-custom-${Date.now()}`, kind: 'image', value: '模板背景', sceneKey: 'templateBackground', preview, x: 50, y: 50, width: 100, height: 100, rotation: 0, opacity: 100 }];
+      });
+      setNotice('直播间背景已更换');
+    } catch (cause) {
+      setTemplateStorageError(cause instanceof Error ? cause.message : '背景图读取失败');
+    } finally {
+      setBackgroundReplacing(false);
+    }
+  };
+
   const saveCustomTemplate = () => {
     const name = templateDraftName.trim();
     const background = templateDraftBackground;
@@ -4235,9 +5246,14 @@ export function LiveStudio({
     setTemplateLoadingId('');
     setTemplateLoadError('');
     setCustomTemplates((items) => [...items, template]);
-    setSelectedTemplateId(id);
-    setSelectedTemplatePage(0);
-    setLayers(template.layers!.map((layer) => ({ ...layer })));
+    const current = captureSceneSnapshot();
+    pushSceneHistory(current);
+    replaceSceneSnapshotWithoutHistory({
+      ...current,
+      selectedTemplateId: id,
+      selectedTemplatePage: 0,
+      layers: template.layers!.map((layer) => ({ ...layer })),
+    });
     setTemplateDraftMode(null);
     setTemplateDraftBackground('');
     setNotice(`已保存并应用“${name}”`);
@@ -4276,10 +5292,19 @@ export function LiveStudio({
       const pages = await loadTemplatePages(template);
       if (templateRequestIdRef.current !== requestId) return;
       const pageIndex = pages.length ? clampCanvasValue(Math.floor(requestedPage), 0, pages.length - 1) : 0;
-      const templateLayers = pages[pageIndex]?.map((item) => ({ ...item })) ?? createTemplateLayers(template.id, avatar.name);
-      setSelectedTemplateId(template.id);
-      setSelectedTemplatePage(pageIndex);
-      setLayers((currentLayers) => applyTemplateLayersPreservingHost(templateLayers, currentLayers, avatar.name));
+      const current = captureSceneSnapshot();
+      const currentAvatar = AVATARS.find((item) => item.id === current.avatarId) ?? AVATARS[0];
+      const templateLayers = pages[pageIndex]?.map((item) => ({ ...item })) ?? createTemplateLayers(template.id, currentAvatar.name);
+      const next = {
+        ...current,
+        selectedTemplateId: template.id,
+        selectedTemplatePage: pageIndex,
+        layers: applyTemplateLayersPreservingHost(templateLayers, current.layers, currentAvatar.name),
+      };
+      if (!sceneSnapshotsEqual(current, next)) {
+        pushSceneHistory(current);
+        replaceSceneSnapshotWithoutHistory(next);
+      }
       setGeneratedVideoVisible(false);
       void restoreAvatarOutputAudio().catch(() => undefined);
       closeLayerInspector();
@@ -4298,19 +5323,102 @@ export function LiveStudio({
   const applyAvatar = (nextAvatarId: string) => {
     const nextAvatar = AVATARS.find((item) => item.id === nextAvatarId);
     if (!nextAvatar) return;
-    setAvatarId(nextAvatar.id);
+    const current = captureSceneSnapshot();
+    const next = {
+      ...current,
+      avatarId: nextAvatar.id,
+      layers: current.layers.map((item) => item.sceneKey === 'host' ? {
+        ...item,
+        value: nextAvatar.name,
+      } : item),
+    };
+    pushSceneHistory(current);
+    replaceSceneSnapshotWithoutHistory(next);
     setGeneratedVideoVisible(false);
     setAliyunVideo(null);
     setAliyunVideoError('');
     void restoreAvatarOutputAudio().catch(() => undefined);
-    setLayers((items) => items.map((item) => item.sceneKey === 'host' ? {
-      ...item,
-      value: nextAvatar.name,
-    } : item));
     setNotice(nextAvatar.scope === 'aliyun'
       ? `已选择公共形象“${nextAvatar.name}”`
       : '主播形象已更换');
   };
+
+  const restoreSceneHistory = (direction: 'undo' | 'redo') => {
+    const current = captureSceneSnapshot();
+    const transition = direction === 'undo'
+      ? undoLiveScene(sceneHistoryRef.current, current, sceneSnapshotsEqual)
+      : redoLiveScene(sceneHistoryRef.current, current, sceneSnapshotsEqual);
+    sceneHistoryRef.current = transition.history;
+    setSceneHistoryRevision((revision) => revision + 1);
+    if (!transition.snapshot) return;
+
+    templateRequestIdRef.current += 1;
+    setTemplateLoadingId('');
+    setTemplateLoadError('');
+    canvasGestureRef.current = null;
+    componentCanvasGestureRef.current = null;
+    multiCanvasGestureRef.current = null;
+    setCanvasGestureMode(null);
+    replaceSceneSnapshotWithoutHistory(transition.snapshot);
+    setSelectedLayerId((id) => id && transition.snapshot!.layers.some((layer) => layer.id === id) ? id : null);
+    setInspectorLayerId((id) => id && transition.snapshot!.layers.some((layer) => layer.id === id) ? id : null);
+    setSelectedComponentInstanceId((id) => id && transition.snapshot!.layers.some((layer) => layer.componentInstanceId === id) ? id : null);
+    setMultiSelectedLayerIds(ids => ids.filter(id => transition.snapshot!.layers.some(layer => layer.id === id)));
+    setEditingTextLayerId(null);
+    setGeneratedVideoVisible(false);
+    setAliyunVideo(null);
+    setAliyunVideoError('');
+    void restoreAvatarOutputAudio().catch(() => undefined);
+    setNotice(direction === 'undo' ? '已撤回上一步画面编辑' : '已恢复下一步画面编辑');
+  };
+
+  const undoScene = () => restoreSceneHistory('undo');
+  const redoScene = () => restoreSceneHistory('redo');
+
+  useEffect(() => {
+    if (!entered) return;
+    const handleSceneHistoryShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.isContentEditable || target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const key = event.key.toLowerCase();
+      const wantsUndo = key === 'z' && !event.shiftKey;
+      const wantsRedo = key === 'y' || (key === 'z' && event.shiftKey);
+      const current = captureSceneSnapshot();
+      const hasUndo = sceneHistoryRef.current.past.some((snapshot) => !sceneSnapshotsEqual(snapshot, current));
+      const hasRedo = sceneHistoryRef.current.future.some((snapshot) => !sceneSnapshotsEqual(snapshot, current));
+      if ((!wantsUndo || !hasUndo) && (!wantsRedo || !hasRedo)) return;
+      event.preventDefault();
+      if (wantsUndo) undoScene();
+      else if (wantsRedo) redoScene();
+    };
+    document.addEventListener('keydown', handleSceneHistoryShortcut);
+    return () => document.removeEventListener('keydown', handleSceneHistoryShortcut);
+  }, [entered, sceneHistoryRevision]);
+
+  useEffect(() => {
+    if (!entered || dialog) return;
+    const handleCanvasShortcut = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (!target?.closest('.xlPortraitCanvas, .xlLayerList') || target.isContentEditable || target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        setSelectedLayerId(null);
+        setSelectedComponentInstanceId(null);
+        setMultiSelectedLayerIds(layers.filter(layer => layer.sceneKey !== 'templateBackground').map(layer => layer.id));
+        setStudioWorkspace('decorate');
+      } else if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (!selectedCanvasLayerIds.length) return;
+        event.preventDefault();
+        deleteSelectedCanvasLayers();
+      } else if (event.key === 'Escape') {
+        closeLayerInspector();
+        setMultiSelectMode(false);
+      }
+    };
+    document.addEventListener('keydown', handleCanvasShortcut);
+    return () => document.removeEventListener('keydown', handleCanvasShortcut);
+  }, [entered, dialog, layers, selectedCanvasLayerIds]);
 
   if (!entered) {
     return (
@@ -4329,12 +5437,29 @@ export function LiveStudio({
 
           <section className="liveLandingVisual" aria-label="数字人直播功能预览">
             <div className="liveWindow">
+              <div className="liveWindowScenes" aria-hidden="true">
+                {LANDING_LIVE_SCENES.map((scene, index) => <img
+                  className={index === landingSceneIndex ? 'active' : ''}
+                  src={scene.src}
+                  alt=""
+                  key={scene.id}
+                />)}
+              </div>
               <div className="liveWindowBar"><span><i /><i /><i /></span><em><b />LIVE</em></div>
-              <video className="liveWindowVideo" src={ALIYUN_PUBLIC_AVATARS.find((item) => item.id === FEATURED_LIVE_AVATAR_ID)?.previewVideo} poster={ALIYUN_PUBLIC_AVATARS.find((item) => item.id === FEATURED_LIVE_AVATAR_ID)?.image} autoPlay muted loop playsInline aria-label="数字人主播静音演示" />
+              {featuredLiveAvatar?.previewVideo
+                ? <LandingAvatarPreview src={featuredLiveAvatar.previewVideo} poster={featuredLiveAvatar.image} />
+                : featuredLiveAvatar && <img className="liveWindowAvatar" src={featuredLiveAvatar.image} alt="数字人主播演示" />}
               <div className="liveWindowLower"><strong>{FEATURED_LIVE_AVATAR_NAME}</strong><span>官方公共数字人</span></div>
             </div>
             <article className="floatingScript"><span><FileText size={14} />话术编排</span><p>欢迎进入今天的数字人直播间，我们马上开始本期内容。</p></article>
-            <article className="floatingScenes"><span><Video size={14} />直播画面</span><div><img src="/assets/live/scenes/beauty-live-scene.webp" alt="美妆直播间画面" /><img src="/assets/live/scenes/tech-live-scene.webp" alt="数码直播间画面" /><img src="/assets/live/scenes/lifestyle-live-scene.webp" alt="生活直播间画面" /></div></article>
+            <article className="floatingScenes"><span><Video size={14} />直播画面</span><div>{LANDING_LIVE_SCENES.map((scene, index) => <button
+              className={index === landingSceneIndex ? 'selected' : ''}
+              type="button"
+              aria-label={`切换到${scene.alt}`}
+              aria-pressed={index === landingSceneIndex}
+              onClick={() => setLandingSceneIndex(index)}
+              key={scene.id}
+            ><img src={scene.src} alt={scene.alt} /></button>)}</div></article>
             <div className="landingGlow" />
           </section>
 
@@ -4379,11 +5504,14 @@ export function LiveStudio({
     selectedStoryboardVideoState,
     selectedStoryboardSubmitting,
   );
+  const selectedStoryboardVideo = selectedStoryboardScript ? scriptVideoResults[selectedStoryboardScript.id] : undefined;
+  const selectedStoryboardDownloadFailed = selectedStoryboardVideoState === 'downloadFailed' && Boolean(selectedStoryboardVideo);
+  const selectedStoryboardRetrying = videoDownloadRetryingId === selectedStoryboardVideo?.id;
   const scriptVideoProgressTotal = scripts.length;
   const generatedVideoReady = Boolean(
     generatedVideoVisible
     && aliyunVideo?.videoUrl
-    && aliyunVideoState(aliyunVideo.status) === 'ready',
+    && aliyunVideoState(aliyunVideo) === 'ready',
   );
   const showStaticHost = !mediaActive
     && !generatedVideoReady
@@ -4393,10 +5521,10 @@ export function LiveStudio({
     <main className={`xilingLive xlYijingStudio workspace-${studioWorkspace}`}>
       <header className="xlTopbar">
         <div className="xlTitleGroup">
-          <button type="button" className="xlBack" onClick={() => { void stopLive(); setEntered(false); }} aria-label="返回直播首页"><ArrowLeft size={17} /></button>
+          <button type="button" className="xlBack" onClick={async () => { if ((roomDirty || roomSavePromiseRef.current) && !await flushLiveRoom()) return; await stopLive(); resetRoomDraft(); setEntered(false); }} aria-label="返回直播首页"><ArrowLeft size={17} /></button>
           <div className="xlLiveBrand" aria-label="灵境数字人直播"><span><Sparkles size={15} /></span><strong>灵境数字人</strong></div>
           <div className="xlRoomHeader">
-            <div className="xlRoomPickerAnchor">
+            <div className="xlRoomPickerAnchor" ref={roomMenuRef}>
               <button
                 type="button"
                 className="xlRoomPicker"
@@ -4410,7 +5538,7 @@ export function LiveStudio({
               {roomMenuOpen && <div className="xlRoomMenu" role="menu" aria-label="直播间管理">
                 <header className="xlRoomMenuHeader"><div><strong>我的直播间</strong><span>{rooms.length} 个直播间</span></div><span className={roomDirty ? 'dirty' : ''}>{roomDirty ? '有未保存修改' : room?.status === 'published' ? '已发布版本' : '草稿'}</span></header>
                 <div className="xlRoomList">
-                  {rooms.map((item) => <button type="button" role="menuitem" className={`xlRoomOption ${item.id === room?.id ? 'active' : ''}`} key={item.id} onClick={() => selectLiveRoom(item)} disabled={roomActionBusy || roomLoading}>
+                  {rooms.map((item) => <button type="button" role="menuitem" className={`xlRoomOption ${item.id === room?.id ? 'active' : ''}`} key={item.id} onClick={() => void selectLiveRoom(item)} disabled={roomActionBusy || roomLoading}>
                     <span><strong>{item.name}</strong><small>版本 {item.version} · {item.status === 'published' ? '已发布' : '草稿'}</small></span>{item.id === room?.id && <Check size={14} />}
                   </button>)}
                   {!rooms.length && <div className="xlRoomEmpty">还没有直播间</div>}
@@ -4431,7 +5559,7 @@ export function LiveStudio({
                 </form>}
               </div>}
             </div>
-            <span className="xlRoomSubline">{roomLoading ? '正在加载配置…' : roomError ? '配置尚未同步' : roomDirty ? '有未保存修改' : savedAt ? `保存于 ${savedAt}` : '尚未保存'}{room?.status === 'published' && !roomDirty && <em className="xlPublishedBadge">已发布</em>}</span>
+            <span className="xlRoomSubline">{roomLoading ? '正在加载配置…' : roomError ? '自动保存失败，请重试' : roomSaving ? '正在自动保存…' : roomDirty ? '等待自动保存…' : savedAt ? `已自动保存于 ${savedAt}` : '尚未保存'}{room?.status === 'published' && !roomDirty && <em className="xlPublishedBadge">已发布</em>}</span>
           </div>
         </div>
         <div className="xlTopActions">
@@ -4440,7 +5568,7 @@ export function LiveStudio({
           {onAir || (liveRun && ['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) ? (
             <button className="xlLiveButton danger" type="button" disabled={liveRun?.status === 'stopping'} onClick={() => void stopLive()}><CircleStop size={16} />{liveRun?.status === 'stopping' ? '正在结束' : onAir ? '结束直播' : '取消开播'} {onAir && <span>{elapsed}</span>}</button>
           ) : (
-            <button className="xlLiveButton" type="button" onClick={() => setDialog('livePlatform')}><Radio size={16} />开播编排</button>
+          <button className="xlLiveButton" type="button" title="开播编排" aria-label="开播编排" onClick={() => { setRoomMenuOpen(false); setDialog('livePlatform'); }}><Radio size={16} />开播编排</button>
           )}
         </div>
       </header>
@@ -4466,14 +5594,17 @@ export function LiveStudio({
                       </button>
                     ))}
                   </span>
-                  <button className={importedDocumentName ? 'active' : ''} type="button" title={importedDocumentName ? `更换素材：${importedDocumentName}` : '上传文档或图片素材'} aria-label="上传文档或图片素材" onClick={() => documentInputRef.current?.click()}><FileUp size={15} /></button>
+                  <button className={`xlScriptUploadButton ${importedDocumentName ? 'active' : ''}`} type="button" title={importedDocumentName ? `更换素材：${importedDocumentName}` : '上传文档或图片素材'} aria-label="上传文档或图片素材" onClick={() => documentInputRef.current?.click()}><FileUp size={15} /></button>
+                  <button type="button" title="编辑风控提示词" aria-label="编辑风控提示词" onClick={openScriptSafetyDialog}><ShieldCheck size={16} /></button>
                 </div>
 
                 <section className="xlPrimaryScriptComposer">
                   <div className="xlScriptEditorSurface">
                     <textarea ref={draftTextareaRef} value={draft} aria-label="主播口播脚本" onChange={(event) => updateScriptDraft(event.target.value)} placeholder="在这里输入主播口播脚本…" rows={20} maxLength={SCRIPT_EDITOR_LIMIT} disabled={scriptVideoBatchBusy || dynamicGenerating || draftPreviewing || playbackQueueStatus !== 'idle' || onAir} onKeyDown={event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && storyboardScriptId === null) { event.preventDefault(); addDraftToScripts(); } }} />
+                    {scriptSafetyStage && <div className="xlScriptSafetyStatus" role="status"><LoaderCircle className="xlVoiceSpinner" size={14} />{scriptSafetyStage === 'checking' ? '正在检查风险表述' : '检测到风险表述，正在矫正'}</div>}
                     <div className="xlScriptEditorMeta"><span>{draft.length}/{SCRIPT_EDITOR_LIMIT}字</span><span>约{draftEstimatedDuration}</span><button type="button" title="重新估算时长" aria-label="重新估算时长" onClick={() => { if (storyboardScriptId !== null) setScripts(items => items.map(item => item.id === storyboardScriptId ? { ...item, duration: draftEstimatedDuration } : item)); }}><RefreshCw size={12} /></button>{storyboardScriptId === null && draft.trim() && <button type="button" title="加入分镜" aria-label="加入分镜" onClick={addDraftToScripts} disabled={scriptVideoBatchBusy}><Plus size={14} /></button>}</div>
                   </div>
+                  {scriptSafetyWarning && <div className="xlScriptSafetyWarning" role="alert"><ShieldCheck size={15} /><span>{scriptSafetyWarning}</span><button type="button" title="关闭风控提示" aria-label="关闭风控提示" onClick={() => setScriptSafetyWarning('')}><X size={14} /></button></div>}
                   {importedMaterialImages.length ? <div className="xlAttachedImageList" aria-label="已上传图片">
                     {importedMaterialImages.map((image, index) => <div className="xlAttachedImage" role="group" tabIndex={0} aria-label={`已上传图片：${image.name}`} key={`${image.name}-${index}`}>
                       <img className="xlAttachedImageThumb" src={image.dataUrl} alt={image.name} />
@@ -4489,18 +5620,35 @@ export function LiveStudio({
 
                 {productDemoStage !== 'idle' && <section className={`xlAliyunVideoStatus ${productDemoStage === 'failed' ? 'failed' : productDemoStage === 'ready' ? 'ready' : 'processing'}`} aria-live="polite" title={productDemoMessage || undefined}>
                   <span>{productDemoBusy || aliyunVideoSubmitting ? <LoaderCircle className="xlVoiceSpinner" size={16} /> : productDemoStage === 'failed' ? <X size={16} /> : <Check size={16} />}</span>
-                  <div><strong>{productDemoStage === 'analyzing' ? '正在生成商品脚本' : productDemoStage === 'rendering' ? '正在合成数字人口播' : productDemoStage === 'ready' ? '商品试播已生成' : '商品试播未完成'}</strong><small>{productDemoMessage}</small></div>
-                  {aliyunVideo?.videoUrl && aliyunVideoState(aliyunVideo.status) === 'ready' && <button type="button" title={generatedVideoVisible ? '返回场景编辑预览' : '播放数字人口播成片'} aria-label={generatedVideoVisible ? '返回场景编辑预览' : '播放数字人口播成片'} onClick={() => void toggleGeneratedVideoPreview()}>{generatedVideoVisible ? <EyeOff size={14} /> : <Play size={14} fill="currentColor" />}</button>}
+                  <div><strong>{productDemoStage === 'analyzing' ? '正在生成商品脚本' : aliyunVideo && aliyunVideoState(aliyunVideo) === 'downloading' ? '正在下载数字人口播' : productDemoStage === 'rendering' ? '正在合成数字人口播' : productDemoStage === 'ready' ? '商品试播已生成' : '商品试播未完成'}</strong><small>{productDemoMessage}</small></div>
+                  {aliyunVideo?.videoUrl && aliyunVideoState(aliyunVideo) === 'ready' && <button type="button" title={generatedVideoVisible ? '返回场景编辑预览' : '播放数字人口播成片'} aria-label={generatedVideoVisible ? '返回场景编辑预览' : '播放数字人口播成片'} onClick={() => void toggleGeneratedVideoPreview()}>{generatedVideoVisible ? <EyeOff size={14} /> : <Play size={14} fill="currentColor" />}</button>}
+                  {aliyunVideo && aliyunVideoState(aliyunVideo) === 'downloadFailed' && <button type="button" title={aliyunVideo.download?.error || '只重试下载，不重新合成'} aria-label="重试下载数字人口播" disabled={videoDownloadRetryingId === aliyunVideo.id} onClick={() => void retryVideoDownload(aliyunVideo)}>{videoDownloadRetryingId === aliyunVideo.id ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <RefreshCw size={14} />}</button>}
                 </section>}
 
               </section>
 
               <section className="xlPreviewPanel">
-                <header className="xlPreviewHeader"><span>直播预览 <button type="button" aria-label="查看预览说明" onClick={() => setPreviewHelp((value) => !value)}><HelpCircle size={15} /></button></span><div className="xlPreviewHeaderActions"><span>预估时间 <strong>{estimatedTime}</strong></span></div></header>
+                <header className="xlPreviewHeader">
+                  <span>直播预览 <button type="button" aria-label="查看预览说明" onClick={() => setPreviewHelp((value) => !value)}><HelpCircle size={15} /></button></span>
+                  <div className="xlPreviewHeaderActions">
+                    {selectedCanvasLayerIds.length > 1 && <span className="xlCanvasSelectionCount">已选 {selectedCanvasLayerIds.length}</span>}
+                    <button type="button" className={multiSelectMode ? 'active' : ''} title="多选图层（也可按住 Shift/Ctrl/⌘ 点击）" aria-label="多选图层" aria-pressed={multiSelectMode} onClick={() => setMultiSelectMode(value => !value)}><CheckSquare size={15} /></button>
+                    {selectedCanvasLayerIds.length > 0 && <button type="button" title="删除选中图层" aria-label="删除选中图层" onClick={deleteSelectedCanvasLayers}><Trash2 size={15} /></button>}
+                    <div className="xlHistoryControls" role="toolbar" aria-label="画布历史操作">
+                      <button type="button" title="撤回（Ctrl/⌘+Z）" aria-label="撤回上一步画面编辑" disabled={!canUndoScene} onClick={undoScene}><Undo2 size={15} /></button>
+                      <button type="button" title="前进（Ctrl/⌘+Shift+Z 或 Ctrl+Y）" aria-label="恢复下一步画面编辑" disabled={!canRedoScene} onClick={redoScene}><Redo2 size={15} /></button>
+                    </div>
+                    <span>预估时间 <strong>{estimatedTime}</strong></span>
+                  </div>
+                </header>
                 <div className="xlPreviewStage">
                   {previewHelp && <div className="xlPreviewHelp">预览会实时同步模板、主播、文本与图层显隐状态。</div>}
-                  <div className={`xlPortraitCanvas ${canvasGestureMode ? `interacting ${canvasGestureMode}` : ''}`} ref={previewCanvasRef} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasGesture} onPointerCancel={finishCanvasGesture} onLostPointerCapture={finishCanvasGesture}>
-                    {backgroundLayer && <img className="xlSceneBackground" src={previewBackground} alt={`${selectedTemplate.name}直播模板`} style={{ left: `${backgroundLayer.x}%`, top: `${backgroundLayer.y}%`, right: 'auto', bottom: 'auto', width: `${backgroundLayer.width}%`, height: `${backgroundLayer.height}%`, transform: `translate(-50%, -50%) rotate(${backgroundLayer.rotation}deg)`, opacity: backgroundLayer.opacity / 100 }} />}
+                  <div className={`xlPortraitCanvas ${canvasGestureMode ? `interacting ${canvasGestureMode}` : ''}`} ref={previewCanvasRef} role="group" aria-label="直播画面预览" tabIndex={0} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasGesture} onPointerCancel={finishCanvasGesture} onLostPointerCapture={finishCanvasGesture} onDoubleClick={(event) => {
+                    const hit = document.elementsFromPoint(event.clientX, event.clientY).find(element => element instanceof HTMLElement && element.dataset.layerHit);
+                    const layer = layers.find(item => item.id === (hit as HTMLElement | undefined)?.dataset.layerHit);
+                    if (layer) startTextEdit(layer);
+                  }}>
+                    {backgroundLayer && <img className="xlSceneBackground" src={previewBackground} alt={`${selectedTemplate?.name ?? '直播间'}背景`} style={{ left: `${backgroundLayer.x}%`, top: `${backgroundLayer.y}%`, right: 'auto', bottom: 'auto', width: `${backgroundLayer.width}%`, height: `${backgroundLayer.height}%`, transform: `translate(-50%, -50%) rotate(${backgroundLayer.rotation}deg)`, opacity: backgroundLayer.opacity / 100 }} />}
                     {showStaticHost && hostLayer && <>
                       {personImageState !== 'ready' && <ChromaKeyHostPreview className="xlSceneHost" src={previewHost} settings={previewHostChromaKey} label={`${avatar.name}静态预览`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, zIndex: hostLayerZIndex, opacity: hostLayer.opacity / 100, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />}
                       <PersonSegmentedImagePreview className="xlAliyunHostPreview xlSegmentedHostPreview xlSceneHost" src={previewHost} onStateChange={setPersonImageState} label={`${avatar.name}透明静态人像`} style={{ left: `${hostLayer.x}%`, top: `${hostLayer.y}%`, right: 'auto', bottom: 'auto', width: `${hostLayer.width}%`, height: `${hostLayer.height}%`, zIndex: hostLayerZIndex, opacity: personImageState === 'ready' ? hostLayer.opacity / 100 : 0, transform: `translate(-50%, -50%) rotate(${hostLayer.rotation}deg)` }} />
@@ -4536,10 +5684,11 @@ export function LiveStudio({
                           fontSize: canvasFontSize(item.fontSize), fontWeight: item.fontWeight, fontStyle: item.fontStyle,
                           textDecoration: item.textDecoration, textAlign: item.textAlign,
                           justifyContent: item.textAlign === 'left' ? 'flex-start' : item.textAlign === 'right' ? 'flex-end' : 'center',
-                          letterSpacing: `${item.letterSpacing ?? 0}px`, lineHeight: item.lineHeight,
-                          WebkitTextStroke: item.strokeEnabled ? `${roundCanvasValue((item.strokeWidth ?? 1) / 3.78)}cqw ${item.strokeColor ?? '#000000'}` : undefined,
-                          textShadow: item.shadowEnabled ? `${item.shadowX ?? 4}px ${item.shadowY ?? 4}px ${item.shadowBlur ?? 8}px ${item.shadowColor ?? '#000000'}` : undefined,
-                        }} key={item.id}>{item.value}</span>;
+                          letterSpacing: canvasLength(item.letterSpacing), lineHeight: item.lineHeight,
+                          WebkitTextStroke: item.strokeEnabled ? `${canvasLength(item.strokeWidth ?? 1)} ${item.strokeColor ?? '#000000'}` : undefined,
+                          paintOrder: item.strokeEnabled ? 'stroke fill' : undefined,
+                          textShadow: item.shadowEnabled ? `${canvasLength(item.shadowX ?? 4)} ${canvasLength(item.shadowY ?? 4)} ${canvasLength(item.shadowBlur ?? 8)} ${item.shadowColor ?? '#000000'}` : undefined,
+                        }} key={item.id}><CanvasTextContent layer={item} /></span>;
                       }
                       if ((item.sceneKey !== 'custom' && item.sceneKey !== 'templateElement') || item.kind === 'host') return null;
                       return <span className={`xlCustomSceneAsset ${item.kind} ${item.sceneKey === 'templateElement' ? 'templateElement' : ''}`} style={layerStyle} key={item.id}>
@@ -4558,7 +5707,7 @@ export function LiveStudio({
                       src={aliyunVideo!.videoUrl}
                       poster={aliyunVideo!.coverUrl || undefined}
                       playsInline
-                      preload="auto"
+                      preload="metadata"
                       aria-label="生成的商品数字人口播预览"
                       onPlay={(event) => { setGeneratedVideoPlaying(true); void useGeneratedVideoOutputAudio(event.currentTarget).catch((cause) => setError(`数字人口播音频接入失败：${cause instanceof Error ? cause.message : String(cause)}`)); }}
                       onPause={() => setGeneratedVideoPlaying(false)}
@@ -4568,14 +5717,31 @@ export function LiveStudio({
                     {generatedVideoReady && <div className="xlGeneratedPreviewControls">
                       <button className="xlCloseGeneratedPreview" type="button" title="返回静态画布" aria-label="返回静态画布" onClick={() => { generatedVideoPlaybackRequestRef.current = null; generatedVideoRef.current?.pause(); setGeneratedVideoVisible(false); void restoreAvatarOutputAudio().catch(() => undefined); }}><X size={16} /></button>
                     </div>}
-                    {layers.map((item) => <button className={`xlLayerHitTarget ${item.sceneKey === 'templateBackground' ? 'background' : ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: layerZIndex(layers, item.id, 30), transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }} type="button" aria-label={`选择并移动图层：${item.value}`} aria-pressed={selectedLayerId === item.id} data-layer-hit={item.id} key={`hit-${item.id}`} onPointerDown={(event) => beginCanvasGesture(event, item, 'move')} onClick={(event) => { event.stopPropagation(); selectCanvasLayer(item); }} />)}
-                    {selectedLayer && <div className={`xlLayerSelectionBox ${selectedLayer.kind}`} style={{ left: `${selectedLayer.x}%`, top: `${selectedLayer.y}%`, width: `${selectedLayer.width}%`, height: `${selectedLayer.height}%`, transform: `translate(-50%, -50%) rotate(${selectedLayer.rotation}deg)` }} role="group" aria-label={`画布控制：${selectedLayer.value}`} onPointerDownCapture={(event) => beginSelectionGesture(event, selectedLayer)}>
+                    {layers.map((item) => <button className={`xlLayerHitTarget ${item.sceneKey === 'templateBackground' ? 'background' : ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: layerZIndex(layers, item.id, 30), transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }} type="button" aria-label={item.componentInstanceId ? `选择组件：${item.componentName}` : `选择并移动图层：${item.value}`} aria-pressed={selectedCanvasLayerIds.includes(item.id)} data-layer-hit={item.id} key={`hit-${item.id}`} onPointerDown={(event) => item.componentInstanceId ? beginComponentGesture(event, item.componentInstanceId, 'move') : beginCanvasGesture(event, item, 'move')} onClick={(event) => { event.stopPropagation(); if (event.detail === 0) { if (event.shiftKey || event.ctrlKey || event.metaKey || multiSelectMode) toggleLayerSelection(item); else if (item.componentInstanceId) selectComponentInstance(item.componentInstanceId); else selectCanvasLayer(item); } }} onDoubleClick={(event) => { event.stopPropagation(); startTextEdit(item); }} />)}
+                    {multiSelectedLayerIds.map((id) => {
+                      const layer = layers.find(item => item.id === id);
+                      return layer && <span className="xlLayerMultiOutline" style={{ left: `${layer.x}%`, top: `${layer.y}%`, width: `${layer.width}%`, height: `${layer.height}%`, transform: `translate(-50%, -50%) rotate(${layer.rotation}deg)` }} key={`multi-${id}`} />;
+                    })}
+                    {selectedComponentInstanceId && selectedComponentBounds && <div className="xlLayerSelectionBox component" style={{ left: `${selectedComponentBounds.x}%`, top: `${selectedComponentBounds.y}%`, width: `${selectedComponentBounds.width}%`, height: `${selectedComponentBounds.height}%`, transform: 'translate(-50%, -50%)' }} role="group" aria-label={`画布组件控制：${selectedComponentName}`} onPointerDownCapture={(event) => beginComponentSelectionGesture(event, selectedComponentInstanceId)}>
+                      {(['nw', 'ne', 'se', 'sw'] as const).map((handle) => <span className={`xlResizeHandle ${handle}`} role="button" aria-label={`${handle}方向缩放${selectedComponentName}`} data-resize-handle={handle} key={handle} />)}
+                      <span className="xlRotateHandle" role="button" aria-label={`旋转${selectedComponentName}`} data-rotate-handle="true" />
+                    </div>}
+                    {selectedLayer && <div className={`xlLayerSelectionBox ${selectedLayer.kind}`} style={{ left: `${selectedLayer.x}%`, top: `${selectedLayer.y}%`, width: `${selectedLayer.width}%`, height: `${selectedLayer.height}%`, transform: `translate(-50%, -50%) rotate(${selectedLayer.rotation}deg)` }} role="group" aria-label={`画布控制：${selectedLayer.value}`} onPointerDownCapture={(event) => beginSelectionGesture(event, selectedLayer)} onDoubleClick={(event) => { event.stopPropagation(); startTextEdit(selectedLayer); }}>
                       {(['nw', 'ne', 'se', 'sw'] as const).map((handle) => <span className={`xlResizeHandle ${handle}`} role="button" aria-label={`${handle}方向缩放${selectedLayer.value}`} data-resize-handle={handle} key={handle} />)}
                       <span className="xlRotateHandle" role="button" aria-label={`旋转${selectedLayer.value}`} data-rotate-handle="true" />
                     </div>}
+                    {editingTextLayer && <textarea className="xlCanvasInlineText" ref={textEditInputRef} aria-label={`编辑画面文本：${editingTextLayer.value}`} style={{ left: `${editingTextLayer.x}%`, top: `${editingTextLayer.y}%`, width: `${editingTextLayer.width}%` }} value={editingTextDraft} maxLength={editingTextLayer.componentTextLimit ?? 80} onChange={(event) => setEditingTextDraft(event.target.value)} onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); skipTextEditCommitRef.current = true; setEditingTextLayerId(null); } else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); commitTextEdit(); } }} onBlur={commitTextEdit} />}
                     {onAir && <span className="xlOnAir">LIVE</span>}
                     {stage !== 'idle' && <span className="xlRenderState">{stage === 'error' ? '连接异常' : '数字人生成中'}</span>}
                   </div>
+                  {onAir && storyboardPlaylistRef.current && programStoryboard && <div className="xlProgramStoryboardStatus" role="status">
+                    <span><i />{programStoryboard.status === 'finished' ? '本轮播放结束' : programStoryboard.status === 'paused' ? '已暂停' : '正在播出'}：<strong>{programStoryboard.title}</strong></span>
+                    <div role="group" aria-label="节目分镜播放控制">
+                      {programStoryboard.status !== 'finished' && <button type="button" title={programStoryboard.status === 'paused' ? '继续播放分镜' : '暂停播放分镜'} aria-label={programStoryboard.status === 'paused' ? '继续播放分镜' : '暂停播放分镜'} onClick={() => programStoryboard.status === 'paused' ? storyboardPlaylistRef.current?.resume() : storyboardPlaylistRef.current?.pause()}>{programStoryboard.status === 'paused' ? <Play size={15} /> : <Pause size={15} />}</button>}
+                      <button type="button" title={programStoryboard.status === 'finished' ? '重新播放分镜' : '播放下一条分镜'} aria-label={programStoryboard.status === 'finished' ? '重新播放分镜' : '播放下一条分镜'} onClick={() => programStoryboard.status === 'finished' ? storyboardPlaylistRef.current?.restart() : storyboardPlaylistRef.current?.skip()}>{programStoryboard.status === 'finished' ? <RotateCcw size={15} /> : <SkipForward size={15} />}</button>
+                    </div>
+                  </div>}
+                  {onAir && captureSilentAudioRef.current && <div className="xlProgramStoryboardStatus" role="status"><span><i />正在输出：<strong>直播间静态画面（静音）</strong></span></div>}
                   {liveRun?.mediaSourceKind === 'browser_ingest' && browserPublisherState !== 'stopped' && <div className={`xlPreviewIngestState ${browserPublisherState}`}><i />{browserPublisherState === 'live' ? '浏览器最终画面已接入媒体网关' : browserPublisherState === 'connecting' ? '正在连接 WHIP 媒体网关' : browserPublisherState === 'reconnecting' ? browserPublisherMessage || '媒体连接中断，正在重连' : browserPublisherMessage || '浏览器媒体推流失败'}</div>}
                   {error && <div className="xlPreviewError">{error}</div>}
                 </div>
@@ -4584,13 +5750,23 @@ export function LiveStudio({
               <aside className={`xlMaterialsPanel ${studioWorkspace}`} hidden={studioWorkspace === 'script'}>
                 {studioWorkspace === 'decorate' && <nav className="xlMaterialTabs" aria-label="装修素材">{DECORATION_TABS.map((tabItem) => { const Icon = tabItem.icon; return <button className={materialTab === tabItem.id ? 'active' : ''} type="button" key={tabItem.id} onClick={() => { setMaterialTab(tabItem.id); closeLayerInspector(); setAssetQuery(''); setAssetBatchMode(false); setSelectedAssetIds([]); }}><Icon size={17} /><span>{tabItem.label}</span></button>; })}</nav>}
                 <input ref={imageInputRef} className="xlHiddenInput" type="file" accept="image/*" multiple onChange={(event) => { void importAssets('image', event.currentTarget.files); event.currentTarget.value = ''; }} />
+                <input ref={backgroundInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void replaceLiveBackground(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
                 <input ref={templateInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void chooseTemplateBackground(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
                 <input ref={documentInputRef} className="xlHiddenInput" type="file" accept=".pdf,.docx,.xlsx,.txt,.md,.csv,.json,image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json" onChange={(event) => { void importDocument(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
                 <input ref={productDocumentInputRef} className="xlHiddenInput" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,image/jpeg,image/png,image/webp,image/gif" multiple onChange={(event) => { void loadProductReferenceFiles(event.currentTarget.files ?? undefined); event.currentTarget.value = ''; }} />
                 <input ref={productImageInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple onChange={(event) => { void loadProductReferenceImages(event.currentTarget.files ?? undefined); event.currentTarget.value = ''; }} />
                 <div className="xlMaterialsWorkspace">
                   <div className="xlMaterialsScroll" ref={materialsScrollRef}>
-                  {studioWorkspace === 'decorate' && inspectorLayer ? (
+                  {SHOW_CANVAS_POSITION_INSPECTOR && studioWorkspace === 'decorate' && selectedComponentInstanceId && selectedComponentBounds ? (
+                    <section className="xlLayerInspector xlComponentInspector">
+                      <header className="xlInspectorHeader"><strong>{selectedComponentName}</strong><span><button type="button" title="删除整个组件" aria-label={`删除组件${selectedComponentName}`} onClick={deleteSelectedComponent}><Trash2 size={15} /></button><button type="button" aria-label="关闭组件调整" onClick={closeLayerInspector}><X size={16} /></button></span></header>
+                      <div className="xlInspectorBody">
+                        <div className="xlInspectorSection"><strong>整体位置</strong><div className="xlInspectorPosition"><label><span>X</span><input aria-label="组件横向位置" type="number" min="-100" max="200" step="0.1" value={selectedComponentBounds.x} onChange={(event) => updateSelectedComponentBounds({ x: Math.max(-100, Math.min(200, Number(event.target.value))) })} /></label><label><span>Y</span><input aria-label="组件纵向位置" type="number" min="-100" max="200" step="0.1" value={selectedComponentBounds.y} onChange={(event) => updateSelectedComponentBounds({ y: Math.max(-100, Math.min(200, Number(event.target.value))) })} /></label></div></div>
+                        <div className="xlInspectorSection"><strong>整体尺寸</strong><div className="xlInspectorPosition"><label><span>W</span><input aria-label="组件宽度" type="number" min="2" max="200" step="0.1" value={selectedComponentBounds.width} onChange={(event) => updateSelectedComponentBounds({ width: clampCanvasValue(Number(event.target.value), 2, 200) })} /></label><label><span>H</span><input aria-label="组件高度" type="number" min="2" max="200" step="0.1" value={selectedComponentBounds.height} onChange={(event) => updateSelectedComponentBounds({ height: clampCanvasValue(Number(event.target.value), 2, 200) })} /></label></div></div>
+                        <div className="xlInspectorSection xlComponentInspectorSummary"><span>图层</span><strong>{selectedComponentLayers.length}</strong><span>可编辑文字</span><strong>{selectedComponentLayers.filter(layer => layer.kind === 'text').length}</strong></div>
+                      </div>
+                    </section>
+                  ) : SHOW_CANVAS_POSITION_INSPECTOR && studioWorkspace === 'decorate' && inspectorLayer ? (
                     <section className="xlLayerInspector">
                       <header className="xlInspectorHeader"><strong>调整</strong><button type="button" aria-label="关闭调整面板" onClick={closeLayerInspector}><X size={16} /></button></header>
                       <div className="xlInspectorBody">
@@ -4601,7 +5777,7 @@ export function LiveStudio({
                         <div className="xlInspectorSection"><strong>对齐</strong><div className="xlInspectorAlign"><button type="button" aria-label="左对齐" onClick={() => alignLayer(inspectorLayer, 'left')}>左</button><button type="button" aria-label="水平居中" onClick={() => alignLayer(inspectorLayer, 'centerX')}>水平</button><button type="button" aria-label="右对齐" onClick={() => alignLayer(inspectorLayer, 'right')}>右</button><button type="button" aria-label="顶部对齐" onClick={() => alignLayer(inspectorLayer, 'top')}>上</button><button type="button" aria-label="垂直居中" onClick={() => alignLayer(inspectorLayer, 'centerY')}>垂直</button><button type="button" aria-label="底部对齐" onClick={() => alignLayer(inspectorLayer, 'bottom')}>下</button></div></div>
                         {inspectorLayer.kind === 'text' && <div className="xlInspectorSection xlInspectorTextStyle">
                           <strong>文本样式</strong>
-                          <label className="xlInspectorWide"><span>文本内容</span><textarea aria-label="文本内容" rows={2} maxLength={80} value={inspectorLayer.value} onChange={(event) => updateLayer(inspectorLayer.id, { value: event.target.value })} /></label>
+                          <label className="xlInspectorWide"><span>文本内容</span><textarea aria-label="文本内容" rows={2} maxLength={inspectorLayer.componentTextLimit ?? 80} value={inspectorLayer.value} onChange={(event) => updateLayer(inspectorLayer.id, { value: event.target.value })} /></label>
                           <label className="xlInspectorWide"><span>字体</span><select aria-label="字体" value={inspectorLayer.fontFamily ?? '默认字体'} onChange={(event) => updateLayer(inspectorLayer.id, { fontFamily: event.target.value })}>{FONT_OPTIONS.map(font => <option value={font.value} key={font.value}>{font.label}</option>)}</select></label>
                           <label><span>文字颜色</span><input aria-label="文字颜色" type="color" value={inspectorLayer.color ?? '#ffffff'} onChange={(event) => updateLayer(inspectorLayer.id, { color: event.target.value })} /></label>
                           <label><span>字号</span><input aria-label="文字字号" type="number" min="8" max="72" value={inspectorLayer.fontSize ?? 16} onChange={(event) => updateLayer(inspectorLayer.id, { fontSize: Math.max(8, Math.min(72, Number(event.target.value))) })} /></label>
@@ -4623,6 +5799,7 @@ export function LiveStudio({
                       <label className="xlMaterialSearch"><input value={templateQuery} onChange={(event) => { setTemplateQuery(event.target.value); setVisibleTemplateCount(80); }} placeholder="搜索模板名称" /><Search size={15} /></label>
                       <div className="xlTemplateActions">
                         <button type="button" onClick={openTemplateDraft}><Plus size={13} />新建自定义模板</button>
+                        <button type="button" title="替换当前直播间背景图" disabled={roomLoading || backgroundReplacing} onClick={() => backgroundInputRef.current?.click()}>{backgroundReplacing ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <ImageIcon size={13} />}更换背景</button>
                         {customTemplates.some((item) => item.id === selectedTemplateId) && <>
                           <button type="button" title="用当前画面覆盖所选模板" onClick={updateSelectedCustomTemplate}><RefreshCw size={13} />更新</button>
                           <button className="danger" type="button" title="删除所选自定义模板" onClick={deleteSelectedCustomTemplate}><Trash2 size={13} /></button>
@@ -4639,7 +5816,7 @@ export function LiveStudio({
                       </section>}
                       {templateStorageError && <div className="xlTemplateStorageError">{templateStorageError}</div>}
                       {templateLoadError && <div className="xlTemplateStorageError">{templateLoadError}</div>}
-                      {(selectedTemplate.pageCount ?? 1) > 1 && <div className="xlTemplatePages"><span>画布页面</span><div>{Array.from({ length: selectedTemplate.pageCount ?? 1 }, (_, pageIndex) => <button className={selectedTemplatePage === pageIndex ? 'active' : ''} type="button" disabled={roomLoading || templateLoadingId === selectedTemplate.id} aria-label={`切换到第 ${pageIndex + 1} 页`} aria-pressed={selectedTemplatePage === pageIndex} onClick={() => void applyTemplate(selectedTemplate.id, pageIndex)} key={pageIndex}>{pageIndex + 1}</button>)}</div></div>}
+                      {selectedTemplate && (selectedTemplate.pageCount ?? 1) > 1 && <div className="xlTemplatePages"><span>画布页面</span><div>{Array.from({ length: selectedTemplate.pageCount ?? 1 }, (_, pageIndex) => <button className={selectedTemplatePage === pageIndex ? 'active' : ''} type="button" disabled={roomLoading || templateLoadingId === selectedTemplate.id} aria-label={`切换到第 ${pageIndex + 1} 页`} aria-pressed={selectedTemplatePage === pageIndex} onClick={() => void applyTemplate(selectedTemplate.id, pageIndex)} key={pageIndex}>{pageIndex + 1}</button>)}</div></div>}
                       <div className="xlMaterialFilters"><label><select aria-label="模板类型" value={templateCategory} onChange={(event) => { setTemplateCategory(event.target.value); setVisibleTemplateCount(80); }}>{templateCategories.map((item) => <option value={item} key={item}>类型：{item}</option>)}</select><ChevronDown size={12} /></label><label><select aria-label="模板颜色" value={templateColor} onChange={(event) => { setTemplateColor(event.target.value); setVisibleTemplateCount(80); }}>{templateColors.map((item) => <option value={item} key={item}>颜色：{item}</option>)}</select><ChevronDown size={12} /></label></div>
                       <div className="xlTemplateGrid">{filteredTemplates.map((template) => <article className={`xlTemplateCard ${selectedTemplateId === template.id ? 'selected' : ''}`} key={template.id}><button type="button" disabled={roomLoading || templateLoadingId === template.id} aria-busy={templateLoadingId === template.id} onClick={() => void applyTemplate(template.id)}><span className="xlTemplateCover"><img src={template.image} alt={template.name} loading="lazy" decoding="async" />{template.custom ? <i>我的</i> : templateLoadingId === template.id ? <i>读取中</i> : null}{(template.pageCount ?? 1) > 1 && <small>{template.pageCount} 页</small>}</span><strong>{template.name}</strong></button></article>)}</div>
                       {filteredTemplates.length < matchingTemplates.length && <button className="xlTemplateLoadMore" type="button" onClick={() => setVisibleTemplateCount((count) => count + 80)}>加载更多（{filteredTemplates.length}/{matchingTemplates.length}）</button>}
@@ -4664,7 +5841,10 @@ export function LiveStudio({
                       {componentStatus === 'ready' && <>
                         <div className="xlComponentCategories" aria-label="组件分类">{componentCategories.map(category => <button type="button" className={componentCategory === category ? 'active' : ''} aria-pressed={componentCategory === category} onClick={() => { setComponentCategory(category); setVisibleComponentCount(60); }} key={category}>{category}</button>)}</div>
                         <div className="xlComponentCount">{filteredComponents.length} 个组件</div>
-                        <div className="xlComponentGrid">{filteredComponents.slice(0, visibleComponentCount).map(component => <button type="button" className="xlComponentCard" title={`添加“${component.name}”`} aria-label={`添加组件 ${component.name}`} onClick={() => addComponentToCanvas(component)} key={component.id}><span><img src={component.image} alt="" loading="lazy" decoding="async" /></span><strong>{component.name}</strong></button>)}</div>
+                        <div className="xlComponentGrid">{filteredComponents.slice(0, visibleComponentCount).map(component => {
+                          const selected = selectedComponentSourceId === component.id;
+                          return <button type="button" className={`xlComponentCard ${selected ? 'selected' : ''}`} data-component-id={component.id} title={`添加“${component.name}”，${component.textLayerCount} 处文字可编辑`} aria-label={`添加组件 ${component.name}`} aria-pressed={selected} aria-busy={componentLoadingId === component.id} disabled={componentLoadingId !== null} onClick={() => void addComponentToCanvas(component)} key={component.id}><span><img src={component.image} alt="" loading="lazy" decoding="async" />{componentLoadingId === component.id && <LoaderCircle className="xlVoiceSpinner" size={17} />}</span><strong>{component.name}</strong></button>;
+                        })}</div>
                         {filteredComponents.length > visibleComponentCount && <button type="button" className="xlTemplateLoadMore" onClick={() => setVisibleComponentCount(count => count + 60)}>加载更多（{visibleComponentCount}/{filteredComponents.length}）</button>}
                         {!filteredComponents.length && <div className="xlMaterialNoResult">没有找到匹配组件</div>}
                       </>}
@@ -4702,15 +5882,18 @@ export function LiveStudio({
               </aside>
 
               <section className="xlLayers xlLayersPanel">
-                <header><strong>图层</strong><span>{layers.length}</span></header>
+                <header><strong>图层</strong><span className="xlLayerHeaderMeta"><em>{selectedCanvasLayerIds.length > 1 ? `已选 ${selectedCanvasLayerIds.length} / ${layers.length}` : layers.length}</em>{selectedCanvasLayerIds.length > 1 && <button type="button" title="删除选中图层" aria-label="批量删除选中图层" onClick={deleteSelectedCanvasLayers}><Trash2 size={13} /></button>}{selectedComponentInstanceId && <button type="button" title={`删除组件“${selectedComponentName}”`} aria-label={`删除组件${selectedComponentName}`} onClick={deleteSelectedComponent}><Trash2 size={13} /></button>}</span></header>
                 <div className="xlLayerList" ref={layerListRef} role="list" aria-label="直播画面图层，按从前到后排序">{layers.map((layer) => {
                     const Icon = layer.kind === 'text' ? Type : layer.kind === 'image' ? ImageIcon : layer.kind === 'video' ? Video : UserRound;
                     const background = layer.sceneKey === 'templateBackground';
+                    const componentSelected = Boolean(selectedComponentInstanceId && layer.componentInstanceId === selectedComponentInstanceId);
+                    const isSelected = selectedCanvasLayerIds.includes(layer.id);
                     const dropClass = layerDropTarget?.id === layer.id ? `drop-${layerDropTarget.position}` : '';
-                    return <div className={`xlLayerRow ${selectedLayerId === layer.id ? 'selected' : ''} ${draggingLayerId === layer.id ? 'dragging' : ''} ${dropClass}`} role="listitem" tabIndex={0} data-layer-id={layer.id} key={layer.id} onClick={() => selectCanvasLayer(layer)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectCanvasLayer(layer); } }} onDragOver={(event) => { if (!draggingLayerId || draggingLayerId === layer.id) return; event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); setLayerDropTarget({ id: layer.id, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' }); }} onDrop={(event) => { event.preventDefault(); if (draggingLayerId) { const rect = event.currentTarget.getBoundingClientRect(); reorderLayer(draggingLayerId, layer.id, event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'); } setDraggingLayerId(null); setLayerDropTarget(null); }}>
+                    const selectLayerOrComponent = (additive: boolean) => additive ? toggleLayerSelection(layer) : layer.componentInstanceId ? selectComponentInstance(layer.componentInstanceId) : selectCanvasLayer(layer);
+                    return <div className={`xlLayerRow ${isSelected ? 'selected' : ''} ${componentSelected ? 'component-selected' : ''} ${draggingLayerId === layer.id ? 'dragging' : ''} ${dropClass}`} role="listitem" tabIndex={0} data-layer-id={layer.id} data-component-selected={componentSelected || undefined} key={layer.id} onClick={(event) => selectLayerOrComponent(event.shiftKey || event.ctrlKey || event.metaKey || multiSelectMode)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectLayerOrComponent(event.shiftKey || event.ctrlKey || event.metaKey || multiSelectMode); } }} onDragOver={(event) => { if (!draggingLayerId || draggingLayerId === layer.id) return; event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); setLayerDropTarget({ id: layer.id, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' }); }} onDrop={(event) => { event.preventDefault(); if (draggingLayerId) { const rect = event.currentTarget.getBoundingClientRect(); reorderLayer(draggingLayerId, layer.id, event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'); } setDraggingLayerId(null); setLayerDropTarget(null); }}>
                       <span className={`xlLayerDragHandle ${background ? 'locked' : ''}`} draggable={!background} role="button" tabIndex={background ? -1 : 0} title={background ? '模板背景固定在底层' : '拖动调整图层层级'} aria-label={background ? '模板背景固定在底层' : `拖动${layer.value}图层调整层级`} onClick={(event) => event.stopPropagation()} onDragStart={(event) => { if (background) return; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', layer.id); setDraggingLayerId(layer.id); }} onDragEnd={() => { setDraggingLayerId(null); setLayerDropTarget(null); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'ArrowUp') { event.preventDefault(); moveLayer(layer.id, 'forward'); } if (event.key === 'ArrowDown') { event.preventDefault(); moveLayer(layer.id, 'backward'); } }}><GripVertical size={14} /></span>
                       <span className="xlLayerThumb">{layer.preview && layer.kind === 'image' ? <img src={layer.preview} alt="" /> : <Icon size={14} />}</span>
-                      {layer.kind === 'text' ? <input aria-label={`修改${layer.value}图层文本`} value={layer.value} maxLength={80} onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} onChange={(event) => updateLayer(layer.id, { value: event.target.value })} /> : <em>{layer.value}</em>}
+                      {layer.kind === 'text' ? <input aria-label={`修改${layer.value}图层文本`} value={layer.value} maxLength={layer.componentTextLimit ?? 80} onClick={(event) => event.stopPropagation()} onPointerDown={(event) => { event.stopPropagation(); if (event.shiftKey || event.ctrlKey || event.metaKey || multiSelectMode) { event.preventDefault(); event.currentTarget.parentElement?.focus({ preventScroll: true }); toggleLayerSelection(layer); } }} onChange={(event) => updateLayer(layer.id, { value: event.target.value })} /> : <em>{layer.value}</em>}
                       <button className="xlLayerDelete" type="button" aria-label={`删除${layer.value}图层`} onClick={(event) => { event.stopPropagation(); deleteLayer(layer.id); }}><Trash2 size={13} /></button>
                     </div>;
                   })}</div>
@@ -4719,7 +5902,15 @@ export function LiveStudio({
           <section className="xlStoryboardRail" aria-label="分镜">
             <header>
               <span className="xlSynthesisOverview" role="status" aria-live="polite" title="已完成成片数 / 分镜总数">{scriptVideosReady}/{scriptVideoProgressTotal}</span>
-              <button className="xlSynthesizeSelected" type="button" title={selectedStoryboardVideoBusy ? '云端正在生成当前分镜' : '使用当前主播和音色合成选中分镜的数字人口播视频'} aria-label={selectedStoryboardVideoBusy ? '当前分镜合成中' : '合成选中分镜'} aria-busy={selectedStoryboardVideoBusy} disabled={!selectedStoryboardScript || scriptVideoBatchBusy || dynamicGenerating || roomSaving || roomLoading || playbackBusy || onAir || !selectedStoryboardScript.text.trim() || selectedStoryboardVideoBusy} onClick={() => { if (selectedStoryboardScript) void synthesizeScriptVideos([selectedStoryboardScript]); }}>{selectedStoryboardVideoBusy ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : <Video size={15} />}<span>{selectedStoryboardVideoBusy ? '合成中' : '合成分镜'}</span></button>
+              <button className="xlSynthesizeSelected" type="button"
+                title={selectedStoryboardDownloadFailed ? selectedStoryboardVideo?.download?.error || '重试下载，不会重新合成' : selectedStoryboardVideoState === 'downloading' ? '云端合成完成，正在下载到服务器' : selectedStoryboardVideoBusy ? '云端正在生成当前分镜' : '使用当前主播和音色合成选中分镜的数字人口播视频'}
+                aria-label={selectedStoryboardDownloadFailed ? '重试下载当前分镜' : selectedStoryboardVideoBusy ? '当前分镜处理中' : '合成选中分镜'}
+                aria-busy={selectedStoryboardVideoBusy || selectedStoryboardRetrying}
+                disabled={!selectedStoryboardScript || scriptVideoBatchBusy || dynamicGenerating || roomSaving || roomLoading || playbackBusy || onAir || !selectedStoryboardScript.text.trim() || selectedStoryboardVideoBusy || selectedStoryboardRetrying}
+                onClick={() => { if (selectedStoryboardDownloadFailed && selectedStoryboardVideo) void retryVideoDownload(selectedStoryboardVideo, selectedStoryboardScript?.id); else if (selectedStoryboardScript) void synthesizeScriptVideos([selectedStoryboardScript]); }}>
+                {selectedStoryboardRetrying || selectedStoryboardVideoBusy ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : selectedStoryboardDownloadFailed ? <RefreshCw size={15} /> : <Video size={15} />}
+                <span>{selectedStoryboardRetrying ? '重试中' : selectedStoryboardDownloadFailed ? '重试下载' : selectedStoryboardVideoState === 'downloading' ? videoDownloadLabel(selectedStoryboardVideo) : selectedStoryboardVideoBusy ? '合成中' : '合成分镜'}</span>
+              </button>
             </header>
             <div className="xlStoryboardStrip">
               <div className="xlStoryboardFilm">
@@ -4732,6 +5923,8 @@ export function LiveStudio({
                 ? (batchIndex === scriptVideoBatch?.submitted && !scriptVideoBatch?.waiting ? 'submitting' : 'queued')
                 : storedVideoState;
               const videoStatusLabel = videoState === 'ready' ? '成片完成'
+                : videoState === 'downloadFailed' ? '下载失败'
+                  : videoState === 'downloading' ? videoDownloadLabel(scriptVideoResults[item.id])
                 : videoState === 'failed' ? '合成失败'
                   : videoState === 'stale' ? '需重新合成'
                     : videoState === 'missing' ? '未合成'
@@ -4739,6 +5932,7 @@ export function LiveStudio({
                         : videoState === 'submitting' ? '提交中'
                           : '生成中';
               const videoStatusTitle = scriptVideoSubmissionErrors[item.id]
+                || scriptVideoResults[item.id]?.download?.error
                 || (storedVideoState === 'failed' ? scriptVideoResults[item.id]?.error : '')
                 || videoStatusLabel;
               const videoPreviewActive = Boolean(
@@ -4752,7 +5946,7 @@ export function LiveStudio({
                   <StoryboardScenePreview layers={layers} background={previewBackground} host={avatar.image} fonts={FONT_FAMILIES} videoUrl={storedVideoState === 'ready' ? scriptVideoResults[item.id]?.videoUrl : undefined} />
                   <b>{index + 1}</b>
                   {batchMode && <i className="xlStoryboardCheck">{selected ? <Check size={12} /> : null}</i>}
-                  <em className={`xlStoryboardStatus ${videoState}`} title={videoStatusTitle}>{['processing', 'submitting'].includes(videoState) && <LoaderCircle className="xlVoiceSpinner" size={9} />}{videoState === 'ready' ? '成片' : videoState === 'stale' ? '更新' : videoState === 'failed' ? '失败' : '待合成'}</em>
+                  <em className={`xlStoryboardStatus ${videoState}`} title={videoStatusTitle}>{['processing', 'submitting', 'downloading'].includes(videoState) && <LoaderCircle className="xlVoiceSpinner" size={9} />}{videoState === 'ready' ? '成片' : videoState === 'stale' ? '更新' : ['failed', 'downloadFailed'].includes(videoState) ? '失败' : '待合成'}</em>
                 </button>
                 {storedVideoState === 'ready' && <button className={`xlStoryboardPlay ${videoPreviewPlaying ? 'playing' : ''}`} type="button" title={`${videoPreviewPlaying ? '暂停' : videoPreviewActive ? '继续播放' : '播放'}“${item.title}”成片`} aria-label={`${videoPreviewPlaying ? '暂停' : videoPreviewActive ? '继续播放' : '播放'}分镜 ${index + 1} 成片`} aria-pressed={videoPreviewPlaying} disabled={scriptVideoBatchBusy || dynamicGenerating || playbackBusy || playbackQueueStatus !== 'idle' || onAir || roomLoading} onClick={() => {
                   const element = generatedVideoRef.current;
@@ -4864,15 +6058,16 @@ export function LiveStudio({
             <div role="radiogroup" aria-label="声音语言">{(['全部语言', '中英文', '英文', '日文', '韩文'] as const).map((language) => <button className={voiceLanguage === language ? 'active' : ''} type="button" role="radio" aria-checked={voiceLanguage === language} key={language} onClick={() => setVoiceLanguage(language)}>{language}</button>)}</div>
           </div>
           <div className="xlVoiceGrid" role="tabpanel" aria-label={voiceTab === 'public' ? '公共声音' : '我的声音'}>
-            {filteredVoices.map((voice) => {
+            {filteredVoices.map((voice, index) => {
               const playing = previewVoiceId === voice.id;
               const loading = previewVoiceLoadingId === voice.id;
-              return <div className={`xlVoiceCard ${pendingVoiceId === voice.id ? 'selected' : ''} ${playing ? 'playing' : ''}`} role="radio" tabIndex={0} aria-label={`选择声音${voice.name}`} aria-checked={pendingVoiceId === voice.id} key={voice.id} onClick={() => setPendingVoiceId(voice.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoiceId(voice.id); } }}>
+              return <div className={`xlVoiceCard tone-${index % 4} ${pendingVoiceId === voice.id ? 'selected' : ''} ${playing ? 'playing' : ''}`} role="radio" tabIndex={0} aria-label={`选择声音${voice.name}`} aria-checked={pendingVoiceId === voice.id} key={voice.id} onClick={() => setPendingVoiceId(voice.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPendingVoiceId(voice.id); } }}>
                 <button className="xlVoiceListen" type="button" aria-label={playing || loading ? `停止试听${voice.name}` : `试听${voice.name}`} onClick={(event) => { event.stopPropagation(); void auditionVoice(voice); }}>
-                  <span className="xlVoiceGlyph" aria-hidden="true"><Volume2 size={22} /></span>
-                  <i aria-hidden="true">{loading ? <LoaderCircle className="xlVoiceSpinner" size={17} /> : playing ? <CircleStop size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}</i>
+                  <span className="xlVoiceGlyph" aria-hidden="true"><AudioLines size={25} strokeWidth={1.8} /></span>
+                  <span className="xlVoicePlayState" aria-hidden="true">{loading ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : playing ? <CircleStop size={14} /> : <Play size={14} fill="currentColor" />}</span>
                 </button>
-                <span title={`${voice.providerName} · ${voice.officialId}`}><strong>{voice.name}</strong><p>{voice.description}</p><small><em>{voice.language}</em><em>{voice.gender}</em>{voice.supportSsml && <em>SSML</em>}</small>{playing && <b aria-hidden="true"><i /><i /><i /></b>}</span>
+                <span title={`${voice.providerName} · ${voice.officialId}`}><strong>{voice.name}</strong><p>{voice.description}</p><small><em>{voice.language}</em><em>{voice.gender}</em>{voice.supportSsml && <em>SSML</em>}</small></span>
+                {pendingVoiceId === voice.id && <span className="xlVoiceSelected" aria-hidden="true"><Check size={12} strokeWidth={2.5} /></span>}
               </div>;
             })}
             {!filteredVoices.length && <div className="xlVoiceEmpty"><UserRound size={34} /><strong>没有匹配的声音</strong><span>请调整关键词或筛选条件后重试</span></div>}
@@ -4951,8 +6146,8 @@ export function LiveStudio({
       </div>}
 
       {dialog === 'livePlatform' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
-        <section className="xlModal xlLivePlatformModal" role="dialog" aria-modal="true" aria-label="平台授权中心" onMouseDown={(event) => event.stopPropagation()}>
-          <header><span><Link2 size={17} /><strong>平台授权中心</strong></span><button type="button" aria-label="关闭平台授权中心" onClick={() => setDialog(null)}><X size={17} /></button></header>
+        <section className="xlModal xlLivePlatformModal" role="dialog" aria-modal="true" aria-label="开播编排" onMouseDown={(event) => event.stopPropagation()}>
+          <header><span><Link2 size={17} /><strong>开播编排</strong></span><button type="button" aria-label="关闭开播编排" onClick={() => setDialog(null)}><X size={17} /></button></header>
           <div className="xlPlatformCenterBody">
             <div className="xlPlatformNotice"><ShieldCheck size={16} /><span><strong>{windowCaptureMode ? '窗口采集模式不需要平台 RTMP 密钥' : '通用 RTMP 已接入真实安全存储'}</strong><small>{windowCaptureMode ? 'AvatarLive 会打开纯净节目输出窗口；请使用平台官方直播伴侣捕获该窗口并完成开播。' : '推流密钥使用服务端 AES-GCM 加密且不会返回浏览器；连接测试只代表服务器可达，不等于平台账号或互动权限已授权。'}</small></span></div>
             <div className="xlLocalRtmpTest">
@@ -4968,15 +6163,20 @@ export function LiveStudio({
                 <button className={!windowCaptureMode ? 'active' : ''} type="button" onClick={() => { setPublishMode('manual_rtmp'); setTermsAccepted(false); setPlatformError(''); }}>手工 RTMP</button>
               </div>
               {windowCaptureMode && <>
+                <div className="xlCaptureModeChoice" role="group" aria-label="选择节目窗口模式">
+                  <button className={captureWindowStyle === 'picture_in_picture' && pictureInPictureSupported ? 'active' : ''} type="button" disabled={!pictureInPictureSupported} onClick={() => setCaptureWindowStyle('picture_in_picture')}>置顶画中画</button>
+                  <button className={captureWindowStyle === 'browser_window' || !pictureInPictureSupported ? 'active' : ''} type="button" onClick={() => setCaptureWindowStyle('browser_window')}>普通窗口</button>
+                </div>
                 <div className="xlCaptureModeChoice" role="group" aria-label="选择节目窗口比例">
                   <button className={captureOrientation === 'portrait' ? 'active' : ''} type="button" onClick={() => setCaptureOrientation('portrait')}>9:16 竖屏手机窗口</button>
                   <button className={captureOrientation === 'landscape' ? 'active' : ''} type="button" onClick={() => setCaptureOrientation('landscape')}>16:9 横屏 PC 窗口</button>
                 </div>
-                <p className="xlCaptureModeHint">点击下方按钮后会打开纯净节目窗口。请在抖音、快手、淘宝等官方直播伴侣中选择该窗口和系统声音，再点击平台自己的“开始直播”；若浏览器提示，请先在节目窗口点击启用声音。节目窗口与控制台需保持在同一台电脑并持续运行。</p>
+                {windowCaptureUsesStoryboard && <div className="xlProgramVideoOptions"><span>可播分镜 <strong>{programVideos.length}/{scripts.length}</strong></span><label><input type="checkbox" checked={programPlaybackLoop} onChange={(event) => setProgramPlaybackLoop(event.target.checked)} />循环播放</label></div>}
+                <p className="xlCaptureModeHint">请在官方直播伴侣中选择节目画面和系统声音。画中画若未出现在窗口采集列表中，可切换普通窗口。控制台需保持打开；普通窗口若提示启用声音，请在该窗口点击启用。</p>
                 {windowCaptureState !== 'stopped' && <div className={`xlCaptureWindowState ${windowCaptureState === 'failed' ? 'failed' : ''}`}>{windowCaptureState === 'connecting' ? '节目窗口正在连接…' : windowCaptureState === 'live' ? '节目窗口已连接，可以交给官方直播伴侣捕获' : windowCaptureMessage || '节目窗口连接失败'}</div>}
               </>}
             </section>
-            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出预设</strong>{windowCaptureMode ? `${captureOrientation === 'portrait' ? '9:16' : '16:9'} · ${outputConfig.frameRate} · H.264` : `${outputConfig.protocol} · ${outputConfig.resolution} · ${outputConfig.frameRate} · ${outputConfig.codec}`}</span>{windowCaptureMode ? <span><i />节目窗口模式</span> : <span><i />已选 {selectedPlatformConnectionIds.length} 个目标</span>}{!windowCaptureMode && <label className="xlPlatformSource"><strong>最终画面来源</strong><select value={mediaSourceKind} onChange={(event) => setMediaSourceKind(event.target.value as 'browser_ingest' | 'test_pattern')}><option value="browser_ingest">浏览器媒体网关（生产）</option><option value="test_pattern">服务端测试画面（仅联调）</option></select></label>}</div>
+            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出预设</strong>{windowCaptureMode ? `${captureOrientation === 'portrait' ? '9:16' : '16:9'} · ${outputConfig.resolution} · ${outputConfig.frameRate}` : `${outputConfig.protocol} · ${outputConfig.resolution} · ${outputConfig.frameRate} · ${outputConfig.codec}`}</span>{windowCaptureMode ? <span><i />节目窗口模式</span> : <span><i />已选 {selectedPlatformConnectionIds.length} 个目标</span>}{!windowCaptureMode && <label className="xlPlatformSource"><strong>最终画面来源</strong><select value={mediaSourceKind} onChange={(event) => setMediaSourceKind(event.target.value as 'browser_ingest' | 'test_pattern')}><option value="browser_ingest">浏览器媒体网关（生产）</option><option value="test_pattern">服务端测试画面（仅联调）</option></select></label>}</div>
 
             <div className="xlPlatformCenterGrid">
               <section className="xlRtmpConnections">
@@ -5032,6 +6232,29 @@ export function LiveStudio({
             </div>
           </div>
           <footer className="xlPlatformCenterFooter"><label className="xlPlatformTerms">{windowCaptureMode ? <span>节目窗口由官方直播伴侣捕获；平台账号登录和实际开播由官方客户端完成。</span> : <><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>我已确认推流地址来源合法，并了解“服务器可达”不代表平台已授权</span></>}</label><div><button type="button" onClick={() => setDialog(null)}>关闭</button><button type="button" disabled={!platformPreflightReady || (!windowCaptureMode && !termsAccepted) || liveRunBusy} onClick={() => void completeLivePreflight()}>{liveRunBusy ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <ShieldCheck size={14} />}{liveRunBusy ? (windowCaptureMode ? '打开节目窗口中' : '服务端检查中') : (windowCaptureMode ? '打开节目输出窗口' : '完成开播预检')}</button></div></footer>
+        </section>
+      </div>}
+
+      {dialog === 'scriptSafety' && <div className="xlModalBackdrop" onMouseDown={() => { if (!scriptSafetySaving) setDialog(null); }}>
+        <section className={`xlModal xlScriptSafetyModal ${scriptSafetyReview && scriptSafetyReview.roomId === (room?.id ?? null) && scriptSafetyReview.scriptId === storyboardScriptId ? 'hasReview' : ''}`} role="dialog" aria-modal="true" aria-label="风控提示词" onMouseDown={(event) => event.stopPropagation()}>
+          <header><strong>风控提示词</strong><button type="button" aria-label="关闭风控提示词" disabled={scriptSafetySaving} onClick={() => setDialog(null)}><X size={17} /></button></header>
+          <div className="xlScriptSafetyFields">
+            <label htmlFor="xl-script-safety-guidance">生成与修订要求</label>
+            <textarea id="xl-script-safety-guidance" value={scriptSafetyGuidanceDraft} onChange={(event) => setScriptSafetyGuidanceDraft(event.target.value)} rows={7} maxLength={1200} disabled={dynamicGenerating} autoFocus />
+            <span>{scriptSafetyGuidanceDraft.length}/1200</span>
+            <div><strong>当前校验词</strong><p>{scriptRiskWords(activeGoods?.riskWords).join('、')}</p></div>
+            {scriptSafetyStorageError && <p className="xlScriptSafetyStorageError" role="alert">{scriptSafetyStorageError}</p>}
+            <div className="xlScriptSafetyAction">
+              <button type="button" disabled={!draft.trim() || dynamicGenerating || scriptSafetySaving} onClick={() => void checkCurrentScriptSafety()}>{scriptSafetyStage ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : <ShieldCheck size={15} />}{scriptSafetyStage ? '正在检查当前脚本' : '检查并矫正当前脚本'}</button>
+              {scriptSafetyStage && <span role="status">{scriptSafetyStage === 'checking' ? '正在检查风险表述' : '正在矫正风险表述'}</span>}
+            </div>
+            {scriptSafetyReview && scriptSafetyReview.roomId === (room?.id ?? null) && scriptSafetyReview.scriptId === storyboardScriptId && <section className="xlScriptSafetyReview" aria-label="最近一次风控检查">
+              <header><strong>最近一次检查</strong><span className={scriptSafetyReview.status}>{scriptSafetyReview.status === 'corrected' ? '已矫正' : scriptSafetyReview.status === 'clean' ? '无改动' : '未完成'}</span></header>
+              <p>{scriptSafetyReview.message}</p>
+              {scriptSafetyReview.changes.length > 0 && <ol>{scriptSafetyReview.changes.map((change, index) => <li key={index}><div><strong>修改前</strong><p>{change.before || '无'}</p></div><div><strong>修改后</strong><p>{change.after || '无'}</p></div></li>)}</ol>}
+            </section>}
+          </div>
+          <footer><button type="button" disabled={scriptSafetySaving || dynamicGenerating} onClick={() => setScriptSafetyGuidanceDraft(DEFAULT_SCRIPT_SAFETY_GUIDANCE)}>恢复默认</button><span><button type="button" disabled={scriptSafetySaving} onClick={() => setDialog(null)}>取消</button><button type="button" disabled={scriptSafetySaving || dynamicGenerating || !scriptSafetyGuidanceDraft.trim()} onClick={() => void saveScriptSafetyGuidance()}>{scriptSafetySaving ? '保存中' : '保存'}</button></span></footer>
         </section>
       </div>}
 

@@ -115,6 +115,12 @@ export type LiveRoomLayerItem = {
   chromaKeyColor?: string;
   chromaKeyTolerance?: number;
   chromaKeySoftness?: number;
+  componentInstanceId?: string;
+  componentSourceId?: string;
+  componentName?: string;
+  componentLayerId?: string;
+  componentRole?: string;
+  componentTextLimit?: number;
 };
 
 export type LiveRoomOutputConfig = {
@@ -146,6 +152,7 @@ export type LiveRoomConfig = {
   goods: LiveRoomGoodsItem[];
   activeGoodsId: string | number;
   scripts: LiveRoomScriptItem[];
+  editorDraft?: string;
   qaItems: LiveRoomQaItem[];
   selectedTemplateId: string;
   selectedTemplatePage?: number;

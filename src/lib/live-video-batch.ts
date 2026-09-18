@@ -23,10 +23,13 @@ export async function waitForAvatarVideo(taskId: string, { signal, fetcher = fet
   while (Date.now() < deadline) {
     signal.throwIfAborted();
     const response = await fetcher(`/aliyun-avatar-video-api/videos/${encodeURIComponent(taskId)}`, { signal, cache: 'no-store' });
-    const payload = await response.json().catch(() => ({})) as { video?: { status?: string; error?: string }; message?: string };
+    const payload = await response.json().catch(() => ({})) as { video?: { status?: string; error?: string; download?: { status?: string; error?: string } }; message?: string };
     if (!response.ok || typeof payload.video?.status !== 'string') throw new Error(payload.message || '数字人合成状态读取失败，已停止后续合成');
     const state = payload.video.status.trim().toUpperCase();
-    if (['SUCCESS', 'SUCCEEDED', 'COMPLETED'].includes(state)) return;
+    if (['SUCCESS', 'SUCCEEDED', 'COMPLETED'].includes(state)) {
+      if (payload.video.download?.status === 'failed') throw new Error(payload.video.download.error || '当前分镜下载失败，已停止后续合成');
+      if (payload.video.download?.status !== 'downloading') return;
+    }
     if (['FAIL', 'FAILED', 'ERROR', 'CANCELED', 'CANCELLED', 'EXPIRED'].includes(state)) throw new Error(payload.video.error || '数字人合成失败，已停止后续合成');
     await waitForPoll(pollInterval, signal);
   }

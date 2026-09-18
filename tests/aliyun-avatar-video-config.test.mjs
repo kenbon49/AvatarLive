@@ -68,11 +68,13 @@ test('signs the script and its active avatar voice settings', () => {
   );
 });
 
-test('keeps the synthesis control busy through submission and cloud processing', () => {
+test('keeps the synthesis control busy through submission and local download', () => {
   assert.equal(scriptAvatarVideoIsBusy('missing', true), true);
   assert.equal(scriptAvatarVideoIsBusy('submitting'), true);
   assert.equal(scriptAvatarVideoIsBusy('queued'), true);
   assert.equal(scriptAvatarVideoIsBusy('processing'), true);
+  assert.equal(scriptAvatarVideoIsBusy('downloading'), true);
+  assert.equal(scriptAvatarVideoIsBusy('downloadFailed'), false);
   assert.equal(scriptAvatarVideoIsBusy('ready'), false);
   assert.equal(scriptAvatarVideoIsBusy('failed'), false);
 });

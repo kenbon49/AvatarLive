@@ -9,7 +9,7 @@ import LingMouClient, {
 } from '@alicloud/lingmou20250527';
 import { $OpenApiUtil } from '@alicloud/openapi-core';
 import { createReadStream } from 'node:fs';
-import { mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -17,12 +17,13 @@ import {
   normalizeLingMouVideoStatus,
   validateLingMouTemplateVariables,
 } from '@/lib/aliyun-avatar-video-config';
+import { cacheAliyunWebm } from '@/lib/server/aliyun-avatar-video-cache';
 
-const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const TASK_ID_PATTERN = /^[A-Za-z0-9_-]{8,100}$/;
 const credentialNames = ['ALIYUN_ACCESS_KEY_ID', 'ALIYUN_ACCESS_KEY_SECRET'] as const;
 const lingMouSettingNames = ['ALIYUN_LINGMOU_TEMPLATE_ID'] as const;
-const cacheTasks = new Map<string, Promise<string>>();
+type DownloadState = { status: 'downloading' | 'failed'; downloadedBytes: number; totalBytes: number; error?: string };
+const cacheTasks = new Map<string, DownloadState>();
 
 export type AliyunAvatarVideo = {
   id: string;
@@ -34,6 +35,7 @@ export type AliyunAvatarVideo = {
   createdAt: string;
   updatedAt: string;
   error?: string;
+  download?: DownloadState | { status: 'ready'; downloadedBytes: number; totalBytes: number };
 };
 
 export type CreateAliyunAvatarVideoInput = {
@@ -120,55 +122,33 @@ async function cachedVideoUrl(taskId: string) {
   }
 }
 
-function trustedArtifactUrl(value: string) {
-  const url = new URL(value.startsWith('//') ? `https:${value}` : value);
-  if (url.protocol !== 'https:' || !(
-    url.hostname === 'aliyuncs.com'
-    || url.hostname.endsWith('.aliyuncs.com')
-    || url.hostname.endsWith('.alicdn.com')
-  )) {
-    throw new Error('阿里云返回了不受信任的视频地址');
-  }
-  return url.toString();
+function maxVideoBytes() {
+  const configured = Number(env('ALIYUN_AVATAR_VIDEO_MAX_MIB'));
+  return (Number.isSafeInteger(configured) && configured >= 64 && configured <= 4096 ? configured : 1024) * 1048576;
 }
 
-async function downloadVideo(taskId: string, remoteUrl: string) {
-  const existing = await cachedVideoUrl(taskId);
-  if (existing) return existing;
-  const pending = cacheTasks.get(taskId);
-  if (pending) return pending;
-
-  const task = (async () => {
-    const response = await fetch(trustedArtifactUrl(remoteUrl), {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(240_000),
-    });
-    if (!response.ok) throw new Error(`透明数字人视频下载失败（HTTP ${response.status}）`);
-    const advertisedLength = Number(response.headers.get('content-length'));
-    if (Number.isFinite(advertisedLength) && advertisedLength > MAX_VIDEO_BYTES) {
-      throw new Error('透明数字人视频超过 200 MB 上限');
-    }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length < 1_024 || bytes.length > MAX_VIDEO_BYTES) throw new Error('透明数字人视频大小无效');
-    if (!bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) {
-      throw new Error('阿里云没有返回预期的透明 WebM 视频');
-    }
-
-    const directory = videoDirectory();
-    await mkdir(directory, { recursive: true });
-    const destination = videoFile(taskId);
-    const temporary = `${destination}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      await writeFile(temporary, bytes, { mode: 0o600 });
-      await rename(temporary, destination);
-    } catch (cause) {
-      await unlink(temporary).catch(() => undefined);
-      throw cause;
-    }
-    return videoAssetUrl(taskId);
-  })().finally(() => cacheTasks.delete(taskId));
-  cacheTasks.set(taskId, task);
-  return task;
+function startVideoDownload(taskId: string, remoteUrl: string, retry: boolean) {
+  const existing = cacheTasks.get(taskId);
+  if (existing && (existing.status === 'downloading' || !retry)) return existing;
+  const state: DownloadState = { status: 'downloading', downloadedBytes: 0, totalBytes: 0 };
+  cacheTasks.set(taskId, state);
+  void cacheAliyunWebm({
+    url: remoteUrl,
+    destination: videoFile(taskId),
+    maxBytes: maxVideoBytes(),
+    onProgress(received, total) {
+      state.downloadedBytes = received;
+      state.totalBytes = total;
+    },
+  }).then(() => {
+    cacheTasks.delete(taskId);
+    console.info('[avatar-video] cached', JSON.stringify({ taskId, bytes: state.downloadedBytes }));
+  }).catch((cause) => {
+    state.status = 'failed';
+    state.error = cause instanceof Error ? cause.message : '透明数字人视频下载失败';
+    console.warn('[avatar-video] cache failed', JSON.stringify({ taskId, message: state.error }));
+  });
+  return state;
 }
 
 function cloudVideo(value: CloudVideo | undefined, fallbackId?: string): AliyunAvatarVideo | null {
@@ -227,17 +207,23 @@ export async function createAliyunAvatarVideo(input: CreateAliyunAvatarVideoInpu
   assertSuccess(response.body, '灵眸透明数字人口播提交失败');
   const result = cloudVideo(response.body?.data);
   if (!result) throw new Error('阿里云没有返回数字人口播任务 ID');
+  if (result.status === 'SUCCESS' && result.videoUrl) {
+    result.download = { ...startVideoDownload(result.id, result.videoUrl, false) };
+    result.videoUrl = '';
+  }
   console.info('[avatar-video] submitted', JSON.stringify({ taskId: result.id, status: result.status, characterCount: input.text.length }));
   return result;
 }
 
-export async function getAliyunAvatarVideo(taskId: string) {
+export async function getAliyunAvatarVideo(taskId: string, { retryDownload = false } = {}) {
   const id = assertTaskId(taskId);
   const localUrl = await cachedVideoUrl(id);
   if (localUrl) {
+    const size = (await stat(videoFile(id))).size;
     return {
       ...cloudVideo({ id, status: 'SUCCESS' }, id)!,
       videoUrl: localUrl,
+      download: { status: 'ready' as const, downloadedBytes: size, totalBytes: size },
     };
   }
 
@@ -249,7 +235,8 @@ export async function getAliyunAvatarVideo(taskId: string) {
   }
   if (result.status === 'SUCCESS') {
     if (!result.videoUrl) throw new Error('阿里云任务成功但没有返回透明视频地址');
-    result.videoUrl = await downloadVideo(id, result.videoUrl);
+    result.download = { ...startVideoDownload(id, result.videoUrl, retryDownload) };
+    result.videoUrl = '';
   }
   return result;
 }

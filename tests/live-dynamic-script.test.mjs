@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildDynamicScriptPrompt, dynamicScriptComparisonTexts, isNearDuplicateScript, normalizeGeneratedScript, validateDynamicScript } from '../src/lib/live-dynamic-script.ts';
+import { buildDynamicScriptPrompt, buildScriptSafetyRevisionPrompt, DEFAULT_SCRIPT_SAFETY_GUIDANCE, dynamicScriptComparisonTexts, isNearDuplicateScript, isScriptSafetyError, normalizeGeneratedScript, scriptRiskWords, scriptSafetyChanges, validateDynamicScript } from '../src/lib/live-dynamic-script.ts';
 
 test('builds a factual dynamic-script prompt with recent context', () => {
   const prompt = buildDynamicScriptPrompt({
@@ -68,10 +68,51 @@ test('requests a long-form expansion of at least 2000 characters', () => {
 
 test('rejects risky copy and reports repeated copy without discarding it', () => {
   assert.equal(validateDynamicScript('这是全网最低价的商品', []).ok, false);
+  assert.deepEqual(validateDynamicScript('绝对放心，永不褪色', [], ['永不褪色']).riskWords, ['绝对', '永不褪色']);
   const repeated = validateDynamicScript('欢迎来到直播间', ['欢迎来到直播间']);
   assert.equal(repeated.ok, true);
   assert.equal(repeated.duplicate, true);
   assert.equal(validateDynamicScript('新鲜烘焙，今天为大家介绍冲泡建议', ['欢迎来到直播间']).ok, true);
+});
+
+test('keeps default risk checks when a product defines additional words', () => {
+  const terms = scriptRiskWords(['绝对', '特定风险词', ' 特定风险词 ']);
+  assert.equal(terms.filter((word) => word === '绝对').length, 1);
+  assert.ok(terms.includes('全网最低'));
+  assert.ok(terms.includes('特定风险词'));
+  const prompt = buildDynamicScriptPrompt({
+    productName: '收纳盒', currentScripts: [], draftText: '介绍商品',
+    riskWords: ['特定风险词'], safetyGuidance: '不作无依据的承诺',
+  });
+  assert.match(prompt, /全网最低/);
+  assert.match(prompt, /特定风险词/);
+  assert.match(prompt, /不作无依据的承诺/);
+  assert.match(buildDynamicScriptPrompt({ productName: '收纳盒', currentScripts: [], draftText: '介绍商品' }), new RegExp(DEFAULT_SCRIPT_SAFETY_GUIDANCE.slice(0, 8)));
+});
+
+test('safety revision asks for the complete text without obfuscating risk words', () => {
+  const prompt = buildScriptSafetyRevisionPrompt('第一段。\n\n绝对满意。', ['绝对'], '仅陈述商品事实');
+  assert.match(prompt, /只改写包含风险表述的句子/);
+  assert.match(prompt, /不加说明或标题/);
+  assert.match(prompt, /不.*拆字.*谐音/);
+  assert.match(prompt, /仅陈述商品事实/);
+  assert.match(prompt, /第一段。\n\n绝对满意。/);
+  assert.match(prompt, /如果没有需要修订的内容，原样返回全文/);
+});
+
+test('lists only changed sentences from the last safety revision', () => {
+  assert.deepEqual(scriptSafetyChanges('开场。绝对值得买。卖点不变。全网最低。结尾。', '开场。可以按需选择。卖点不变。价格以实际为准。结尾。'), [
+    { before: '绝对值得买。', after: '可以按需选择。' },
+    { before: '全网最低。', after: '价格以实际为准。' },
+  ]);
+  assert.deepEqual(scriptSafetyChanges('原样返回。', '原样返回。'), []);
+  assert.deepEqual(scriptSafetyChanges('旧句。', '旧句。新增句。'), [{ before: '', after: '新增句。' }]);
+});
+
+test('recognizes upstream moderation failures without treating network errors as safety issues', () => {
+  assert.equal(isScriptSafetyError('触发风控关键词'), true);
+  assert.equal(isScriptSafetyError('content_policy_violation'), true);
+  assert.equal(isScriptSafetyError('socket closed'), false);
 });
 
 test('uses phrase overlap instead of shared single characters for duplicate detection', () => {

@@ -1,4 +1,5 @@
 import { ALIYUN_PUBLIC_VOICES } from '@/lib/aliyun-voice-catalog';
+import { SCRIPT_EDITOR_LIMIT } from '@/lib/live-script-editor';
 import { createAliyunAvatarVideo } from '@/lib/server/aliyun-avatar-video';
 
 export const runtime = 'nodejs';
@@ -21,13 +22,13 @@ export async function POST(request: Request) {
     const text = typeof payload.text === 'string' ? payload.text.trim() : '';
     const voiceKey = typeof payload.voiceKey === 'string' ? payload.voiceKey.trim() : '';
     const avatarOfficialId = typeof payload.avatarOfficialId === 'string' ? payload.avatarOfficialId.trim() : '';
-    if (text.length < 8 || text.length > 1000) {
-      return Response.json({ message: '口播文本长度必须在 8 到 1000 个字符之间' }, { status: 400 });
+    if (text.length < 8 || text.length > SCRIPT_EDITOR_LIMIT) {
+      return Response.json({ message: `口播文本长度必须在 8 到 ${SCRIPT_EDITOR_LIMIT} 个字符之间` }, { status: 400 });
     }
     const voice = ALIYUN_PUBLIC_VOICES.find((item) => item.id === voiceKey);
     if (!voice) return Response.json({ message: '请选择公共音色' }, { status: 400 });
     if (!avatarOfficialId) return Response.json({ message: '请选择阿里云公共数字人形象' }, { status: 400 });
-    const speechRate = typeof payload.speechRate === 'number' ? payload.speechRate : 1;
+    const speechRate = typeof payload.speechRate === 'number' ? payload.speechRate : 1.1;
     const pitchRate = typeof payload.pitchRate === 'number' ? payload.pitchRate : 3;
     if (!Number.isFinite(speechRate) || speechRate < 0.5 || speechRate > 2) {
       return Response.json({ message: '语速必须在 0.5x 到 2.0x 之间' }, { status: 400 });

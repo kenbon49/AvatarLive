@@ -14,6 +14,8 @@
     "test:chroma-key": "node --experimental-strip-types --test tests/chroma-key.test.mjs",
     "test:musetalk-video-queue": "node --experimental-strip-types --test tests/musetalk-video-queue.test.mjs",
     "test:live-layer-order": "node --experimental-strip-types --test tests/live-layer-order.test.mjs",
+    "test:live-scene-history": "node --experimental-strip-types --test tests/live-scene-history.test.mjs",
+    "test:live-component-layers": "node --experimental-strip-types --test tests/live-component-layers.test.mjs",
     "test:live-template-layers": "node --experimental-strip-types --test tests/live-template-layers.test.mjs",
     "test:live-playback-queue": "node --experimental-strip-types --test tests/live-playback-queue.test.mjs",
     "test:live-dynamic-script": "node --experimental-strip-types --test tests/live-dynamic-script.test.mjs",

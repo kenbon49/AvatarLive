@@ -20,6 +20,11 @@ const fontCssFile = path.join(assetRoot, 'fonts.css');
 const fallbackBackgroundFile = path.join(assetRoot, 'blank.png');
 const sceneBackgroundManifestFile = path.join(assetRoot, 'scene-backgrounds.json');
 const source = JSON.parse(await readFile(inputPath, 'utf8'));
+const curation = JSON.parse(await readFile('src/data/yijing-template-curation.json', 'utf8'));
+const retiredTemplateIds = new Set([
+  ...curation.obscuredHost,
+  ...Object.keys(curation.duplicateOf).map(Number),
+]);
 const fontSource = await readFile(path.resolve('.cache/yijing-fonts.json'), 'utf8')
   .then(value => JSON.parse(value))
   .catch(() => ({ list: [] }));
@@ -245,20 +250,22 @@ for (const template of templates) {
       });
     }
     const orderedLayers = layers.reverse();
-    totalLayers += orderedLayers.length;
     return { index: pageIndex, pageId: sourcePage.page_index ?? String(pageIndex), layers: orderedLayers };
   });
-  totalPages += pages.length;
   const categories = [...new Set((template.categories ?? []).map(id => categoryNames.get(Number(id))).filter(Boolean))];
   const visibleCategories = categories.length ? categories : ['其他'];
   const primaryCategory = visibleCategories.find(name => !['热门推荐', '实景'].includes(name)) ?? visibleCategories[0];
   const image = registerCover(template);
-  catalog.push({
-    id: `yijing-${template.id}`, sourceId: template.id, name: template.show_name, image,
-    category: primaryCategory, categories: visibleCategories,
-    color: colorNames.get(String(template.color)) ?? '其他', pageCount: pages.length,
-    layersUrl: `/assets/xiling-live/yijing/templates/${template.id}.json`,
-  });
+  if (!retiredTemplateIds.has(Number(template.id))) {
+    totalPages += pages.length;
+    totalLayers += pages.reduce((count, page) => count + page.layers.length, 0);
+    catalog.push({
+      id: `yijing-${template.id}`, sourceId: template.id, name: template.show_name, image,
+      category: primaryCategory, categories: visibleCategories,
+      color: colorNames.get(String(template.color)) ?? '其他', pageCount: pages.length,
+      layersUrl: `/assets/xiling-live/yijing/templates/${template.id}.json`,
+    });
+  }
   normalizedTemplates.push({ template, pages });
 }
 

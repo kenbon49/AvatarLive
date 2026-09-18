@@ -100,8 +100,9 @@ export function PersonSegmentedImagePreview({
         }
       }
       if (hasNativeTransparency) {
-        outputContext.clearRect(0, 0, width, height);
-        outputContext.drawImage(sourceCanvas, 0, 0);
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        outputContext.drawImage(image, 0, 0);
         onStateChange?.('ready');
         return;
       }

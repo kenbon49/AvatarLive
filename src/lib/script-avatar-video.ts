@@ -11,6 +11,8 @@ export type ScriptAvatarVideoDisplayState =
   | 'stale'
   | 'failed'
   | 'processing'
+  | 'downloading'
+  | 'downloadFailed'
   | 'submitting'
   | 'queued'
   | 'ready';
@@ -36,5 +38,5 @@ export function scriptAvatarVideoInputSignature(input: ScriptAvatarVideoInput) {
 }
 
 export function scriptAvatarVideoIsBusy(state: ScriptAvatarVideoDisplayState, submitting = false) {
-  return submitting || state === 'processing' || state === 'submitting' || state === 'queued';
+  return submitting || state === 'processing' || state === 'downloading' || state === 'submitting' || state === 'queued';
 }

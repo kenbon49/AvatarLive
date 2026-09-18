@@ -32,7 +32,7 @@ export function StoryboardScenePreview({ layers, background, host, videoUrl, fon
         };
         if (layer.sceneKey === 'host') return <span className="xlStoryboardSceneHost" style={style} key={layer.id}>
           <img src={host} alt="" loading="lazy" decoding="async" />
-          {visible && videoUrl && <video src={videoUrl} muted playsInline preload="auto" onLoadedData={event => { event.currentTarget.currentTime = Math.min(0.1, event.currentTarget.duration || 0); }} />}
+          {visible && videoUrl && <video src={videoUrl} muted playsInline preload="metadata" onLoadedData={event => { event.currentTarget.currentTime = Math.min(0.1, event.currentTarget.duration || 0); }} />}
         </span>;
         if (layer.kind === 'image') return <img style={{ ...style, objectFit: layer.sceneKey === 'templateBackground' ? 'cover' : 'contain' }} src={layer.preview || background} alt="" loading="lazy" decoding="async" key={layer.id} />;
         if (layer.kind !== 'text') return null;
