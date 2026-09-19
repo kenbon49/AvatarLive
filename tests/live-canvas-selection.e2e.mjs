@@ -19,17 +19,58 @@ try {
   const firstId = await firstRow.getAttribute('data-layer-id');
   assert.ok(firstId);
 
+  const firstCanvasText = page.locator(`.xlPortraitCanvas > .xlCanvasText[data-layer-text="${firstId}"]`);
+  const firstBefore = await firstCanvasText.boundingBox();
+  const firstBackground = await firstCanvasText.evaluate(element => getComputedStyle(element).backgroundColor);
+  assert.ok(firstBefore);
   await page.locator(`.xlLayerHitTarget[data-layer-hit="${firstId}"]`).dblclick({ force: true });
   const inlineEditor = page.getByRole('textbox', { name: '编辑画面文本：第一条' });
   await inlineEditor.waitFor();
+  assert.equal(await firstCanvasText.count(), 1, 'Editing replaces the original text layer');
+  assert.equal(await firstCanvasText.evaluate(element => element.tagName), 'TEXTAREA');
+  const firstEditing = await inlineEditor.boundingBox();
+  assert.ok(firstEditing);
+  for (const dimension of ['x', 'y', 'width', 'height']) {
+    assert.ok(Math.abs(firstEditing[dimension] - firstBefore[dimension]) < 1, `${dimension} must stay unchanged during inline editing`);
+  }
+  assert.equal(await inlineEditor.evaluate(element => getComputedStyle(element).backgroundColor), firstBackground);
+  if (process.env.CANVAS_SCREENSHOT_DIR) await page.locator('.xlPreviewPanel').screenshot({ path: `${process.env.CANVAS_SCREENSHOT_DIR}/canvas-text-editing.png` });
   await inlineEditor.fill('双击已修改');
+  await inlineEditor.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+  assert.equal(await firstCanvasText.evaluate(element => element.tagName), 'TEXTAREA', 'IME confirmation must not save the layer');
   await inlineEditor.press('Enter');
   assert.equal(await page.locator(`.xlLayerRow[data-layer-id="${firstId}"] input`).inputValue(), '双击已修改');
+  assert.equal(await firstCanvasText.evaluate(element => element.tagName), 'SPAN');
 
   await page.locator(`.xlLayerHitTarget[data-layer-hit="${firstId}"]`).dblclick({ force: true });
-  await page.getByRole('textbox', { name: '编辑画面文本：双击已修改' }).fill('取消这次修改');
-  await page.getByRole('textbox', { name: '编辑画面文本：双击已修改' }).press('Escape');
-  assert.equal(await page.locator(`.xlLayerRow[data-layer-id="${firstId}"] input`).inputValue(), '双击已修改');
+  await page.getByRole('textbox', { name: '编辑画面文本：双击已修改' }).fill('失焦已保存');
+  await page.locator('.xlPreviewHeader').click();
+  assert.equal(await page.locator(`.xlLayerRow[data-layer-id="${firstId}"] input`).inputValue(), '失焦已保存');
+  assert.equal(await firstCanvasText.count(), 1);
+
+  await page.locator(`.xlLayerHitTarget[data-layer-hit="${firstId}"]`).dblclick({ force: true });
+  await page.getByRole('textbox', { name: '编辑画面文本：失焦已保存' }).fill('取消这次修改');
+  await page.getByRole('textbox', { name: '编辑画面文本：失焦已保存' }).press('Escape');
+  assert.equal(await page.locator(`.xlLayerRow[data-layer-id="${firstId}"] input`).inputValue(), '失焦已保存');
+  assert.equal(await firstCanvasText.evaluate(element => element.tagName), 'SPAN');
+
+  await page.getByRole('button', { name: '直播设置' }).click();
+  const settings = page.getByRole('dialog', { name: '直播设置' });
+  assert.equal(await settings.getByText('随讲解弹商品卡').count(), 0);
+  assert.equal(await settings.locator('.xlSettingsBody > nav').count(), 0);
+  const frameRate = settings.locator('.xlOutputRow').filter({ hasText: '帧率' });
+  await frameRate.getByRole('button', { name: '30 fps' }).click();
+  assert.match(await frameRate.getByRole('button', { name: '30 fps' }).getAttribute('class'), /active/);
+  await settings.getByRole('button', { name: '关闭直播设置' }).click();
+  await page.getByRole('button', { name: '直播设置' }).click();
+  assert.match(await settings.locator('.xlSettingIntro').innerText(), /30 fps/);
+  for (const width of [320, 390, 1440]) {
+    await page.setViewportSize({ width, height: 850 });
+    assert.ok(await settings.evaluate(element => element.scrollWidth <= element.clientWidth + 1), `Settings overflow at ${width}px`);
+    if (process.env.CANVAS_SCREENSHOT_DIR) await settings.screenshot({ path: `${process.env.CANVAS_SCREENSHOT_DIR}/settings-output-${width}.png` });
+  }
+  await page.setViewportSize({ width: 1440, height: 850 });
+  await settings.getByRole('button', { name: '关闭直播设置' }).click();
 
   await page.locator(`.xlLayerRow[data-layer-id="${firstId}"] input`).focus();
   await page.keyboard.press('Backspace');
@@ -103,10 +144,25 @@ try {
   await componentText.waitFor();
   const componentTextId = await componentText.evaluate(input => input.closest('.xlLayerRow')?.getAttribute('data-layer-id'));
   assert.ok(componentTextId);
+  const componentCanvasText = page.locator(`.xlPortraitCanvas > .xlCanvasText[data-layer-text="${componentTextId}"]`);
+  const componentBefore = await componentCanvasText.boundingBox();
+  assert.ok(componentBefore);
   await page.locator(`.xlLayerHitTarget[data-layer-hit="${componentTextId}"]`).dblclick({ force: true });
-  await page.locator('.xlCanvasInlineText').waitFor();
-  await page.locator('.xlCanvasInlineText').fill('更新标题');
-  await page.locator('.xlCanvasInlineText').press('Enter');
+  const componentEditor = page.locator('.xlCanvasInlineText');
+  await componentEditor.waitFor();
+  assert.equal(await componentCanvasText.count(), 1);
+  assert.equal(await componentCanvasText.locator('img').count(), 0, 'The rendered image must be replaced while editing');
+  const componentEditing = await componentEditor.boundingBox();
+  assert.ok(componentEditing);
+  for (const dimension of ['x', 'y', 'width', 'height']) {
+    assert.ok(Math.abs(componentEditing[dimension] - componentBefore[dimension]) < 1, `Component ${dimension} must stay unchanged`);
+  }
+  await componentEditor.fill('暂不保存');
+  await componentEditor.press('Escape');
+  assert.notEqual(await page.locator(`.xlLayerRow[data-layer-id="${componentTextId}"] input`).inputValue(), '暂不保存');
+  await page.locator(`.xlLayerHitTarget[data-layer-hit="${componentTextId}"]`).dblclick({ force: true });
+  await componentEditor.fill('更新标题');
+  await componentEditor.press('Enter');
   assert.equal(await page.locator(`.xlLayerRow[data-layer-id="${componentTextId}"] input`).inputValue(), '更新标题');
   const componentRows = page.locator('.xlLayerRow[data-layer-id^="component-"]');
   const componentCount = await componentRows.count();

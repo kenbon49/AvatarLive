@@ -16,11 +16,9 @@ import {
   ChevronDown,
   CircleStop,
   Copy,
-  Cpu,
   FileSpreadsheet,
   FileText,
   FileUp,
-  HardDrive,
   HelpCircle,
   GripVertical,
   Eye,
@@ -31,7 +29,6 @@ import {
   Link2,
   LoaderCircle,
   Mic,
-  MessageCircleQuestion,
   Pause,
   PackageOpen,
   Play,
@@ -368,8 +365,12 @@ type CloneVoiceDraft = {
 
 type DialogName = 'settings' | 'voice' | 'livePlatform' | 'productPicker' | 'scriptImport' | 'scriptSafety' | null;
 type ScriptSafetyReview = { roomId: string | number | null; scriptId: number | null; status: 'corrected' | 'clean' | 'failed'; message: string; changes: ScriptSafetyChange[] };
-type SettingsTab = 'qa' | 'dynamic' | 'ambience' | 'product' | 'output' | 'environment';
 type OutputConfig = { resolution: string; frameRate: string; codec: string; protocol: string };
+const DEFAULT_OUTPUT_CONFIG: OutputConfig = { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' };
+
+function supportedOutputConfig(config: OutputConfig = DEFAULT_OUTPUT_CONFIG): OutputConfig {
+  return { ...config, codec: 'H.264', protocol: 'RTMP' };
+}
 type ProductPickerTab = 'platform' | 'script_library' | 'self_built';
 
 const EMPTY_PRODUCT_DRAFT: ProductInput = {
@@ -414,11 +415,8 @@ function selectedProductToGoods(product: LiveRoomProduct): LiveRoomGoodsItem {
 }
 
 export type LiveStudioInitialState = {
-  autoDetectEnvironment?: boolean;
   dialog?: Extract<DialogName, 'settings' | 'voice'> | null;
   entered?: boolean;
-  outputConfig?: OutputConfig;
-  settingsTab?: SettingsTab;
 };
 
 const STUDIO_WORKSPACES = [
@@ -822,15 +820,6 @@ const SQUARE_ASSETS: Record<'image' | 'video', AssetItem[]> = {
     { id: 'square-video-4', kind: 'video', name: '关注引导视频' },
   ],
 };
-
-const SETTINGS_TABS = [
-  { id: 'qa', label: 'AI 弹幕问答', icon: MessageCircleQuestion },
-  { id: 'dynamic', label: 'AI 动态话术', icon: WandSparkles },
-  { id: 'ambience', label: 'AI 氛围互动', icon: Sparkles },
-  { id: 'product', label: '随讲解弹商品卡', icon: ImageIcon },
-  { id: 'output', label: '输出与画质', icon: Video },
-  { id: 'environment', label: '环境检查', icon: ShieldCheck },
-] as const;
 
 const PLATFORMS = [
   { name: '抖音', logo: '/assets/brand-logos/douyin.svg', color: '#111111' },
@@ -1262,11 +1251,8 @@ function validateRtmpDraft(draft: RtmpConnectionDraft, editing: boolean): string
 const ACTIVE_LIVE_RUN_STORAGE_KEY = 'synlive.activeLiveRunId';
 
 export function LiveStudio({
-  autoDetectEnvironment = false,
   dialog: initialDialog = null,
   entered: initialEntered = false,
-  outputConfig: initialOutputConfig,
-  settingsTab: initialSettingsTab = 'qa',
 }: LiveStudioInitialState = {}) {
   const [entered, setEntered] = useState(initialEntered);
   const [landingSceneIndex, setLandingSceneIndex] = useState(0);
@@ -1507,12 +1493,8 @@ export function LiveStudio({
   const draftAudioResolveRef = useRef<(() => void) | null>(null);
   const [editingScriptId, setEditingScriptId] = useState<number | null>(null);
   const [scriptEditDraft, setScriptEditDraft] = useState<ScriptEditDraft>({ title: '', category: '讲品', text: '' });
-  const [settingsTab, setSettingsTab] = useState<(typeof SETTINGS_TABS)[number]['id']>(initialSettingsTab);
   const [liveOptions, setLiveOptions] = useState<LiveRoomConfig['liveOptions']>({ qa: true, dynamic: true, ambience: false, product: false, replyLimit: 5, replyMode: 'hybrid', loopPlayback: true });
-  const [outputConfig, setOutputConfig] = useState<OutputConfig>(initialOutputConfig ?? { resolution: '1080p', frameRate: '25 fps', codec: 'H.264', protocol: 'RTMP' });
-  const [environmentCheckedAt, setEnvironmentCheckedAt] = useState('尚未检测');
-  const [environmentInfo, setEnvironmentInfo] = useState({ browser: '待检测', cpu: '待检测', gpu: '待检测' });
-  const autoEnvironmentChecked = useRef(false);
+  const [outputConfig, setOutputConfig] = useState<OutputConfig>(supportedOutputConfig());
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedPlatformConnectionIds, setSelectedPlatformConnectionIds] = useState<string[]>([]);
   const [mediaSourceKind, setMediaSourceKind] = useState<'browser_ingest' | 'test_pattern'>('browser_ingest');
@@ -1723,12 +1705,6 @@ export function LiveStudio({
     : hostChromaKey;
   const backgroundLayer = layers.find((item) => item.sceneKey === 'templateBackground') ?? null;
   const previewBackground = backgroundLayer?.preview ?? YIJING_BLANK_BACKGROUND;
-  const speakingScript = scripts.find((item) => item.id === currentPlaybackScriptId)
-    ?? scripts.find((item) => item.state === 'playing');
-  const speakingGoods = speakingScript?.productId === undefined
-    ? activeGoods
-    : goods.find((item) => item.id === speakingScript.productId) ?? activeGoods;
-  const visibleProductCard = liveOptions.product && speakingScript ? speakingGoods : undefined;
   broadcastSceneRef.current = {
     layers: layers.map((layer) => ({
       ...layer,
@@ -1742,12 +1718,6 @@ export function LiveStudio({
       ? generatedVideoRef.current
       : null,
     mediaActive,
-    productCard: visibleProductCard ? {
-      title: visibleProductCard.name,
-      price: visibleProductCard.price,
-      originalPrice: visibleProductCard.originalPrice,
-      sellingPoints: visibleProductCard.sellingPoints,
-    } : undefined,
   };
   const estimatedTime = formatScriptDuration(scripts.reduce((total, item) => total + estimateScriptSeconds(item.text, voiceSpeed), 0));
   const draftEstimatedDuration = formatScriptDuration(estimateScriptSeconds(draft, voiceSpeed));
@@ -1854,7 +1824,7 @@ export function LiveStudio({
     selectedTemplateId,
     selectedTemplatePage,
     layers,
-    liveOptions: { ...liveOptions, loopPlayback: playbackLoop },
+    liveOptions: { ...liveOptions, product: false, loopPlayback: playbackLoop },
     outputConfig,
     selectedPlatforms,
     selectedPlatformConnectionIds,
@@ -2193,8 +2163,8 @@ export function LiveStudio({
         if (templateRequestIdRef.current === templateRequestId) setTemplateLoadingId('');
       });
     }
-    setLiveOptions(config.liveOptions);
-    setOutputConfig(config.outputConfig);
+    setLiveOptions({ ...config.liveOptions, product: false });
+    setOutputConfig(supportedOutputConfig(config.outputConfig));
     setSelectedPlatforms(config.selectedPlatforms);
     setSelectedPlatformConnectionIds(config.selectedPlatformConnectionIds ?? []);
     setAssets(config.assets);
@@ -2259,8 +2229,8 @@ export function LiveStudio({
     setMultiSelectMode(false);
     setEditingTextLayerId(null);
     setInspectorLayerId(null);
-    setLiveOptions(config.liveOptions);
-    setOutputConfig(config.outputConfig);
+    setLiveOptions({ ...config.liveOptions, product: false });
+    setOutputConfig(supportedOutputConfig(config.outputConfig));
     setSelectedPlatforms(config.selectedPlatforms);
     setSelectedPlatformConnectionIds(config.selectedPlatformConnectionIds ?? []);
     setAssets(config.assets);
@@ -3508,27 +3478,6 @@ export function LiveStudio({
     setDialog(null);
     setNotice(`已从“${importedDocumentName}”加入 ${importedScripts.length} 个话术节点`);
   };
-
-  const detectEnvironment = () => {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl');
-    const debugInfo = gl?.getExtension('WEBGL_debug_renderer_info');
-    const renderer = gl && debugInfo ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) : '浏览器未开放 GPU 信息';
-    const platform = /Windows/i.test(navigator.userAgent) ? 'Windows' : /Mac/i.test(navigator.userAgent) ? 'macOS' : '其他系统';
-    setEnvironmentInfo({
-      browser: `${platform} · ${navigator.userAgent.includes('Chrome') ? 'Chromium' : '现代浏览器'}`,
-      cpu: `${navigator.hardwareConcurrency || '未知'} 线程`,
-      gpu: renderer.replace(/ANGLE \(|\)/g, '').slice(0, 54),
-    });
-    setEnvironmentCheckedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }));
-    setNotice('当前浏览器环境已检测，服务器规格仍需部署节点核验');
-  };
-
-  useEffect(() => {
-    if (!autoDetectEnvironment || autoEnvironmentChecked.current || !entered || dialog !== 'settings' || settingsTab !== 'environment') return;
-    autoEnvironmentChecked.current = true;
-    detectEnvironment();
-  }, [autoDetectEnvironment, dialog, entered, settingsTab]);
 
   const loadPlatformConnectionOptions = useCallback(async () => {
     setPlatformConnectionsLoading(true);
@@ -5676,8 +5625,7 @@ export function LiveStudio({
                         opacity: item.opacity / 100,
                       };
                       if (item.kind === 'text') {
-                        if (item.preview) return <span className="xlCanvasText xlCanvasRenderedText" style={layerStyle} key={item.id}><img src={item.preview} alt={item.value} /></span>;
-                        return <span className={`xlCanvasText ${item.sceneKey === 'custom' ? 'custom' : item.sceneKey ?? ''}`} style={{
+                        const textStyle: CSSProperties = {
                           ...layerStyle, color: item.color,
                           background: item.backgroundEnabled ? colorWithOpacity(item.backgroundColor ?? '#111827', item.backgroundOpacity ?? 72) : item.sceneKey === 'custom' || item.sceneKey === 'templateElement' ? 'transparent' : undefined,
                           borderRadius: `${item.backgroundRadius ?? 6}px`, fontFamily: fontFamilyCss(item.fontFamily),
@@ -5688,7 +5636,35 @@ export function LiveStudio({
                           WebkitTextStroke: item.strokeEnabled ? `${canvasLength(item.strokeWidth ?? 1)} ${item.strokeColor ?? '#000000'}` : undefined,
                           paintOrder: item.strokeEnabled ? 'stroke fill' : undefined,
                           textShadow: item.shadowEnabled ? `${canvasLength(item.shadowX ?? 4)} ${canvasLength(item.shadowY ?? 4)} ${canvasLength(item.shadowBlur ?? 8)} ${item.shadowColor ?? '#000000'}` : undefined,
-                        }} key={item.id}><CanvasTextContent layer={item} /></span>;
+                        };
+                        if (editingTextLayerId === item.id) return <textarea
+                          className={`xlCanvasText xlCanvasInlineText ${item.preview ? 'xlCanvasRenderedText' : item.sceneKey === 'custom' ? 'custom' : item.sceneKey ?? ''}`}
+                          ref={textEditInputRef}
+                          data-layer-text={item.id}
+                          aria-label={`编辑画面文本：${item.value}`}
+                          style={{ ...textStyle, zIndex: 80 }}
+                          key={item.id}
+                          value={editingTextDraft}
+                          maxLength={item.componentTextLimit ?? 80}
+                          onChange={(event) => setEditingTextDraft(event.target.value)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => {
+                            event.stopPropagation();
+                            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                            if (event.key === 'Escape') {
+                              event.preventDefault();
+                              skipTextEditCommitRef.current = true;
+                              setEditingTextLayerId(null);
+                            } else if (event.key === 'Enter' && !event.shiftKey) {
+                              event.preventDefault();
+                              commitTextEdit();
+                            }
+                          }}
+                          onBlur={commitTextEdit}
+                        />;
+                        if (item.preview) return <span className="xlCanvasText xlCanvasRenderedText" style={layerStyle} data-layer-text={item.id} key={item.id}><img src={item.preview} alt={item.value} /></span>;
+                        return <span className={`xlCanvasText ${item.sceneKey === 'custom' ? 'custom' : item.sceneKey ?? ''}`} style={textStyle} data-layer-text={item.id} key={item.id}><CanvasTextContent layer={item} /></span>;
                       }
                       if ((item.sceneKey !== 'custom' && item.sceneKey !== 'templateElement') || item.kind === 'host') return null;
                       return <span className={`xlCustomSceneAsset ${item.kind} ${item.sceneKey === 'templateElement' ? 'templateElement' : ''}`} style={layerStyle} key={item.id}>
@@ -5696,7 +5672,6 @@ export function LiveStudio({
                         {(item.kind !== 'image' || !item.preview) && <em>{item.value}</em>}
                       </span>;
                     })}
-                    {visibleProductCard && <div className="xlProductCardOverlay"><strong>{visibleProductCard.name}</strong>{typeof visibleProductCard.price === 'number' && <b>¥{visibleProductCard.price.toFixed(2)}</b>}{visibleProductCard.sellingPoints?.length ? <small>{visibleProductCard.sellingPoints.slice(0, 2).join(' · ')}</small> : null}</div>}
                     {generatedVideoReady && hostLayer && <video
                       ref={(element) => {
                         generatedVideoRef.current = element;
@@ -5730,7 +5705,6 @@ export function LiveStudio({
                       {(['nw', 'ne', 'se', 'sw'] as const).map((handle) => <span className={`xlResizeHandle ${handle}`} role="button" aria-label={`${handle}方向缩放${selectedLayer.value}`} data-resize-handle={handle} key={handle} />)}
                       <span className="xlRotateHandle" role="button" aria-label={`旋转${selectedLayer.value}`} data-rotate-handle="true" />
                     </div>}
-                    {editingTextLayer && <textarea className="xlCanvasInlineText" ref={textEditInputRef} aria-label={`编辑画面文本：${editingTextLayer.value}`} style={{ left: `${editingTextLayer.x}%`, top: `${editingTextLayer.y}%`, width: `${editingTextLayer.width}%` }} value={editingTextDraft} maxLength={editingTextLayer.componentTextLimit ?? 80} onChange={(event) => setEditingTextDraft(event.target.value)} onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); skipTextEditCommitRef.current = true; setEditingTextLayerId(null); } else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); commitTextEdit(); } }} onBlur={commitTextEdit} />}
                     {onAir && <span className="xlOnAir">LIVE</span>}
                     {stage !== 'idle' && <span className="xlRenderState">{stage === 'error' ? '连接异常' : '数字人生成中'}</span>}
                   </div>
@@ -6109,37 +6083,14 @@ export function LiveStudio({
         <section className="xlModal xlSettingsModal" role="dialog" aria-modal="true" aria-label="直播设置" onMouseDown={(event) => event.stopPropagation()}>
           <header><strong>直播设置</strong><button type="button" aria-label="关闭直播设置" onClick={() => setDialog(null)}><X size={17} /></button></header>
           <div className="xlSettingsBody">
-            <nav>{SETTINGS_TABS.map((tab) => { const Icon = tab.icon; return <button className={settingsTab === tab.id ? 'active' : ''} type="button" key={tab.id} onClick={() => setSettingsTab(tab.id)}><Icon size={16} />{tab.label}{tab.id === 'dynamic' && <em>NEW</em>}</button>; })}</nav>
             <div className="xlSettingsContent">
-              {settingsTab === 'qa' && <><div className="xlSettingRow"><span><strong>开启问答</strong><small>自动识别直播间问题并生成回复</small></span><button className={`xlSwitch ${liveOptions.qa ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.qa} onClick={() => setLiveOptions((value) => ({ ...value, qa: !value.qa }))}><i /></button></div><div className="xlSettingBlock"><strong>回复范围</strong><div className="xlRadioGroup"><button className={liveOptions.replyMode === 'hybrid' ? 'active' : ''} type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyMode: 'hybrid' }))}>智能回复 + 问答库</button><button className={liveOptions.replyMode === 'library' ? 'active' : ''} type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyMode: 'library' }))}>仅问答库回复</button></div></div><div className="xlSettingBlock"><strong>单次回复上限</strong><div className="xlStepper"><button type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyLimit: Math.max(1, value.replyLimit - 1) }))}>−</button><span>{liveOptions.replyLimit}</span><button type="button" onClick={() => setLiveOptions((value) => ({ ...value, replyLimit: Math.min(20, value.replyLimit + 1) }))}>+</button><em>条</em></div></div></>}
-              {settingsTab === 'dynamic' && <><div className="xlSettingRow"><span><strong>开启 AI 动态话术</strong><small>根据直播节奏智能改写和补充话术</small></span><button className={`xlSwitch ${liveOptions.dynamic ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.dynamic} onClick={() => setLiveOptions((value) => ({ ...value, dynamic: !value.dynamic }))}><i /></button></div><div className="xlSettingNote">AI 会保留商品卖点并动态生成表达，降低重复播报。</div><button type="button" className="xlDynamicGenerateButton" onClick={() => void generateDynamicScript()} disabled={!liveOptions.dynamic || dynamicGenerating}>{dynamicGenerating ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <WandSparkles size={14} />}{dynamicGenerating ? '正在生成动态话术' : '根据当前商品生成一条话术'}</button></>}
-              {settingsTab === 'ambience' && <><div className="xlSettingRow"><span><strong>开启氛围互动</strong><small>自动欢迎新观众并感谢关注、点赞</small></span><button className={`xlSwitch ${liveOptions.ambience ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.ambience} onClick={() => setLiveOptions((value) => ({ ...value, ambience: !value.ambience }))}><i /></button></div><div className="xlSettingNote">互动内容会在当前话术播放间隙插入，不打断商品讲解。</div></>}
-              {settingsTab === 'product' && <><div className="xlSettingRow"><span><strong>随讲解弹商品卡</strong><small>播报已关联商品的话术时自动展示对应商品卡</small></span><button className={`xlSwitch ${liveOptions.product ? 'on' : ''}`} type="button" role="switch" aria-checked={liveOptions.product} onClick={() => setLiveOptions((value) => ({ ...value, product: !value.product }))}><i /></button></div><div className="xlSettingNote">画面商品卡在话术开始时出现、结束时隐藏；平台原生可点击商品卡仍需商家 OAuth 和平台接口。</div></>}
-              {settingsTab === 'output' && <div className="xlOutputSettings">
-                <div className="xlSettingIntro"><Video size={18} /><span><strong>实时渲染输出预设</strong><small>配置目标画质、编码和媒体协议</small></span><em>当前 {outputConfig.resolution} · {outputConfig.frameRate}</em></div>
+              <div className="xlOutputSettings">
+                <div className="xlSettingIntro"><Video size={18} /><span><strong>节目输出画面</strong></span><em>{outputConfig.resolution} · {outputConfig.frameRate}</em></div>
                 {[
                   { key: 'resolution' as const, label: '分辨率', values: ['1080p', '4K'] },
                   { key: 'frameRate' as const, label: '帧率', values: ['25 fps', '30 fps', '60 fps'] },
-                  { key: 'codec' as const, label: '编码', values: ['H.264', 'H.265'] },
-                  { key: 'protocol' as const, label: '输出协议', values: ['RTMP', 'WebRTC', 'SRT'] },
-                ].map((group) => <div className="xlOutputRow" key={group.key}><strong>{group.label}</strong><div>{group.values.map((value) => <button className={outputConfig[group.key] === value ? 'active' : ''} type="button" key={value} disabled={value === 'SRT'} onClick={() => setOutputConfig((config) => ({ ...config, [group.key]: value }))}>{value}{value === 'SRT' && <small>待接入</small>}</button>)}</div></div>)}
-                <div className="xlSettingNote">当前保存的是输出编排预设；协议、编码与 4K / 60fps 能力需接入输出服务并在目标节点实机验收。</div>
-              </div>}
-              {settingsTab === 'environment' && <div className="xlEnvironmentSettings">
-                <div className="xlEnvironmentHead"><span><strong>运行环境检查</strong><small>最近检测：{environmentCheckedAt}</small></span><button type="button" onClick={detectEnvironment}><ShieldCheck size={14} />重新检测</button></div>
-                <div className="xlEnvironmentCurrent">
-                  <article><Server size={17} /><span><small>当前系统</small><strong>{environmentInfo.browser}</strong></span><em>{environmentCheckedAt === '尚未检测' ? '待检测' : '已识别'}</em></article>
-                  <article><Cpu size={17} /><span><small>CPU</small><strong>{environmentInfo.cpu}</strong></span><em>{environmentCheckedAt === '尚未检测' ? '待检测' : '已识别'}</em></article>
-                  <article><HardDrive size={17} /><span><small>图形设备</small><strong>{environmentInfo.gpu}</strong></span><em>{environmentCheckedAt === '尚未检测' ? '待检测' : '已识别'}</em></article>
-                </div>
-                <div className="xlRequirementList">
-                  <header><strong>部署目标</strong><span>服务端实机核验</span></header>
-                  <p><span>操作系统</span><strong>Windows Server 2019+</strong><em>待节点核验</em></p>
-                  <p><span>运行内存</span><strong>64 GB+</strong><em>待节点核验</em></p>
-                  <p><span>GPU 显存</span><strong>24 GB+</strong><em>待节点核验</em></p>
-                  <p><span>媒体端口</span><strong>1935 / 8000 / 8080</strong><em>配置项</em></p>
-                </div>
-              </div>}
+                ].map((group) => <div className="xlOutputRow" key={group.key}><strong>{group.label}</strong><div>{group.values.map((value) => <button className={outputConfig[group.key] === value ? 'active' : ''} type="button" key={value} onClick={() => setOutputConfig((config) => ({ ...config, [group.key]: value }))}>{value}</button>)}</div></div>)}
+              </div>
             </div>
           </div>
         </section>

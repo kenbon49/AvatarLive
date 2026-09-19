@@ -51,12 +51,6 @@ export type BroadcastSceneSnapshot = {
   hostUrl: string;
   hostVideoElement?: HTMLVideoElement | null;
   mediaActive: boolean;
-  productCard?: {
-    title: string;
-    price?: number;
-    originalPrice?: number;
-    sellingPoints?: string[];
-  };
 };
 
 export type BrowserPublisherState = 'connecting' | 'live' | 'reconnecting' | 'failed' | 'stopped';
@@ -378,34 +372,6 @@ export class SceneCompositor {
         if (image) this.drawVisualLayer(context, layer, image, 'contain');
       }
     });
-    if (scene.productCard) this.drawProductCard(context, scene.productCard);
-  }
-
-  private drawProductCard(context: CanvasRenderingContext2D, card: NonNullable<BroadcastSceneSnapshot['productCard']>) {
-    const width = this.canvas.width * 0.86;
-    const height = this.canvas.height * 0.14;
-    const left = this.canvas.width * 0.07;
-    const top = this.canvas.height * 0.81;
-    context.save();
-    context.fillStyle = 'rgba(10, 14, 17, .86)';
-    context.fillRect(left, top, width, height);
-    context.fillStyle = '#ffffff';
-    context.font = `600 ${Math.max(22, this.canvas.width / 30)}px sans-serif`;
-    context.textAlign = 'left';
-    context.textBaseline = 'top';
-    context.fillText(card.title.slice(0, 28), left + width * 0.04, top + height * 0.16, width * 0.58);
-    if (typeof card.price === 'number') {
-      context.fillStyle = '#ffcf4a';
-      context.font = `700 ${Math.max(26, this.canvas.width / 24)}px sans-serif`;
-      context.fillText(`¥${card.price.toFixed(2)}`, left + width * 0.04, top + height * 0.52, width * 0.42);
-    }
-    const points = (card.sellingPoints ?? []).filter(Boolean).slice(0, 2).join(' · ');
-    if (points) {
-      context.fillStyle = '#b8c6c8';
-      context.font = `${Math.max(16, this.canvas.width / 48)}px sans-serif`;
-      context.fillText(points.slice(0, 40), left + width * 0.04, top + height * 0.78, width * 0.86);
-    }
-    context.restore();
   }
 
   private withLayer(context: CanvasRenderingContext2D, layer: BroadcastSceneLayer, draw: (width: number, height: number) => void) {

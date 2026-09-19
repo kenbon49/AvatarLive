@@ -49,8 +49,10 @@ class _ManagedRun:
 
 
 def _output_dimensions(config: dict) -> tuple[int, int]:
-    resolution = str(config.get("outputConfig", {}).get("resolution", "1080p")).lower()
-    return (1920, 1080) if resolution in {"1080p", "1080"} else (1280, 720)
+    resolution = str(config.get("outputConfig", {}).get("resolution", "1080p")).strip().lower()
+    if resolution in {"4k", "2160p", "2160"}:
+        return (3840, 2160)
+    return (1920, 1080)
 
 
 def _source_command(output_url: str, config: dict) -> tuple[str, ...]:

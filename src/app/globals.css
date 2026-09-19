@@ -498,10 +498,6 @@ img, video, canvas { display: block; }
 .xlSceneHost { z-index: 3; object-fit: contain; object-position: center bottom; transform-origin: center; transition: opacity .2s; }
 .xlStreamCanvas { z-index: 4; opacity: 0; object-fit: contain; }
 .xlStreamCanvas.active { opacity: 1; }
-.xlProductCardOverlay { position: absolute; z-index: 22; left: 7%; right: 7%; bottom: 8%; min-height: 12%; padding: 8px 10px; border-radius: 5px; display: flex; flex-direction: column; justify-content: center; gap: 2px; pointer-events: none; color: white; background: rgba(10, 14, 17, .84); }
-.xlProductCardOverlay strong { overflow: hidden; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.xlProductCardOverlay b { color: #ffcf4a; font-size: 14px; }
-.xlProductCardOverlay small { overflow: hidden; color: #b8c6c8; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .xlWorkspaceHidden { display: none !important; }
 .xlPreviewIngestState { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; color: #31536a; background: #edf7fb; font-size: 12px; }
 .xlPreviewIngestState i { width: 7px; height: 7px; border-radius: 50%; background: #d19b2e; box-shadow: 0 0 0 3px rgba(209, 155, 46, .14); }
@@ -553,7 +549,7 @@ img, video, canvas { display: block; }
 .xlLayerSelectionBox { position: absolute; z-index: 60; border: 1px solid white; cursor: move; touch-action: none; box-shadow: 0 0 0 1px rgba(14, 15, 15, .45); }
 .xlLayerSelectionBox.component { border-color: #32d7d2; box-shadow: 0 0 0 1px rgba(10, 72, 75, .7); }
 .xlLayerMultiOutline { position: absolute; z-index: 61; border: 2px solid #5972f2; pointer-events: none; box-shadow: 0 0 0 1px #fff; }
-.xlCanvasInlineText { min-width: min(160px, calc(100% - 12px)); max-width: calc(100% - 12px); min-height: 54px; padding: 8px; position: absolute; z-index: 80; transform: translate(-50%, -50%); border: 2px solid #5972f2; border-radius: 4px; outline: none; resize: vertical; color: #263244; background: #fff; font-size: 14px; line-height: 1.4; box-shadow: 0 5px 20px rgba(15, 30, 60, .24); }
+.xlCanvasInlineText { box-sizing: border-box; min-width: 0; min-height: 0; border: 0; resize: none; pointer-events: auto; background: transparent; outline: 1px solid #32d7d2; outline-offset: 1px; caret-color: currentColor; }
 .xlResizeHandle, .xlRotateHandle { width: 18px; height: 18px; position: absolute; z-index: 2; background: transparent; touch-action: none; }
 .xlResizeHandle::after, .xlRotateHandle::after { content: ''; position: absolute; border: 1px solid #686a6d; background: white; }
 .xlResizeHandle::after { width: 7px; height: 7px; left: 5px; top: 5px; }
@@ -899,68 +895,21 @@ img, video, canvas { display: block; }
 .xlProductPickerFooter button { height: 32px; padding: 0 13px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #c5c8c8; background: #303233; }
 .xlProductPickerFooter button:last-child { color: #102020; background: var(--xl-accent); }
 .xlProductPickerFooter button:disabled { opacity: .4; }
-.xlSettingsBody { height: 520px; display: grid; grid-template-columns: 196px minmax(0, 1fr); }
-.xlSettingsBody > nav { padding: 16px 8px; border-right: 1px solid var(--xl-line); display: flex; flex-direction: column; gap: 6px; }
-.xlSettingsBody > nav button { min-height: 44px; padding: 0 14px; border-radius: 6px; display: flex; align-items: center; gap: 10px; color: #c4c4c4; text-align: left; }
-.xlSettingsBody > nav button.active, .xlSettingsBody > nav button:hover { color: white; background: #292a2b; }
-.xlSettingsBody > nav button.active svg { color: var(--xl-accent); }
-.xlSettingsBody > nav em { margin-left: auto; padding: 2px 4px; border-radius: 3px; color: white; background: #f25f5c; font-size: 8px; font-style: normal; }
-.xlSettingsContent { padding: 30px 36px; overflow: auto; }
-.xlSettingRow { max-width: 760px; padding: 14px 0; display: flex; align-items: center; justify-content: space-between; }
-.xlSettingRow > span { display: flex; flex-direction: column; gap: 5px; }
-.xlSettingRow strong, .xlSettingBlock > strong { font-size: 12px; font-weight: 500; }
-.xlSettingRow small { color: var(--xl-muted); font-size: 10px; }
-.xlSwitch { width: 44px; height: 24px; padding: 2px !important; border-radius: 999px !important; background: #454647 !important; transition: background .2s; }
-.xlSwitch i { width: 20px; height: 20px; border-radius: 50%; display: block; background: white; transition: transform .2s; }
-.xlSwitch.on { background: #2b9d9b !important; }
-.xlSwitch.on i { transform: translateX(20px); }
-.xlSettingBlock { margin-top: 18px; display: flex; align-items: center; gap: 22px; }
-.xlRadioGroup { display: flex; gap: 8px; }
-.xlRadioGroup button { height: 32px; padding: 0 11px; border: 1px solid #3a3b3c; border-radius: 5px; color: #ababab; }
-.xlRadioGroup button.active { border-color: var(--xl-accent); color: var(--xl-accent); background: #193738; }
-.xlStepper { display: flex; align-items: center; }
-.xlStepper button, .xlStepper span { width: 32px; height: 30px; border: 1px solid #3a3b3c; display: grid; place-items: center; color: #c4c4c4; background: #292a2b; }
-.xlStepper button:first-child { border-radius: 5px 0 0 5px; }
-.xlStepper button:nth-child(3) { border-radius: 0 5px 5px 0; }
-.xlStepper em { margin-left: 8px; color: #ababab; font-style: normal; }
-.xlSettingNote { max-width: 700px; margin-top: 22px; padding: 14px; border: 1px solid rgba(20, 204, 201, .15); border-radius: 7px; color: #a9caca; background: rgba(20, 204, 201, .06); font-size: 11px; line-height: 19px; }
-.xlDynamicGenerateButton { min-height: 34px; margin-top: 16px; padding: 0 12px; border: 1px solid rgba(20, 204, 201, .35); border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; color: var(--xl-accent); background: rgba(20, 204, 201, .08); font-size: 11px; }
-.xlDynamicGenerateButton:hover:not(:disabled) { background: rgba(20, 204, 201, .15); }
-.xlDynamicGenerateButton:disabled { opacity: .55; cursor: not-allowed; }
-.xlOutputSettings, .xlEnvironmentSettings { max-width: 720px; }
-.xlSettingIntro { min-height: 62px; padding: 13px 15px; border: 1px solid #343536; border-radius: 8px; display: flex; align-items: center; gap: 11px; background: #242526; }
-.xlSettingIntro > svg { color: var(--xl-accent); }
+.xlSettingsModal { width: min(720px, 96vw); }
+.xlSettingsBody { min-height: 270px; }
+.xlSettingsContent { min-width: 0; padding: 22px 26px; overflow: auto; }
+.xlOutputSettings { max-width: 720px; }
+.xlSettingIntro { min-height: 62px; padding: 13px 15px; border: 1px solid #e1e6f0; border-radius: 6px; display: flex; align-items: center; gap: 11px; background: #f7f9fc; }
+.xlSettingIntro > svg { color: #3464d2; }
 .xlSettingIntro > span { display: flex; flex-direction: column; gap: 4px; }
 .xlSettingIntro strong { font-size: 12px; font-weight: 500; }
-.xlSettingIntro small { color: var(--xl-muted); font-size: 9px; }
-.xlSettingIntro > em { margin-left: auto; padding: 5px 8px; border-radius: 5px; color: var(--xl-accent); background: #193738; font-size: 9px; font-style: normal; }
+.xlSettingIntro > em { margin-left: auto; padding: 5px 8px; border-radius: 5px; color: #2855bb; background: #eaf1ff; font-size: 9px; font-style: normal; }
 .xlOutputRow { min-height: 60px; padding: 13px 0; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 18px; }
-.xlOutputRow > strong { color: #c4c4c4; font-size: 11px; font-weight: 500; }
+.xlOutputRow > strong { color: #4c586d; font-size: 11px; font-weight: 500; }
 .xlOutputRow > div { display: flex; flex-wrap: wrap; gap: 8px; }
-.xlOutputRow button { min-width: 80px; height: 32px; padding: 0 11px; border: 1px solid #3a3b3c !important; border-radius: 5px; color: #aaa !important; position: relative; }
-.xlOutputRow button.active { border-color: var(--xl-accent) !important; color: var(--xl-accent) !important; background: #193738 !important; }
+.xlOutputRow button { min-width: 80px; height: 32px; padding: 0 11px; border: 1px solid #d8e0ee !important; border-radius: 5px; color: #4c586d !important; position: relative; }
+.xlOutputRow button.active { border-color: #3464d2 !important; color: #2855bb !important; background: #edf3ff !important; }
 .xlOutputRow button:disabled { opacity: .4; cursor: not-allowed; }
-.xlOutputRow button small { margin-left: 5px; color: #d99d55; font-size: 7px; }
-.xlEnvironmentHead { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-.xlEnvironmentHead > span { display: flex; flex-direction: column; gap: 4px; }
-.xlEnvironmentHead strong { font-size: 13px; font-weight: 500; }
-.xlEnvironmentHead small { color: var(--xl-muted); font-size: 9px; }
-.xlEnvironmentHead button { height: 31px; padding: 0 11px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; color: #0e0f0f; background: var(--xl-accent); font-size: 10px; }
-.xlEnvironmentCurrent { margin-top: 13px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.xlEnvironmentCurrent article { min-width: 0; min-height: 98px; padding: 13px; border: 1px solid #343536; border-radius: 7px; display: grid; grid-template-columns: 24px minmax(0, 1fr); align-content: start; gap: 8px; background: #242526; }
-.xlEnvironmentCurrent article > svg { color: var(--xl-accent); }
-.xlEnvironmentCurrent article > span { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.xlEnvironmentCurrent article small { color: var(--xl-muted); font-size: 8px; }
-.xlEnvironmentCurrent article strong { overflow: hidden; color: #ddd; font-size: 9px; line-height: 15px; font-weight: 500; text-overflow: ellipsis; }
-.xlEnvironmentCurrent article em { grid-column: 2; color: #82d7d5; font-size: 8px; font-style: normal; }
-.xlRequirementList { margin-top: 14px; border: 1px solid #343536; border-radius: 7px; overflow: hidden; }
-.xlRequirementList > header, .xlRequirementList > p { min-height: 41px; margin: 0; padding: 0 13px; display: grid; grid-template-columns: 130px minmax(0, 1fr) 90px; align-items: center; }
-.xlRequirementList > header { color: #c4c4c4; background: #292a2b; }
-.xlRequirementList > header strong { font-size: 11px; font-weight: 500; }
-.xlRequirementList > header span { grid-column: 3; color: var(--xl-muted); font-size: 8px; text-align: right; }
-.xlRequirementList > p { border-top: 1px solid #2e2f30; color: #9b9b9c; font-size: 9px; }
-.xlRequirementList > p strong { color: #ddd; font-size: 10px; font-weight: 500; }
-.xlRequirementList > p em { color: #d6a15f; font-size: 8px; font-style: normal; text-align: right; }
 
 .xlVoiceModal { width: min(920px, 94vw); height: min(640px, 90vh); display: grid; grid-template-rows: 54px 62px 62px auto minmax(0, 1fr) 78px; }
 .xlVoiceToolbar { padding: 0 24px; border-bottom: 1px solid var(--xl-line); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
@@ -1286,8 +1235,6 @@ img, video, canvas { display: block; }
   .xlQaEmpty { min-height: 520px; }
   .xlModalBackdrop { padding: 10px; }
   .xlModal { width: 100%; max-height: 92vh; overflow: auto; }
-  .xlSettingsBody { height: auto; min-height: 560px; grid-template-columns: 138px minmax(0, 1fr); }
-  .xlSettingsBody > nav button { padding-inline: 9px; font-size: 10px; }
   .xlSettingsContent { padding: 20px 16px; }
   .xlVoiceModal { height: min(720px, 92vh); grid-template-rows: 54px auto auto auto minmax(0, 1fr) auto; }
   .xlVoiceToolbar { padding: 10px 16px; align-items: flex-end; }
@@ -1300,9 +1247,6 @@ img, video, canvas { display: block; }
   .xlVoiceModal.cloneMode { grid-template-rows: 54px auto auto minmax(0, 1fr) auto; }
   .xlVoiceCloneForm { grid-template-columns: 1fr; }
   .xlVoiceDropzone { height: 118px; }
-  .xlSettingRow { align-items: flex-start; gap: 15px; }
-  .xlSettingBlock { align-items: flex-start; flex-direction: column; gap: 10px; }
-  .xlRadioGroup { flex-direction: column; }
   .xlLivePlatformModal { width: 100%; max-height: 94vh; }
   .xlPlatformCenterBody { padding-inline: 12px; }
   .xlLocalRtmpTest { align-items: stretch; flex-direction: column; }
@@ -1359,9 +1303,9 @@ img, video, canvas { display: block; }
   .xlQaWorkspace > header > div:last-child { width: 100%; justify-content: flex-start; }
   .xlQaWorkspace > header label { flex: 1; }
   .xlQaComposer, .xlQaList { width: calc(100% - 20px); }
-  .xlSettingsBody { display: block; }
-  .xlSettingsBody > nav { border-right: 0; border-bottom: 1px solid var(--xl-line); display: grid; grid-template-columns: repeat(2, 1fr); }
-  .xlSettingsContent { min-height: 360px; }
+  .xlSettingsContent { min-height: 210px; }
+  .xlOutputRow { grid-template-columns: 70px minmax(0, 1fr); gap: 10px; }
+  .xlOutputRow button { min-width: 72px; padding-inline: 6px; }
   .xlVoiceToolbar { align-items: stretch; flex-direction: column; gap: 8px; }
   .xlVoiceToolbar > div { min-height: 38px; }
   .xlVoiceToolbar > label { width: 100%; }

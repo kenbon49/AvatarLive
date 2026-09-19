@@ -25,6 +25,7 @@ from app.models.platform_connection import PlatformConnection
 from app.models.platform_event import PlatformLiveEvent
 from app.services.live_runs import preflight as live_run_preflight
 from app.services.live_runs import media_supervisor
+from app.services.live_runs.supervisor import _output_dimensions, _source_command
 from app.services.platforms import (
     LocalRtmpSelfTestError,
     LocalRtmpSelfTestResult,
@@ -547,6 +548,17 @@ class LiveRoomApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503, response.text)
         self.assertEqual(response.json()["detail"], "SRS 未运行")
+
+    def test_test_pattern_uses_configured_resolution_and_frame_rate(self) -> None:
+        self.assertEqual(_output_dimensions({"outputConfig": {"resolution": "1080p"}}), (1920, 1080))
+        self.assertEqual(_output_dimensions({"outputConfig": {"resolution": "4K"}}), (3840, 2160))
+        self.assertEqual(_output_dimensions({"outputConfig": {"resolution": "unknown"}}), (1920, 1080))
+
+        command = _source_command(
+            "rtmp://127.0.0.1/live/test",
+            {"outputConfig": {"resolution": "4K", "frameRate": "60 fps"}},
+        )
+        self.assertIn("testsrc2=size=3840x2160:rate=60", command)
 
     def test_platform_connection_rejects_embedded_credentials_and_query_secrets(self) -> None:
         for server_url in (
