@@ -149,7 +149,7 @@ import { ALIYUN_PUBLIC_AVATARS, LIVE_AVATARS as AVATARS, aliyunAvatarForCloudVid
 import { readStudioSetting, writeStudioSetting } from '@/lib/browser-studio-storage';
 import { scriptAvatarVideoInputSignature, scriptAvatarVideoIsBusy } from '@/lib/script-avatar-video';
 import { StoryboardScenePreview } from '@/components/storyboard-scene-preview';
-import { SCRIPT_EDITOR_LIMIT, duplicateStoryboardScript, estimateScriptSeconds, formatScriptDuration, reviseStoryboardScript } from '@/lib/live-script-editor';
+import { SCRIPT_EDITOR_LIMIT, MAX_SCRIPT_MATERIAL_IMAGES, appendScriptMaterialImages, duplicateStoryboardScript, estimateScriptSeconds, formatScriptDuration, reviseStoryboardScript } from '@/lib/live-script-editor';
 import { loadScriptPreviewAudio } from '@/lib/live-script-preview';
 import { applyTemplateLayersPreservingHost, createDefaultHostLayer, repairLegacyTemplateBackground } from '@/lib/live-template-layers';
 import {
@@ -1512,6 +1512,8 @@ export function LiveStudio({
   const [importedDocumentName, setImportedDocumentName] = useState('');
   const [importedDocumentText, setImportedDocumentText] = useState('');
   const [importedMaterialImages, setImportedMaterialImages] = useState<ImportedMaterialImage[]>([]);
+  const importedMaterialImagesRef = useRef<ImportedMaterialImage[]>([]);
+  const materialUploadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [importedScripts, setImportedScripts] = useState<ImportedScriptItem[]>([]);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState('00:00:00');
@@ -2169,8 +2171,9 @@ export function LiveStudio({
     setSelectedPlatformConnectionIds(config.selectedPlatformConnectionIds ?? []);
     setAssets(config.assets);
     const restoredMaterialImages = config.importedMaterialImages ?? [];
+    importedMaterialImagesRef.current = restoredMaterialImages;
     setImportedMaterialImages(restoredMaterialImages);
-    setImportedDocumentName(restoredMaterialImages[0]?.name ?? '');
+    setImportedDocumentName('');
     setImportedDocumentText('');
     setImportedScripts([]);
     setRoom(loadedRoom);
@@ -2234,6 +2237,7 @@ export function LiveStudio({
     setSelectedPlatforms(config.selectedPlatforms);
     setSelectedPlatformConnectionIds(config.selectedPlatformConnectionIds ?? []);
     setAssets(config.assets);
+    importedMaterialImagesRef.current = [];
     setImportedMaterialImages([]);
     setImportedDocumentName('');
     setImportedDocumentText('');
@@ -3403,73 +3407,82 @@ export function LiveStudio({
     }
   };
 
-  const importDocument = async (file?: File) => {
-    if (!file) return;
+  const importDocument = async (file: File) => {
     if (file.size > 20 * 1024 * 1024) {
-      setError('上传素材不能超过 20 MB');
-      return;
+      throw new Error('上传素材不能超过 20 MB');
     }
+    let plainText = '';
+    if (/\.(txt|md|csv|json)$/i.test(file.name)) {
+      plainText = await file.text();
+    } else {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const response = await fetch('/live-ai-api/extract', { method: 'POST', body: form });
+      const payload = await response.json().catch(() => ({})) as { text?: unknown; filename?: unknown; message?: unknown };
+      if (!response.ok || typeof payload.text !== 'string') {
+        throw new Error(typeof payload.message === 'string' ? payload.message : '文件内容提取失败');
+      }
+      plainText = payload.text;
+    }
+    plainText = plainText.trim().slice(0, 8_000);
+    if (!plainText) throw new Error('上传素材中没有可读取的文本');
+    const sections = plainText.split(/\n{2,}|(?<=[。！？])\s+/).map((item) => item.trim()).filter(Boolean).slice(0, 4);
+    const next = sections.map<ImportedScriptItem>((text, index) => ({
+      title: index === 0 ? '文档开场' : index === sections.length - 1 ? '文档收尾' : `内容节点 ${index + 1}`,
+      category: index === 0 ? '开场' : index === sections.length - 1 ? '促单' : '讲品',
+      duration: `00:${String(Math.min(58, Math.max(20, Math.round(text.length * 0.45)))).padStart(2, '0')}`,
+      text,
+    }));
+    setImportedDocumentName(file.name);
+    setImportedDocumentText(plainText);
+    setImportedScripts(next);
+    setDialog('scriptImport');
+  };
+
+  const importMaterials = async (files: File[]) => {
+    if (!files.length) return;
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    const documentFiles = files.filter((file) => !file.type.startsWith('image/'));
     setError('');
     try {
-      if (file.type.startsWith('image/')) {
+      if (documentFiles.length > 1) throw new Error('一次只能上传一份文档，请分开选择');
+      appendScriptMaterialImages(
+        importedMaterialImagesRef.current.map((image) => image.name),
+        imageFiles.map((file) => file.name),
+      );
+      const images = await Promise.all(imageFiles.map(async (file) => {
         if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
           throw new Error('图片仅支持 JPG、PNG、WebP 或 GIF');
         }
-        const dataUrl = await prepareProductReferenceImage(file);
-        setImportedDocumentName(file.name);
-        setImportedDocumentText('');
-        setImportedMaterialImages([{ name: file.name, dataUrl }]);
-        setImportedScripts([]);
-        setNotice(`已上传图片“${file.name}”，AI 扩写时会读取画面和文字`);
-        return;
-      }
-      let plainText = '';
-      if (/\.(txt|md|csv|json)$/i.test(file.name)) {
-        plainText = await file.text();
-      } else {
-        const form = new FormData();
-        form.append('file', file, file.name);
-        const response = await fetch('/live-ai-api/extract', { method: 'POST', body: form });
-        const payload = await response.json().catch(() => ({})) as { text?: unknown; filename?: unknown; message?: unknown };
-        if (!response.ok || typeof payload.text !== 'string') {
-          throw new Error(typeof payload.message === 'string' ? payload.message : '文件内容提取失败');
-        }
-        plainText = payload.text;
-      }
-      plainText = plainText.trim().slice(0, 8_000);
-      if (!plainText) throw new Error('上传素材中没有可读取的文本');
-      const sections = plainText.split(/\n{2,}|(?<=[。！？])\s+/).map((item) => item.trim()).filter(Boolean).slice(0, 4);
-      const next = sections.map<ImportedScriptItem>((text, index) => ({
-        title: index === 0 ? '文档开场' : index === sections.length - 1 ? '文档收尾' : `内容节点 ${index + 1}`,
-        category: index === 0 ? '开场' : index === sections.length - 1 ? '促单' : '讲品',
-        duration: `00:${String(Math.min(58, Math.max(20, Math.round(text.length * 0.45)))).padStart(2, '0')}`,
-        text,
+        return { name: file.name, dataUrl: await prepareProductReferenceImage(file) };
       }));
-      setImportedDocumentName(file.name);
-      setImportedDocumentText(plainText);
-      setImportedMaterialImages([]);
-      setImportedScripts(next);
-      setDialog('scriptImport');
+      if (documentFiles.length) await importDocument(documentFiles[0]);
+      if (images.length) {
+        const nextImages = appendScriptMaterialImages(importedMaterialImagesRef.current, images);
+        importedMaterialImagesRef.current = nextImages;
+        setImportedMaterialImages(nextImages);
+        setNotice(`已上传 ${images.length} 张图片，共 ${nextImages.length}/${MAX_SCRIPT_MATERIAL_IMAGES} 张`);
+      }
     } catch (cause) {
       setError(`素材读取失败：${cause instanceof Error ? cause.message : String(cause)}`);
     }
   };
 
-  const clearImportedMaterial = () => {
+  const queueMaterialUpload = (files: FileList | null) => {
+    const selected = Array.from(files ?? []);
+    materialUploadQueueRef.current = materialUploadQueueRef.current.then(() => importMaterials(selected));
+  };
+
+  const clearImportedDocument = () => {
     setImportedDocumentName('');
     setImportedDocumentText('');
-    setImportedMaterialImages([]);
     setImportedScripts([]);
   };
 
   const removeImportedMaterialImage = (index: number) => {
-    const nextImages = importedMaterialImages.filter((_, imageIndex) => imageIndex !== index);
+    const nextImages = importedMaterialImagesRef.current.filter((_, imageIndex) => imageIndex !== index);
+    importedMaterialImagesRef.current = nextImages;
     setImportedMaterialImages(nextImages);
-    setImportedDocumentName(nextImages[0]?.name ?? '');
-    if (!nextImages.length) {
-      setImportedDocumentText('');
-      setImportedScripts([]);
-    }
   };
 
   const applyImportedScripts = () => {
@@ -5543,7 +5556,7 @@ export function LiveStudio({
                       </button>
                     ))}
                   </span>
-                  <button className={`xlScriptUploadButton ${importedDocumentName ? 'active' : ''}`} type="button" title={importedDocumentName ? `更换素材：${importedDocumentName}` : '上传文档或图片素材'} aria-label="上传文档或图片素材" onClick={() => documentInputRef.current?.click()}><FileUp size={15} /></button>
+                  <button className={`xlScriptUploadButton ${importedDocumentName || importedMaterialImages.length ? 'active' : ''}`} type="button" title={`上传文档或图片素材（最多 ${MAX_SCRIPT_MATERIAL_IMAGES} 张图片）`} aria-label="上传文档或图片素材" onClick={() => documentInputRef.current?.click()}><FileUp size={15} /></button>
                   <button type="button" title="编辑风控提示词" aria-label="编辑风控提示词" onClick={openScriptSafetyDialog}><ShieldCheck size={16} /></button>
                 </div>
 
@@ -5554,13 +5567,14 @@ export function LiveStudio({
                     <div className="xlScriptEditorMeta"><span>{draft.length}/{SCRIPT_EDITOR_LIMIT}字</span><span>约{draftEstimatedDuration}</span><button type="button" title="重新估算时长" aria-label="重新估算时长" onClick={() => { if (storyboardScriptId !== null) setScripts(items => items.map(item => item.id === storyboardScriptId ? { ...item, duration: draftEstimatedDuration } : item)); }}><RefreshCw size={12} /></button>{storyboardScriptId === null && draft.trim() && <button type="button" title="加入分镜" aria-label="加入分镜" onClick={addDraftToScripts} disabled={scriptVideoBatchBusy}><Plus size={14} /></button>}</div>
                   </div>
                   {scriptSafetyWarning && <div className="xlScriptSafetyWarning" role="alert"><ShieldCheck size={15} /><span>{scriptSafetyWarning}</span><button type="button" title="关闭风控提示" aria-label="关闭风控提示" onClick={() => setScriptSafetyWarning('')}><X size={14} /></button></div>}
-                  {importedMaterialImages.length ? <div className="xlAttachedImageList" aria-label="已上传图片">
+                  {importedDocumentName && <div className="xlAttachedMaterial"><FileUp size={13} /><span>{importedDocumentName}</span><button type="button" title="移除上传文档" aria-label="移除上传文档" onClick={clearImportedDocument}><X size={13} /></button></div>}
+                  {importedMaterialImages.length > 0 && <div className="xlAttachedImageList" aria-label={`已上传图片 ${importedMaterialImages.length}/${MAX_SCRIPT_MATERIAL_IMAGES}`}>
                     {importedMaterialImages.map((image, index) => <div className="xlAttachedImage" role="group" tabIndex={0} aria-label={`已上传图片：${image.name}`} key={`${image.name}-${index}`}>
                       <img className="xlAttachedImageThumb" src={image.dataUrl} alt={image.name} />
                       <span className="xlAttachedImageZoom" role="tooltip"><img src={image.dataUrl} alt="" /></span>
                       <button type="button" title={`移除“${image.name}”`} aria-label={`移除上传图片${image.name}`} onClick={() => removeImportedMaterialImage(index)}><X size={12} /></button>
                     </div>)}
-                  </div> : importedDocumentName && <div className="xlAttachedMaterial"><FileUp size={13} /><span>{importedDocumentName}</span><button type="button" title="移除上传素材" aria-label="移除上传素材" onClick={clearImportedMaterial}><X size={13} /></button></div>}
+                  </div>}
                   <div className="xlScriptComposerDock">
                     <button className="xlComposerVoiceButton" type="button" title={`选择数字人声音，当前：${selectedVoice.name}`} onClick={openVoiceDialog}><span className="xlComposerAvatarAnchor"><img className="xlComposerAvatar" src={avatar.image} alt="" /><em>主播</em></span><span>{selectedVoice.name}</span><small>{voiceSpeed.toFixed(1)}x</small><ChevronDown size={12} /></button>
                     <button className={`xlDraftPreviewButton ${draftPreviewState === 'playing' ? 'playing' : ''}`} type="button" aria-label={draftPreviewState === 'loading' ? '正在合成试听声音' : draftPreviewState === 'playing' ? '暂停试听' : draftPreviewState === 'paused' ? '继续试听' : '试听脚本'} aria-busy={draftPreviewState === 'loading'} title={draftPreviewState === 'loading' ? '正在合成并加载试听声音' : draftPreviewState === 'playing' ? '暂停当前试听' : draftPreviewState === 'paused' ? '继续当前试听' : `用“${selectedVoice.name}”试听当前文本`} disabled={!draft.trim() || draftPreviewState === 'loading' || (!draftPreviewing && (playbackBusy || playbackQueueStatus !== 'idle'))} onClick={() => void previewDraftSpeech()}>{draftPreviewState === 'loading' ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : draftPreviewState === 'playing' ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}<span>{draftPreviewState === 'loading' ? '合成中' : draftPreviewState === 'playing' ? '暂停' : draftPreviewState === 'paused' ? '继续' : '试听脚本'}</span></button>
@@ -5726,7 +5740,7 @@ export function LiveStudio({
                 <input ref={imageInputRef} className="xlHiddenInput" type="file" accept="image/*" multiple onChange={(event) => { void importAssets('image', event.currentTarget.files); event.currentTarget.value = ''; }} />
                 <input ref={backgroundInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void replaceLiveBackground(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
                 <input ref={templateInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void chooseTemplateBackground(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
-                <input ref={documentInputRef} className="xlHiddenInput" type="file" accept=".pdf,.docx,.xlsx,.txt,.md,.csv,.json,image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json" onChange={(event) => { void importDocument(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
+                <input ref={documentInputRef} className="xlHiddenInput" type="file" accept=".pdf,.docx,.xlsx,.txt,.md,.csv,.json,image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json" multiple onChange={(event) => { queueMaterialUpload(event.currentTarget.files); event.currentTarget.value = ''; }} />
                 <input ref={productDocumentInputRef} className="xlHiddenInput" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json,image/jpeg,image/png,image/webp,image/gif" multiple onChange={(event) => { void loadProductReferenceFiles(event.currentTarget.files ?? undefined); event.currentTarget.value = ''; }} />
                 <input ref={productImageInputRef} className="xlHiddenInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple onChange={(event) => { void loadProductReferenceImages(event.currentTarget.files ?? undefined); event.currentTarget.value = ''; }} />
                 <div className="xlMaterialsWorkspace">

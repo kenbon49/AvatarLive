@@ -1,4 +1,12 @@
 export const SCRIPT_EDITOR_LIMIT = 12_000;
+export const MAX_SCRIPT_MATERIAL_IMAGES = 4;
+
+export function appendScriptMaterialImages<T>(current: T[], incoming: T[]): T[] {
+  if (current.length + incoming.length > MAX_SCRIPT_MATERIAL_IMAGES) {
+    throw new Error(`最多上传 ${MAX_SCRIPT_MATERIAL_IMAGES} 张图片，请先移除已有图片`);
+  }
+  return [...current, ...incoming];
+}
 
 export function estimateScriptSeconds(text: string, speed = 1): number {
   const rate = Number.isFinite(speed) ? Math.max(0.5, Math.min(2, speed)) : 1;

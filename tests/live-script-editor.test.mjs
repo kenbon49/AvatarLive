@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SCRIPT_EDITOR_LIMIT, duplicateStoryboardScript, estimateScriptSeconds, formatScriptDuration, replaceScriptSelection, reviseStoryboardScript } from '../src/lib/live-script-editor.ts';
+import { SCRIPT_EDITOR_LIMIT, MAX_SCRIPT_MATERIAL_IMAGES, appendScriptMaterialImages, duplicateStoryboardScript, estimateScriptSeconds, formatScriptDuration, replaceScriptSelection, reviseStoryboardScript } from '../src/lib/live-script-editor.ts';
+
+test('appends script reference images without replacing existing ones or exceeding the API limit', () => {
+  const first = { name: '正面.png' };
+  const second = { name: '背面.png' };
+  const third = { name: '侧面.png' };
+  const current = [first];
+  assert.deepEqual(appendScriptMaterialImages(current, [second, third]), [first, second, third]);
+  assert.deepEqual(current, [first]);
+  const full = appendScriptMaterialImages(current, [second, third, { name: '细节.png' }]);
+  assert.equal(full.length, MAX_SCRIPT_MATERIAL_IMAGES);
+  assert.throws(() => appendScriptMaterialImages(full, [{ name: '超额.png' }]), /最多上传 4 张图片/);
+  assert.deepEqual(full.map((image) => image.name), ['正面.png', '背面.png', '侧面.png', '细节.png']);
+});
 
 test('estimates duration using current speed without a one-minute cap', () => {
   assert.equal(formatScriptDuration(estimateScriptSeconds('茶'.repeat(1000), 1)), '05:50');
