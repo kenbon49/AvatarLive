@@ -104,7 +104,7 @@ import {
   reorderLiveRoomProducts,
   detachLiveRoomProduct,
   publishLiveRoom,
-  updateLiveRoom,
+  patchLiveRoom,
   type LiveRoom,
   type LiveRoomConfig,
   type LiveRoomGoodsItem,
@@ -112,6 +112,7 @@ import {
   type ProductCatalogItem,
   type ProductInput,
 } from '@/lib/live-room-api';
+import { buildLiveRoomConfigChanges } from '@/lib/live-room-patch';
 import {
   createLiveRun,
   getLiveRun,
@@ -1846,17 +1847,31 @@ export function LiveStudio({
     voiceSpeed,
   ]);
 
-  const roomConfigSignature = useMemo(() => JSON.stringify(buildRoomConfig()), [buildRoomConfig]);
+  const currentRoomConfig = useMemo(() => buildRoomConfig(), [buildRoomConfig]);
+  const roomConfigSignature = useMemo(() => JSON.stringify(currentRoomConfig), [currentRoomConfig]);
+  const newRoomBaselineRef = useRef(roomConfigSignature);
+  const latestRoomSaveRef = useRef({ room, config: currentRoomConfig, signature: roomConfigSignature });
+  latestRoomSaveRef.current = { room, config: currentRoomConfig, signature: roomConfigSignature };
+  const savedSignatureRef = useRef(savedConfigSignature);
+  const savedConfigRef = useRef<LiveRoomConfig | null>(null);
   useEffect(() => {
     if (!roomHydratingRef.current) return;
     roomHydratingRef.current = false;
+    savedConfigRef.current = currentRoomConfig;
     savedSignatureRef.current = roomConfigSignature;
     setSavedConfigSignature(roomConfigSignature);
-  }, [roomConfigSignature, room?.id, room?.version]);
-  const newRoomBaselineRef = useRef(roomConfigSignature);
-  const latestRoomSaveRef = useRef({ room, config: buildRoomConfig(), signature: roomConfigSignature });
-  latestRoomSaveRef.current = { room, config: buildRoomConfig(), signature: roomConfigSignature };
-  const savedSignatureRef = useRef(savedConfigSignature);
+  }, [currentRoomConfig, roomConfigSignature, room?.id, room?.version]);
+
+  const saveExistingRoomConfig = async (
+    activeRoom: LiveRoom,
+    config: LiveRoomConfig,
+    name?: string,
+  ): Promise<LiveRoom> => {
+    const changes = buildLiveRoomConfigChanges(savedConfigRef.current ?? activeRoom.config, config);
+    if (!changes && name === undefined) return { ...activeRoom, config };
+    const result = await patchLiveRoom(activeRoom, changes ?? undefined, name);
+    return { ...activeRoom, ...result, config };
+  };
   useEffect(() => {
     const templateFonts = new Set(layers.flatMap((layer) => layer.kind === 'text' && layer.fontFamily
       ? [`${layer.fontStyle ?? 'normal'} ${layer.fontWeight ?? 'normal'} ${layer.fontSize ?? 16}px ${fontFamilyCss(layer.fontFamily)}`]
@@ -2173,6 +2188,7 @@ export function LiveStudio({
     setRenameRoomName(loadedRoom.name);
     setSavedAt(formatSavedAt(loadedRoom.updatedAt));
     const signature = JSON.stringify({ ...config, selectedTemplatePage: config.selectedTemplatePage ?? 0 });
+    savedConfigRef.current = config;
     savedSignatureRef.current = signature;
     setSavedConfigSignature(signature);
     setRoomError('');
@@ -2239,6 +2255,7 @@ export function LiveStudio({
     setRenameRoomName('');
     setSavedAt('');
     setSavedConfigSignature('');
+    savedConfigRef.current = null;
     savedSignatureRef.current = '';
     newRoomBaselineRef.current = JSON.stringify(config);
     setRoomError('');
@@ -2822,12 +2839,13 @@ export function LiveStudio({
               ...buildRoomConfig(),
               scripts: nextScripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' as const } : item),
             };
-            const savedRoom = await updateLiveRoom(activeRoom, config);
+            const savedRoom = await saveExistingRoomConfig(activeRoom, config);
             activeRoom = savedRoom;
             setRoom(savedRoom);
             latestRoomSaveRef.current.room = savedRoom;
             setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
-            savedSignatureRef.current = JSON.stringify(savedRoom.config);
+            savedConfigRef.current = config;
+            savedSignatureRef.current = JSON.stringify(config);
             setSavedConfigSignature(savedSignatureRef.current);
             setSavedAt(formatSavedAt(savedRoom.updatedAt));
           } catch (cause) {
@@ -3904,16 +3922,20 @@ export function LiveStudio({
           if (activeRoom ? signature === savedSignatureRef.current : !forceCreate && signature === newRoomBaselineRef.current) return true;
           if (config.scripts.some(item => !item.text.trim())) throw new Error('分镜正文不能为空，请填写内容或删除空分镜');
           const savedRoom = activeRoom
-            ? await updateLiveRoom(activeRoom, config)
-            : await createLiveRoom(`直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`, config);
+            ? await saveExistingRoomConfig(activeRoom, config)
+            : {
+              ...await createLiveRoom(`直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`, config),
+              config,
+            };
           latestRoomSaveRef.current.room = savedRoom;
           setRoom(savedRoom);
           setRooms((items) => items.some((item) => item.id === savedRoom.id)
             ? items.map((item) => item.id === savedRoom.id ? savedRoom : item)
             : [...items, savedRoom]);
           setRenameRoomName(savedRoom.name);
-          savedSignatureRef.current = JSON.stringify(savedRoom.config);
-          setSavedConfigSignature(savedSignatureRef.current);
+          savedConfigRef.current = config;
+          savedSignatureRef.current = signature;
+          setSavedConfigSignature(signature);
           setSavedAt(formatSavedAt(savedRoom.updatedAt));
           roomInitializationRef.current = true;
           if (latestRoomSaveRef.current.signature === signature) return true;
@@ -4122,9 +4144,16 @@ export function LiveStudio({
     }
     setRoomActionBusy(true);
     try {
-      const renamedRoom = await updateLiveRoom(room, buildRoomConfig(), name);
+      const config = buildRoomConfig();
+      const activeRoom = latestRoomSaveRef.current.room ?? room;
+      const renamedRoom = await saveExistingRoomConfig(activeRoom, config, name);
       setRooms((items) => items.map((item) => item.id === renamedRoom.id ? renamedRoom : item));
-      applyRoom(renamedRoom);
+      setRoom(renamedRoom);
+      latestRoomSaveRef.current.room = renamedRoom;
+      savedConfigRef.current = config;
+      savedSignatureRef.current = JSON.stringify(config);
+      setSavedConfigSignature(savedSignatureRef.current);
+      setSavedAt(formatSavedAt(renamedRoom.updatedAt));
       setEditingRoomName(false);
       setNotice(`直播间已重命名为“${renamedRoom.name}”`);
     } catch (caught) {
@@ -4444,11 +4473,12 @@ export function LiveStudio({
         activeGoodsId: nextActiveGoodsId,
         scripts: nextScripts,
       };
-      const savedRoom = await updateLiveRoom(latestRoomSaveRef.current.room ?? room, nextConfig);
+      const savedRoom = await saveExistingRoomConfig(latestRoomSaveRef.current.room ?? room, nextConfig);
       setRoom(savedRoom);
       latestRoomSaveRef.current.room = savedRoom;
       setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
-      savedSignatureRef.current = JSON.stringify(savedRoom.config);
+      savedConfigRef.current = nextConfig;
+      savedSignatureRef.current = JSON.stringify(nextConfig);
       setSavedConfigSignature(savedSignatureRef.current);
       setSavedAt(formatSavedAt(savedRoom.updatedAt));
       setPendingProductScripts((items) => {
@@ -4483,16 +4513,18 @@ export function LiveStudio({
       const nextActiveGoodsId = activeGoodsId === product.id ? nextGoods[0].id : activeGoodsId;
       if (room && typeof product.id === 'string') await detachLiveRoomProduct(room.id, product.id);
       if (room) {
-        const savedRoom = await updateLiveRoom(latestRoomSaveRef.current.room ?? room, {
+        const nextConfig = {
           ...buildRoomConfig(),
           goods: nextGoods,
           activeGoodsId: nextActiveGoodsId,
           scripts: nextScripts,
-        });
+        };
+        const savedRoom = await saveExistingRoomConfig(latestRoomSaveRef.current.room ?? room, nextConfig);
         setRoom(savedRoom);
         latestRoomSaveRef.current.room = savedRoom;
         setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
-        savedSignatureRef.current = JSON.stringify(savedRoom.config);
+        savedConfigRef.current = nextConfig;
+        savedSignatureRef.current = JSON.stringify(nextConfig);
         setSavedConfigSignature(savedSignatureRef.current);
         setSavedAt(formatSavedAt(savedRoom.updatedAt));
       }

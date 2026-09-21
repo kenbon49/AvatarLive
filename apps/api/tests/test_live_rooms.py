@@ -670,6 +670,100 @@ class LiveRoomApiTest(unittest.TestCase):
         )
         self.assertEqual(rejected_response.status_code, 422)
 
+    def test_incremental_patch_preserves_large_fields_and_validates_layer_operations(self) -> None:
+        config = room_config()
+        preview = f"data:image/png;base64,{'A' * 8192}"
+        config["layers"][0]["preview"] = preview
+        config["assets"]["image"] = [
+            {"id": "large-image", "kind": "image", "name": "大图.png", "preview": preview},
+        ]
+        config["importedMaterialImages"] = [{"name": "参考图.png", "dataUrl": preview}]
+        created_response = self.client.post(
+            "/api/v1/live-rooms", json={"name": "增量保存测试", "config": config},
+        )
+        self.assertEqual(created_response.status_code, 201, created_response.text)
+        created = created_response.json()
+        room_id = created["id"]
+
+        revised_scripts = [dict(config["scripts"][0], text="只修改这一段口播。")]
+        patch_response = self.client.patch(
+            f"/api/v1/live-rooms/{room_id}",
+            json={
+                "expectedVersion": created["version"],
+                "changes": {
+                    "scripts": revised_scripts,
+                    "layers": {"patches": [{"id": "host", "changes": {"x": 42, "y": 61}}]},
+                },
+            },
+        )
+        self.assertEqual(patch_response.status_code, 200, patch_response.text)
+        patched = patch_response.json()
+        self.assertEqual(set(patched), {"id", "name", "status", "version", "updatedAt"})
+        self.assertLess(len(patch_response.content), 1000)
+        self.assertNotIn("config", patched)
+        self.assertEqual(patched["version"], 2)
+
+        persisted = self.client.get(f"/api/v1/live-rooms/{room_id}").json()["config"]
+        self.assertEqual(persisted["scripts"][0]["text"], "只修改这一段口播。")
+        self.assertEqual(persisted["layers"][0]["x"], 42)
+        self.assertEqual(persisted["layers"][0]["y"], 61)
+        self.assertEqual(persisted["layers"][0]["preview"], preview)
+        self.assertEqual(persisted["assets"]["image"][0]["preview"], preview)
+        self.assertEqual(persisted["importedMaterialImages"][0]["dataUrl"], preview)
+
+        title_layer = {
+            "id": "title",
+            "kind": "text",
+            "value": "增量保存",
+            "x": 50,
+            "y": 10,
+            "width": 50,
+            "height": 10,
+            "rotation": 0,
+            "opacity": 100,
+        }
+        add_response = self.client.patch(
+            f"/api/v1/live-rooms/{room_id}",
+            json={
+                "expectedVersion": patched["version"],
+                "changes": {"layers": {"upsert": [title_layer], "order": ["title", "host"]}},
+            },
+        )
+        self.assertEqual(add_response.status_code, 200, add_response.text)
+        self.assertEqual(
+            [layer["id"] for layer in self.client.get(f"/api/v1/live-rooms/{room_id}").json()["config"]["layers"]],
+            ["title", "host"],
+        )
+
+        delete_response = self.client.patch(
+            f"/api/v1/live-rooms/{room_id}",
+            json={
+                "expectedVersion": add_response.json()["version"],
+                "changes": {"layers": {"deleteIds": ["title"], "order": ["host"]}},
+            },
+        )
+        self.assertEqual(delete_response.status_code, 200, delete_response.text)
+        current_version = delete_response.json()["version"]
+
+        stale_response = self.client.patch(
+            f"/api/v1/live-rooms/{room_id}",
+            json={"expectedVersion": created["version"], "changes": {"editorDraft": "过期修改"}},
+        )
+        self.assertEqual(stale_response.status_code, 409, stale_response.text)
+
+        invalid_patches = [
+            {"layers": {"patches": [{"id": "host", "changes": {"unknownField": 1}}]}},
+            {"layers": {"order": ["missing"]}},
+            {"layers": {"upsert": [title_layer, title_layer]}},
+            {"goods": []},
+        ]
+        for changes in invalid_patches:
+            response = self.client.patch(
+                f"/api/v1/live-rooms/{room_id}",
+                json={"expectedVersion": current_version, "changes": changes},
+            )
+            self.assertEqual(response.status_code, 422, response.text)
+
     def test_rejects_invalid_control_console_config(self) -> None:
         invalid = room_config()
         invalid["goods"] = []

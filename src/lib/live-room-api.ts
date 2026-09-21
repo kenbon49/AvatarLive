@@ -176,6 +176,28 @@ export type LiveRoom = {
   updatedAt: string;
 };
 
+export type LiveRoomLayerFieldPatch = {
+  id: string;
+  changes: Partial<{
+    [Key in Exclude<keyof LiveRoomLayerItem, 'id'>]: LiveRoomLayerItem[Key] | null;
+  }>;
+};
+
+export type LiveRoomLayerChanges = {
+  upsert?: LiveRoomLayerItem[];
+  patches?: LiveRoomLayerFieldPatch[];
+  deleteIds?: string[];
+  order?: string[];
+};
+
+export type LiveRoomConfigChanges = Partial<{
+  [Key in Exclude<keyof LiveRoomConfig, 'layers'>]: LiveRoomConfig[Key] | null;
+}> & {
+  layers?: LiveRoomLayerChanges;
+};
+
+export type LiveRoomSaveResult = Pick<LiveRoom, 'id' | 'name' | 'status' | 'version' | 'updatedAt'>;
+
 export class LiveRoomApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -237,6 +259,21 @@ export function updateLiveRoom(room: LiveRoom, config: LiveRoomConfig, name = ro
       name,
       expectedVersion: room.version,
       config,
+    }),
+  });
+}
+
+export function patchLiveRoom(
+  room: LiveRoom,
+  changes?: LiveRoomConfigChanges,
+  name?: string,
+): Promise<LiveRoomSaveResult> {
+  return roomFetch(`/api/v1/live-rooms/${encodeURIComponent(room.id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      expectedVersion: room.version,
+      ...(name === undefined ? {} : { name }),
+      ...(changes === undefined ? {} : { changes }),
     }),
   });
 }

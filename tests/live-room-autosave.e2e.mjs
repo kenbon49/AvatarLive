@@ -22,6 +22,39 @@ await context.addInitScript(() => {
 });
 let failNextUpdate = false;
 const updates = [];
+const patchRequests = [];
+
+function applyConfigChanges(config, changes) {
+  const next = structuredClone(config);
+  for (const [field, value] of Object.entries(changes ?? {})) {
+    if (field === 'layers') continue;
+    if (value === null) delete next[field];
+    else next[field] = value;
+  }
+  const layerChanges = changes?.layers;
+  if (!layerChanges) return next;
+  let layers = next.layers.filter((layer) => !layerChanges.deleteIds?.includes(layer.id));
+  for (const upsert of layerChanges.upsert ?? []) {
+    const index = layers.findIndex((layer) => layer.id === upsert.id);
+    if (index === -1) layers.push(upsert);
+    else layers[index] = upsert;
+  }
+  for (const patch of layerChanges.patches ?? []) {
+    const layer = layers.find((item) => item.id === patch.id);
+    assert.ok(layer, `Cannot patch missing mocked layer ${patch.id}`);
+    for (const [field, value] of Object.entries(patch.changes)) {
+      if (value === null) delete layer[field];
+      else layer[field] = value;
+    }
+  }
+  if (layerChanges.order) {
+    const byId = new Map(layers.map((layer) => [layer.id, layer]));
+    layers = layerChanges.order.map((id) => byId.get(id));
+  }
+  next.layers = layers;
+  return next;
+}
+
 await context.route(/\/api\/v1\/live-rooms(?:\/|\?|$)/, async (route) => {
   const request = route.request();
   const path = new URL(request.url()).pathname;
@@ -31,7 +64,7 @@ await context.route(/\/api\/v1\/live-rooms(?:\/|\?|$)/, async (route) => {
   }
   const id = path.split('/live-rooms/')[1];
   const room = rooms.get(id?.replace('autosave-test-', ''));
-  if (room && request.method() === 'PUT') {
+  if (room && request.method() === 'PATCH') {
     if (failNextUpdate) {
       failNextUpdate = false;
       await route.fulfill({ status: 409, json: { detail: 'version conflict' } });
@@ -39,10 +72,20 @@ await context.route(/\/api\/v1\/live-rooms(?:\/|\?|$)/, async (route) => {
     }
     const payload = request.postDataJSON();
     assert.equal(payload.expectedVersion, room.version);
-    const updated = { ...room, version: room.version + 1, config: payload.config, updatedAt: new Date().toISOString() };
+    assert.equal('config' in payload, false, 'Incremental saves must not send the complete config');
+    patchRequests.push(payload);
+    const updated = {
+      ...room,
+      ...(payload.name === undefined ? {} : { name: payload.name }),
+      status: 'draft',
+      version: room.version + 1,
+      config: applyConfigChanges(room.config, payload.changes),
+      updatedAt: new Date().toISOString(),
+    };
     rooms.set(id.replace('autosave-test-', ''), updated);
     updates.push(updated);
-    await route.fulfill({ json: updated });
+    const { config, slug, createdAt, ...saveResult } = updated;
+    await route.fulfill({ json: saveResult });
     return;
   }
   await route.fulfill({ status: 404, json: { detail: 'not found' } });
@@ -130,6 +173,8 @@ try {
     };
   }), null, { timeout: 6000 });
   await page.locator('.xlStudioNav').getByRole('button', { name: '脚本' }).click();
+  await page.waitForFunction(() => document.querySelector('.xlRoomSubline')?.textContent?.includes('已自动保存'), null, { timeout: 6000 });
+  await page.waitForTimeout(1300);
 
   await page.locator('.xlRoomPicker').click();
   await assert.equal(await page.locator('.xlRoomMenu').isVisible(), true);
@@ -145,6 +190,10 @@ try {
   });
   assert.equal(rooms.get('first').config.editorDraft, '第一版未入分镜的编辑稿');
   assert.equal(rooms.get('first').config.scripts.length, originalScriptCount);
+  const draftPatch = patchRequests.findLast((payload) => payload.changes?.editorDraft === '第一版未入分镜的编辑稿');
+  assert.ok(draftPatch, 'Expected an incremental editorDraft request');
+  assert.deepEqual(draftPatch.changes, { editorDraft: '第一版未入分镜的编辑稿' });
+  assert.equal(JSON.stringify(draftPatch).includes('data:image/'), false);
 
   await page.reload();
   await page.locator('.xlRoomPicker strong').getByText('自动保存测试-first').waitFor();

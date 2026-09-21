@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -186,6 +186,51 @@ class LiveRoomUpdate(LiveRoomCreate):
     expected_version: int = Field(ge=1)
 
 
+class LiveRoomLayerFieldPatch(CamelModel):
+    id: str = Field(min_length=1, max_length=160)
+    changes: dict[str, JsonValue] = Field(min_length=1, max_length=50)
+
+
+class LiveRoomLayerChanges(CamelModel):
+    upsert: list[LiveRoomLayerItem] = Field(default_factory=list, max_length=1000)
+    patches: list[LiveRoomLayerFieldPatch] = Field(default_factory=list, max_length=1000)
+    delete_ids: list[str] = Field(default_factory=list, max_length=1000)
+    order: list[str] | None = Field(default=None, max_length=1000)
+
+
+class LiveRoomConfigChanges(CamelModel):
+    schema_version: Literal[1] | None = None
+    avatar_id: str | None = Field(default=None, max_length=160)
+    voice: LiveRoomVoiceSettings | None = None
+    playback_mode: Literal["sequence", "random"] | None = None
+    goods: list[LiveRoomGoodsItem] | None = Field(default=None, max_length=500)
+    active_goods_id: str | int | None = None
+    scripts: list[LiveRoomScriptItem] | None = Field(default=None, max_length=5000)
+    editor_draft: str | None = Field(default=None, max_length=20000)
+    qa_items: list[LiveRoomQaItem] | None = Field(default=None, max_length=5000)
+    selected_template_id: str | None = Field(default=None, max_length=160)
+    selected_template_page: int | None = Field(default=None, ge=0, le=20)
+    layers: LiveRoomLayerChanges | None = None
+    live_options: LiveRoomOptions | None = None
+    output_config: LiveRoomOutputConfig | None = None
+    selected_platforms: list[str] | None = Field(default=None, max_length=50)
+    selected_platform_connection_ids: list[str] | None = Field(default=None, max_length=50)
+    assets: LiveRoomAssets | None = None
+    imported_material_images: list[LiveRoomMaterialImage] | None = Field(default=None, max_length=20)
+
+
+class LiveRoomPatch(CamelModel):
+    expected_version: int = Field(ge=1)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    changes: LiveRoomConfigChanges | None = None
+
+    @model_validator(mode="after")
+    def require_changes(self) -> LiveRoomPatch:
+        if self.name is None and (self.changes is None or not self.changes.model_fields_set):
+            raise ValueError("name or configuration changes are required")
+        return self
+
+
 class LiveRoomCopy(CamelModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
 
@@ -205,4 +250,19 @@ class LiveRoomResponse(CamelModel):
     version: int
     config: LiveRoomConfig
     created_at: datetime
+    updated_at: datetime
+
+
+class LiveRoomSaveResponse(CamelModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        extra="forbid",
+        from_attributes=True,
+    )
+
+    id: str
+    name: str
+    status: Literal["draft", "published"]
+    version: int
     updated_at: datetime
