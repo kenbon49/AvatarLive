@@ -61,6 +61,9 @@ export type LiveRoomScriptItem = {
   avatarVideo?: {
     taskId: string;
     inputSignature: string;
+    status?: string;
+    videoUrl?: string;
+    coverUrl?: string;
   };
 };
 

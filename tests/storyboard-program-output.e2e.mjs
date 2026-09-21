@@ -30,6 +30,7 @@ const sample = spawnSync('ffmpeg', [
 ], { maxBuffer: 5 * 1024 * 1024 });
 assert.equal(sample.status, 0, sample.stderr?.toString());
 const videoUrl = '/storyboard-program-test.webm';
+let videoStatusAvailable = true;
 await context.addInitScript(() => localStorage.setItem('synlive.activeLiveRoom.v1', 'storyboard-window-test'));
 await context.route(`**${videoUrl}`, (route) => route.fulfill({ body: sample.stdout, contentType: 'video/webm' }));
 await context.route(/\/api\/v1\/live-rooms(?:\/|\?|$)/, async (route) => {
@@ -40,9 +41,25 @@ await context.route(/\/api\/v1\/live-rooms(?:\/|\?|$)/, async (route) => {
     await route.fulfill({ json: room });
     return;
   }
+  if (route.request().method() === 'PATCH') {
+    const payload = route.request().postDataJSON();
+    if (payload.name) room.name = payload.name;
+    const { layers, ...changes } = payload.changes ?? {};
+    room.config = { ...room.config, ...changes };
+    if (layers) throw new Error('This scenario does not expect layer patches');
+    room.version += 1;
+    room.updatedAt = new Date().toISOString();
+    const { config, slug, createdAt, ...saveResult } = room;
+    await route.fulfill({ json: saveResult });
+    return;
+  }
   await route.fulfill({ json: new URL(route.request().url()).pathname.endsWith('/live-rooms') ? [room] : room });
 });
 await context.route(/\/aliyun-avatar-video-api\/videos\/storyboard-test-\d+$/, async (route) => {
+  if (!videoStatusAvailable) {
+    await route.fulfill({ status: 503, json: { message: 'status intentionally unavailable during restore check' } });
+    return;
+  }
   const taskId = new URL(route.request().url()).pathname.split('/').at(-1);
   await route.fulfill({ json: { video: { id: taskId, name: taskId, status: 'SUCCESS', videoUrl, coverUrl: '', download: { status: 'ready', downloadedBytes: 1, totalBytes: 1 } } } });
 });
@@ -51,6 +68,11 @@ try {
   const page = await context.newPage();
   await page.goto(`${baseUrl}/live?studio=1`);
   await page.locator('.xlRoomPicker strong').getByText('分镜窗口测试').waitFor();
+  await page.getByRole('button', { name: '修改直播间名称' }).click();
+  const roomName = page.getByRole('textbox', { name: '直播间名称', exact: true });
+  await roomName.fill('分镜窗口测试-已重命名');
+  await roomName.press('Enter');
+  await page.locator('.xlRoomPicker strong').getByText('分镜窗口测试-已重命名').waitFor();
   await page.getByRole('button', { name: '开播编排' }).click();
   const dialog = page.getByRole('dialog', { name: '开播编排' });
   await dialog.getByRole('group', { name: '选择节目窗口模式' }).getByRole('button', { name: '普通窗口' }).click();
@@ -60,7 +82,7 @@ try {
   await open.click();
   const staticPopup = await staticPopupPromise;
   await page.getByRole('button', { name: '结束直播' }).waitFor({ timeout: 20000 });
-  await page.getByText('直播间静态画面（静音）').waitFor();
+  await page.locator('.xlPreviewHeaderActions > .xlProgramStoryboardStatus.static').waitFor();
   assert.equal(await page.locator('.xlProgramStoryboardStatus button').count(), 0);
   await staticPopup.waitForFunction(() => {
     const video = document.querySelector('video');
@@ -94,6 +116,14 @@ try {
   }));
   await page.reload();
   await page.locator('.xlSynthesisOverview').getByText('2/3').waitFor({ timeout: 15000 });
+  for (let attempt = 0; attempt < 60 && !room.config.scripts[1].avatarVideo.videoUrl; attempt += 1) {
+    await page.waitForTimeout(250);
+  }
+  assert.equal(room.config.scripts[0].avatarVideo.videoUrl, videoUrl);
+  assert.equal(room.config.scripts[1].avatarVideo.videoUrl, videoUrl);
+  videoStatusAvailable = false;
+  await page.reload();
+  await page.locator('.xlSynthesisOverview').getByText('2/3').waitFor({ timeout: 5000 });
   await page.getByRole('button', { name: '开播编排' }).click();
   await dialog.getByRole('group', { name: '选择节目窗口模式' }).getByRole('button', { name: '普通窗口' }).click();
   await dialog.getByText('可播分镜').waitFor();
@@ -114,8 +144,13 @@ try {
     });
     throw error;
   }
-  await page.getByText('正在播出：').waitFor();
-  assert.match(await page.locator('.xlProgramStoryboardStatus').innerText(), /片段一/);
+  const headerProgramStatus = page.locator('.xlPreviewHeaderActions > .xlProgramStoryboardStatus');
+  await headerProgramStatus.waitFor();
+  assert.match(await headerProgramStatus.locator('span').getAttribute('title'), /片段一/);
+  await page.waitForFunction(() => {
+    const video = document.querySelector('video[aria-label="实际节目输出预览"].active');
+    return video?.videoWidth === 1080 && video.videoHeight === 1920;
+  }, null, { timeout: 20000 });
   await popup.waitForFunction(() => {
     const video = document.querySelector('video');
     return video?.videoWidth === 1080 && video.videoHeight === 1920 && video.srcObject?.getAudioTracks().length === 1;
@@ -150,9 +185,9 @@ try {
   });
   assert.ok(audioLevel > 0.001, `Expected audible program audio, peak=${audioLevel}`);
   await page.getByRole('button', { name: '播放下一条分镜' }).click();
-  await page.locator('.xlProgramStoryboardStatus').getByText('片段二').waitFor();
+  await page.locator('.xlPreviewHeaderActions > .xlProgramStoryboardStatus span[title*="片段二"]').waitFor();
   await page.getByRole('button', { name: '播放下一条分镜' }).click();
-  await page.locator('.xlProgramStoryboardStatus').getByText('片段一').waitFor();
+  await page.locator('.xlPreviewHeaderActions > .xlProgramStoryboardStatus span[title*="片段一"]').waitFor();
   await page.getByRole('button', { name: '暂停播放分镜' }).click();
   await page.getByRole('button', { name: '继续播放分镜' }).click();
   const closed = popup.waitForEvent('close', { timeout: 10000 });

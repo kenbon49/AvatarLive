@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 
 export async function loginStudio(context, baseUrl) {
+  const session = process.env.LIVE_STUDIO_TEST_SESSION;
+  if (session) {
+    await context.addCookies([{ name: 'synlive_session', value: session, url: baseUrl }]);
+    return;
+  }
   const email = process.env.LIVE_STUDIO_TEST_EMAIL;
   const password = process.env.LIVE_STUDIO_TEST_PASSWORD;
   assert.ok(email && password, 'Set LIVE_STUDIO_TEST_EMAIL and LIVE_STUDIO_TEST_PASSWORD for an approved test account');

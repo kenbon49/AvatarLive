@@ -186,6 +186,9 @@ type ScriptItem = {
   avatarVideo?: {
     taskId: string;
     inputSignature: string;
+    status?: string;
+    videoUrl?: string;
+    coverUrl?: string;
   };
 };
 
@@ -345,6 +348,35 @@ function aliyunVideoState(video: AliyunVideoResult) {
   }
   if (ALIYUN_VIDEO_FAILED_STATES.has(normalized)) return 'failed';
   return 'processing';
+}
+
+function scriptsWithVideoSnapshots(scripts: ScriptItem[], results: Record<number, AliyunVideoResult>): ScriptItem[] {
+  return scripts.map((script) => {
+    const result = results[script.id];
+    if (!script.avatarVideo || result?.id !== script.avatarVideo.taskId || aliyunVideoState(result) !== 'ready') return script;
+    const avatarVideo = {
+      ...script.avatarVideo,
+      status: result.status,
+      videoUrl: result.videoUrl,
+      ...(result.coverUrl ? { coverUrl: result.coverUrl } : {}),
+    };
+    return JSON.stringify(avatarVideo) === JSON.stringify(script.avatarVideo) ? script : { ...script, avatarVideo };
+  });
+}
+
+function restoredScriptVideoResults(scripts: ScriptItem[]): Record<number, AliyunVideoResult> {
+  return Object.fromEntries(scripts.flatMap((script) => {
+    const stored = script.avatarVideo;
+    if (!stored?.videoUrl) return [];
+    return [[script.id, {
+      id: stored.taskId,
+      name: script.title,
+      status: stored.status || 'SUCCESS',
+      videoUrl: stored.videoUrl,
+      coverUrl: stored.coverUrl || '',
+      download: { status: 'ready' as const, downloadedBytes: 0, totalBytes: 0 },
+    }]];
+  }));
 }
 
 function videoDownloadProgress(video?: AliyunVideoResult) {
@@ -1267,6 +1299,7 @@ export function LiveStudio({
   const storyboardPlaylistRef = useRef<StoryboardVideoPlaylist | null>(null);
   const captureSilentAudioRef = useRef<{ context: AudioContext; track: MediaStreamTrack } | null>(null);
   const capturePopupRef = useRef<Window | null>(null);
+  const programOutputPreviewRef = useRef<HTMLVideoElement>(null);
   const broadcastSceneRef = useRef<BroadcastSceneSnapshot | null>(null);
   const runRecoveryAttemptedRef = useRef(false);
   const [mediaActive, setMediaActive] = useState(false);
@@ -1811,7 +1844,8 @@ export function LiveStudio({
     playbackMode,
     goods,
     activeGoodsId,
-    scripts: scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item),
+    scripts: scriptsWithVideoSnapshots(scripts, scriptVideoResults)
+      .map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item),
     ...(newScriptDraftRef.current ? { editorDraft: newScriptDraftRef.current } : {}),
     qaItems,
     selectedTemplateId,
@@ -1836,6 +1870,7 @@ export function LiveStudio({
     playbackMode,
     qaItems,
     scripts,
+    scriptVideoResults,
     draft,
     storyboardScriptId,
     selectedPlatformConnectionIds,
@@ -1927,6 +1962,11 @@ export function LiveStudio({
 
   const stopWindowCapture = useCallback(() => {
     streamRef.current?.setMonitorMuted(false);
+    const programPreview = programOutputPreviewRef.current;
+    if (programPreview) {
+      programPreview.pause();
+      programPreview.srcObject = null;
+    }
     windowCaptureSessionRef.current?.stop();
     windowCaptureSessionRef.current = null;
     captureCompositorRef.current?.stop();
@@ -2003,6 +2043,11 @@ export function LiveStudio({
       const mediaStream = compositor.start();
       const audioTrack = storyboardPlaylistRef.current?.audioTrack ?? captureSilentAudioRef.current?.track ?? avatarStream?.getOutputAudioTrack();
       if (audioTrack?.readyState === 'live') mediaStream.addTrack(audioTrack);
+      const programPreview = programOutputPreviewRef.current;
+      if (programPreview) {
+        programPreview.srcObject = mediaStream;
+        void programPreview.play().catch(() => undefined);
+      }
       const onState = (state: WindowCaptureState, message?: string) => {
           setWindowCaptureState(state);
           setWindowCaptureMessage(message || '');
@@ -2032,6 +2077,11 @@ export function LiveStudio({
       }
     } catch (caught) {
       avatarStream?.setMonitorMuted(false);
+      const programPreview = programOutputPreviewRef.current;
+      if (programPreview) {
+        programPreview.pause();
+        programPreview.srcObject = null;
+      }
       if (popup && !popup.closed) popup.close();
       compositor?.stop();
       compositor = null;
@@ -2100,11 +2150,12 @@ export function LiveStudio({
     setPlaybackLoop(Boolean(config.liveOptions.loopPlayback));
     setGoods(config.goods);
     setActiveGoodsId(config.goods.some((item) => item.id === config.activeGoodsId) ? config.activeGoodsId : config.goods[0].id);
-    setScripts(config.scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' } : item));
+    const restoredScripts = config.scripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' as const } : item);
+    setScripts(restoredScripts);
     setStoryboardScriptId(config.editorDraft ? null : config.scripts[0]?.id ?? null);
     setDraft(config.editorDraft || config.scripts[0]?.text || '');
     newScriptDraftRef.current = config.editorDraft ?? '';
-    setScriptVideoResults({});
+    setScriptVideoResults(restoredScriptVideoResults(restoredScripts));
     setScriptVideoSubmissionErrors({});
     setScriptVideoBatch(null);
     setAliyunVideo(null);
@@ -2814,11 +2865,18 @@ export function LiveStudio({
       for (const [index, script] of targets.entries()) {
         if (controller.signal.aborted) break;
         setScriptVideoBatch(batch => batch ? { ...batch, waiting: false } : batch);
+        let submittedVideo: AliyunVideoResult | null = null;
         try {
           const video = await requestAliyunVideo(script.text.trim(), `${script.title}-${avatar.name}-${index + 1}`);
+          submittedVideo = video;
           const avatarVideo = {
             taskId: video.id,
             inputSignature: scriptVideoInputSignatureFor(script.text),
+            ...(aliyunVideoState(video) === 'ready' ? {
+              status: video.status,
+              videoUrl: video.videoUrl,
+              ...(video.coverUrl ? { coverUrl: video.coverUrl } : {}),
+            } : {}),
           };
           nextScripts = nextScripts.map((item) => item.id === script.id ? { ...item, avatarVideo } : item);
           setScripts(nextScripts);
@@ -2831,13 +2889,16 @@ export function LiveStudio({
         } finally {
           setScriptVideoBatch((batch) => batch ? { ...batch, submitted: index + 1 } : batch);
         }
-        if (succeeded && activeRoom) {
+        if (submittedVideo && activeRoom) {
           setRoomSaving(true);
           setRoomError('');
           try {
             const config = {
               ...buildRoomConfig(),
-              scripts: nextScripts.map((item) => item.state === 'playing' ? { ...item, state: 'ready' as const } : item),
+              scripts: scriptsWithVideoSnapshots(nextScripts, {
+                ...scriptVideoResults,
+                [script.id]: submittedVideo,
+              }).map((item) => item.state === 'playing' ? { ...item, state: 'ready' as const } : item),
             };
             const savedRoom = await saveExistingRoomConfig(activeRoom, config);
             activeRoom = savedRoom;
@@ -5513,6 +5574,18 @@ export function LiveStudio({
               >
                 <strong>{room?.name ?? '直播间控制台'}</strong><span className="xlRoomPickerHint">切换直播间</span><ChevronDown size={14} />
               </button>
+              {room && <button
+                type="button"
+                className="xlRoomRenameButton"
+                title="修改直播间名称"
+                aria-label="修改直播间名称"
+                disabled={roomActionBusy || roomSaving || roomLoading || onAir}
+                onClick={() => {
+                  setRenameRoomName(room.name);
+                  setEditingRoomName(true);
+                  setRoomMenuOpen(true);
+                }}
+              ><Pencil size={13} /></button>}
               {roomMenuOpen && <div className="xlRoomMenu" role="menu" aria-label="直播间管理">
                 <header className="xlRoomMenuHeader"><div><strong>我的直播间</strong><span>{rooms.length} 个直播间</span></div><span className={roomDirty ? 'dirty' : ''}>{roomDirty ? '有未保存修改' : room?.status === 'published' ? '已发布版本' : '草稿'}</span></header>
                 <div className="xlRoomList">
@@ -5610,6 +5683,14 @@ export function LiveStudio({
                 <header className="xlPreviewHeader">
                   <span>直播预览 <button type="button" aria-label="查看预览说明" onClick={() => setPreviewHelp((value) => !value)}><HelpCircle size={15} /></button></span>
                   <div className="xlPreviewHeaderActions">
+                    {onAir && storyboardPlaylistRef.current && programStoryboard && <div className="xlProgramStoryboardStatus compact" role="status">
+                      <span title={`${programStoryboard.status === 'finished' ? '本轮播放结束' : programStoryboard.status === 'paused' ? '已暂停' : '正在播出'}：${programStoryboard.title}`}><i /><em>{programStoryboard.status === 'finished' ? '已结束' : programStoryboard.status === 'paused' ? '已暂停' : '播出中'}</em><strong>{programStoryboard.title}</strong></span>
+                      <div role="group" aria-label="节目分镜播放控制">
+                        {programStoryboard.status !== 'finished' && <button type="button" title={programStoryboard.status === 'paused' ? '继续播放分镜' : '暂停播放分镜'} aria-label={programStoryboard.status === 'paused' ? '继续播放分镜' : '暂停播放分镜'} onClick={() => programStoryboard.status === 'paused' ? storyboardPlaylistRef.current?.resume() : storyboardPlaylistRef.current?.pause()}>{programStoryboard.status === 'paused' ? <Play size={14} /> : <Pause size={14} />}</button>}
+                        <button type="button" title={programStoryboard.status === 'finished' ? '重新播放分镜' : '播放下一条分镜'} aria-label={programStoryboard.status === 'finished' ? '重新播放分镜' : '播放下一条分镜'} onClick={() => programStoryboard.status === 'finished' ? storyboardPlaylistRef.current?.restart() : storyboardPlaylistRef.current?.skip()}>{programStoryboard.status === 'finished' ? <RotateCcw size={14} /> : <SkipForward size={14} />}</button>
+                      </div>
+                    </div>}
+                    {onAir && captureSilentAudioRef.current && <div className="xlProgramStoryboardStatus compact static" role="status"><span title="正在输出：直播间静态画面（静音）"><i /><em>输出中</em><strong>静态画面</strong></span></div>}
                     {selectedCanvasLayerIds.length > 1 && <span className="xlCanvasSelectionCount">已选 {selectedCanvasLayerIds.length}</span>}
                     <button type="button" className={multiSelectMode ? 'active' : ''} title="多选图层（也可按住 Shift/Ctrl/⌘ 点击）" aria-label="多选图层" aria-pressed={multiSelectMode} onClick={() => setMultiSelectMode(value => !value)}><CheckSquare size={15} /></button>
                     {selectedCanvasLayerIds.length > 0 && <button type="button" title="删除选中图层" aria-label="删除选中图层" onClick={deleteSelectedCanvasLayers}><Trash2 size={15} /></button>}
@@ -5622,7 +5703,7 @@ export function LiveStudio({
                 </header>
                 <div className="xlPreviewStage">
                   {previewHelp && <div className="xlPreviewHelp">预览会实时同步模板、主播、文本与图层显隐状态。</div>}
-                  <div className={`xlPortraitCanvas ${canvasGestureMode ? `interacting ${canvasGestureMode}` : ''}`} ref={previewCanvasRef} role="group" aria-label="直播画面预览" tabIndex={0} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasGesture} onPointerCancel={finishCanvasGesture} onLostPointerCapture={finishCanvasGesture} onDoubleClick={(event) => {
+                  <div className={`xlPortraitCanvas ${windowCaptureState === 'live' ? `program-output program-${captureOrientation}` : ''} ${canvasGestureMode ? `interacting ${canvasGestureMode}` : ''}`} ref={previewCanvasRef} role="group" aria-label="直播画面预览" tabIndex={0} onPointerMove={handleCanvasPointerMove} onPointerUp={finishCanvasGesture} onPointerCancel={finishCanvasGesture} onLostPointerCapture={finishCanvasGesture} onDoubleClick={(event) => {
                     const hit = document.elementsFromPoint(event.clientX, event.clientY).find(element => element instanceof HTMLElement && element.dataset.layerHit);
                     const layer = layers.find(item => item.id === (hit as HTMLElement | undefined)?.dataset.layerHit);
                     if (layer) startTextEdit(layer);
@@ -5722,6 +5803,7 @@ export function LiveStudio({
                     {generatedVideoReady && <div className="xlGeneratedPreviewControls">
                       <button className="xlCloseGeneratedPreview" type="button" title="返回静态画布" aria-label="返回静态画布" onClick={() => { generatedVideoPlaybackRequestRef.current = null; generatedVideoRef.current?.pause(); setGeneratedVideoVisible(false); void restoreAvatarOutputAudio().catch(() => undefined); }}><X size={16} /></button>
                     </div>}
+                    <video ref={programOutputPreviewRef} className={`xlProgramOutputPreview ${windowCaptureState === 'live' ? 'active' : ''}`} muted playsInline aria-label="实际节目输出预览" />
                     {layers.map((item) => <button className={`xlLayerHitTarget ${item.sceneKey === 'templateBackground' ? 'background' : ''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%`, zIndex: layerZIndex(layers, item.id, 30), transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }} type="button" aria-label={item.componentInstanceId ? `选择组件：${item.componentName}` : `选择并移动图层：${item.value}`} aria-pressed={selectedCanvasLayerIds.includes(item.id)} data-layer-hit={item.id} key={`hit-${item.id}`} onPointerDown={(event) => item.componentInstanceId ? beginComponentGesture(event, item.componentInstanceId, 'move') : beginCanvasGesture(event, item, 'move')} onClick={(event) => { event.stopPropagation(); if (event.detail === 0) { if (event.shiftKey || event.ctrlKey || event.metaKey || multiSelectMode) toggleLayerSelection(item); else if (item.componentInstanceId) selectComponentInstance(item.componentInstanceId); else selectCanvasLayer(item); } }} onDoubleClick={(event) => { event.stopPropagation(); startTextEdit(item); }} />)}
                     {multiSelectedLayerIds.map((id) => {
                       const layer = layers.find(item => item.id === id);
@@ -5738,14 +5820,6 @@ export function LiveStudio({
                     {onAir && <span className="xlOnAir">LIVE</span>}
                     {stage !== 'idle' && <span className="xlRenderState">{stage === 'error' ? '连接异常' : '数字人生成中'}</span>}
                   </div>
-                  {onAir && storyboardPlaylistRef.current && programStoryboard && <div className="xlProgramStoryboardStatus" role="status">
-                    <span><i />{programStoryboard.status === 'finished' ? '本轮播放结束' : programStoryboard.status === 'paused' ? '已暂停' : '正在播出'}：<strong>{programStoryboard.title}</strong></span>
-                    <div role="group" aria-label="节目分镜播放控制">
-                      {programStoryboard.status !== 'finished' && <button type="button" title={programStoryboard.status === 'paused' ? '继续播放分镜' : '暂停播放分镜'} aria-label={programStoryboard.status === 'paused' ? '继续播放分镜' : '暂停播放分镜'} onClick={() => programStoryboard.status === 'paused' ? storyboardPlaylistRef.current?.resume() : storyboardPlaylistRef.current?.pause()}>{programStoryboard.status === 'paused' ? <Play size={15} /> : <Pause size={15} />}</button>}
-                      <button type="button" title={programStoryboard.status === 'finished' ? '重新播放分镜' : '播放下一条分镜'} aria-label={programStoryboard.status === 'finished' ? '重新播放分镜' : '播放下一条分镜'} onClick={() => programStoryboard.status === 'finished' ? storyboardPlaylistRef.current?.restart() : storyboardPlaylistRef.current?.skip()}>{programStoryboard.status === 'finished' ? <RotateCcw size={15} /> : <SkipForward size={15} />}</button>
-                    </div>
-                  </div>}
-                  {onAir && captureSilentAudioRef.current && <div className="xlProgramStoryboardStatus" role="status"><span><i />正在输出：<strong>直播间静态画面（静音）</strong></span></div>}
                   {liveRun?.mediaSourceKind === 'browser_ingest' && browserPublisherState !== 'stopped' && <div className={`xlPreviewIngestState ${browserPublisherState}`}><i />{browserPublisherState === 'live' ? '浏览器最终画面已接入媒体网关' : browserPublisherState === 'connecting' ? '正在连接 WHIP 媒体网关' : browserPublisherState === 'reconnecting' ? browserPublisherMessage || '媒体连接中断，正在重连' : browserPublisherMessage || '浏览器媒体推流失败'}</div>}
                   {error && <div className="xlPreviewError">{error}</div>}
                 </div>

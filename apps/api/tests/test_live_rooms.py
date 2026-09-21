@@ -94,6 +94,9 @@ def room_config() -> dict:
                 "avatarVideo": {
                     "taskId": "avatar_task_0001",
                     "inputSignature": "v1-test-signature",
+                    "status": "SUCCESS",
+                    "videoUrl": "/aliyun-avatar-video-api/videos/avatar_task_0001/media",
+                    "coverUrl": "https://example.test/avatar_task_0001.jpg",
                 },
             }
         ],
@@ -530,6 +533,10 @@ class LiveRoomApiTest(unittest.TestCase):
             created["config"]["scripts"][0]["avatarVideo"]["taskId"],
             "avatar_task_0001",
         )
+        self.assertEqual(
+            created["config"]["scripts"][0]["avatarVideo"]["videoUrl"],
+            "/aliyun-avatar-video-api/videos/avatar_task_0001/media",
+        )
 
         room_id = created["id"]
         updated_config = room_config()
@@ -603,6 +610,10 @@ class LiveRoomApiTest(unittest.TestCase):
             persisted = db.get(LiveRoom, room_id)
             self.assertIsNotNone(persisted)
             self.assertEqual(persisted.config["scripts"][0]["text"], "修改后仍应持久化。")
+            self.assertEqual(
+                persisted.config["scripts"][0]["avatarVideo"]["videoUrl"],
+                "/aliyun-avatar-video-api/videos/avatar_task_0001/media",
+            )
             self.assertEqual(persisted.config["selectedTemplatePage"], 2)
 
         copy_response = self.client.post(

@@ -4,6 +4,9 @@ import {
   type ChromaKeySettings,
 } from './chroma-key';
 import { layersBackToFront } from './live-layer-order';
+import { visualLayerFit, type VisualLayerFit } from './live-program-visuals';
+
+export { visualLayerFit } from './live-program-visuals';
 
 export type BroadcastSceneLayer = {
   id: string;
@@ -322,12 +325,15 @@ export class SceneCompositor {
     const scene = this.getScene();
     context.fillStyle = '#7ec9f0';
     context.fillRect(0, 0, width, height);
+    const backgroundLayer = scene.layers.find((layer) => layer.sceneKey === 'templateBackground');
     const loopVideo = scene.loopVideoUrl ? this.loopVideo(scene.loopVideoUrl) : null;
     if (loopVideo) {
-      drawCover(context, loopVideo, width, height);
+      if (backgroundLayer) this.drawVisualLayer(context, backgroundLayer, loopVideo, 'cover');
+      else drawCover(context, loopVideo, width, height);
     } else {
-      const background = this.image(scene.backgroundUrl);
-      if (background) drawCover(context, background, width, height);
+      const background = this.image(backgroundLayer?.preview ?? scene.backgroundUrl);
+      if (backgroundLayer && background) this.drawVisualLayer(context, backgroundLayer, background, 'cover');
+      else if (background) drawCover(context, background, width, height);
     }
 
     layersBackToFront(scene.layers).forEach((layer) => {
@@ -364,12 +370,12 @@ export class SceneCompositor {
       }
       if (layer.kind === 'text') {
         const renderedText = layer.preview ? this.image(layer.preview) : null;
-        if (renderedText) this.drawVisualLayer(context, layer, renderedText, 'fill');
+        if (renderedText) this.drawVisualLayer(context, layer, renderedText, visualLayerFit(layer));
         else this.drawTextLayer(context, layer);
       }
       if (layer.kind === 'image' && layer.preview) {
         const image = this.image(layer.preview);
-        if (image) this.drawVisualLayer(context, layer, image, 'contain');
+        if (image) this.drawVisualLayer(context, layer, image, visualLayerFit(layer));
       }
     });
   }
@@ -389,10 +395,18 @@ export class SceneCompositor {
     context: CanvasRenderingContext2D,
     layer: BroadcastSceneLayer,
     image: CanvasImageSource,
-    fit: 'contain' | 'cover' | 'fill',
+    fit: VisualLayerFit,
   ) {
     this.withLayer(context, layer, (width, height) => {
-      if (fit === 'cover') drawCover(context, image, width, height);
+      if (fit === 'cover') {
+        context.save();
+        context.beginPath();
+        context.rect(-width / 2, -height / 2, width, height);
+        context.clip();
+        context.translate(-width / 2, -height / 2);
+        drawCover(context, image, width, height);
+        context.restore();
+      }
       else if (fit === 'contain') drawContain(context, image, width, height);
       else context.drawImage(image, -width / 2, -height / 2, width, height);
     });

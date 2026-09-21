@@ -44,6 +44,9 @@ class LiveRoomGoodsItem(CamelModel):
 class LiveRoomScriptAvatarVideo(CamelModel):
     task_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
     input_signature: str = Field(min_length=1, max_length=160)
+    status: str | None = Field(default=None, max_length=50)
+    video_url: str | None = Field(default=None, max_length=1000)
+    cover_url: str | None = Field(default=None, max_length=1000)
 
 
 class LiveRoomScriptItem(CamelModel):
