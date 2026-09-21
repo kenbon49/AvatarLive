@@ -43,11 +43,19 @@ def main() -> None:
     parser.add_argument("--email", help="administrator email for generated credentials")
     parser.add_argument("--username", help="optional administrator login username")
     parser.add_argument("--credentials-file", type=Path, help="new private file for a generated password")
+    parser.add_argument(
+        "--if-missing",
+        action="store_true",
+        help="exit successfully when an administrator already exists",
+    )
     args = parser.parse_args()
     if bool(args.email) != bool(args.credentials_file):
         parser.error("--email and --credentials-file must be provided together")
     with SessionLocal() as db:
         if db.scalar(select(User.id).where(User.role == "admin")):
+            if args.if_missing:
+                print("管理员已存在；跳过首次账号创建。")
+                return
             raise SystemExit("管理员已存在；不会通过此命令创建第二个管理员")
         try:
             email = validate_email((args.email or input("管理员邮箱: ")).strip(), check_deliverability=False).normalized.lower()

@@ -34,5 +34,6 @@ COPY migrations ./migrations
 
 EXPOSE 8000
 
-# 启动前迁移数据库，避免新部署实例缺少业务表。
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# 启动前迁移数据库，并在空数据库中创建唯一的初始管理员。凭据只写入
+# api_runtime volume，不进入镜像或容器环境变量。
+CMD ["sh", "-c", "alembic upgrade head && mkdir -p /app/runtime/admin && chmod 700 /app/runtime/admin && python -m app.bootstrap_admin --if-missing --email \"${BOOTSTRAP_ADMIN_EMAIL:-admin@avatarlive.app}\" --username \"${BOOTSTRAP_ADMIN_USERNAME:-admin}\" --credentials-file /app/runtime/admin/initial-admin.txt && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

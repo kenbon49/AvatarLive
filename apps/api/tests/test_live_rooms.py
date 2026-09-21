@@ -27,9 +27,9 @@ from app.models.live_library import LiveRoomProduct, LiveRoomProductSelection, L
 from app.models.live_run import LiveRun, LiveRunTarget
 from app.models.platform_connection import PlatformConnection
 from app.models.platform_event import PlatformLiveEvent
-from app.models.account import ApiUsage, CreditLedgerEntry, User
+from app.models.account import ApiUsage, CreditLedgerEntry, LoginSession, User
 from app.security.accounts import COOKIE_NAME, create_session, hash_password
-from app.bootstrap_admin import write_generated_credentials
+from app.bootstrap_admin import main as bootstrap_admin, write_generated_credentials
 from app.security.platform_secrets import decrypt_secret
 from app.services.llm.chat import complete_litellm_chat
 from app.services.llm.config import (
@@ -510,6 +510,41 @@ class LiveRoomApiTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 write_generated_credentials(Path(directory) / "other.txt", "admin@example.com", "password")
             os.chmod(directory, 0o700)
+
+    def test_bootstrap_admin_if_missing_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="avatarlive-bootstrap-") as directory:
+            credentials = Path(directory) / "admin.txt"
+            with patch("sys.argv", [
+                "bootstrap-admin",
+                "--if-missing",
+                "--email", "new-admin@avatarlive.app",
+                "--credentials-file", str(credentials),
+            ]):
+                bootstrap_admin()
+            self.assertFalse(credentials.exists())
+
+    def test_bootstrap_admin_creates_private_credentials_once(self) -> None:
+        with SessionLocal() as db:
+            db.query(LoginSession).delete()
+            db.query(User).delete()
+            db.commit()
+        with tempfile.TemporaryDirectory(prefix="avatarlive-bootstrap-") as directory:
+            credentials = Path(directory) / "admin.txt"
+            with patch("sys.argv", [
+                "bootstrap-admin",
+                "--if-missing",
+                "--email", "new-admin@avatarlive.app",
+                "--username", "admin",
+                "--credentials-file", str(credentials),
+            ]):
+                bootstrap_admin()
+                first_content = credentials.read_text(encoding="utf-8")
+                bootstrap_admin()
+            self.assertEqual(stat.S_IMODE(credentials.stat().st_mode), 0o600)
+            self.assertIn("new-admin@avatarlive.app", first_content)
+            self.assertEqual(credentials.read_text(encoding="utf-8"), first_content)
+            with SessionLocal() as db:
+                self.assertEqual(db.query(User).filter(User.role == "admin").count(), 1)
 
     def test_cross_origin_mutation_is_rejected(self) -> None:
         response = self.client.post(

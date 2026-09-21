@@ -2,12 +2,47 @@
 
 AI 数字人直播中控平台原型。
 
-## 本地启动
+## 一键部署（Windows / Linux / macOS）
+
+前端、控制 API、PostgreSQL、Redis、Qdrant、MinIO、SRS 和统一入口都由
+Docker Compose 管理。首次执行会创建 `.env`、生成本地安全密钥、执行数据库迁移并
+创建初始管理员。
+
+Linux / macOS：
+
+```bash
+./deploy.sh
+```
+
+Windows PowerShell：
+
+```powershell
+.\deploy.ps1
+```
+
+Windows 也可以双击 `deploy.cmd`。启动完成后访问 `http://localhost:8018/live`。
+
+完整 MuseTalk/TTS 推理需要将 `AvatarLive-backend` 克隆在本仓库旁边，并在支持
+NVIDIA 容器的 Linux 或 Windows/WSL2 主机执行：
+
+```bash
+./deploy.sh --gpu
+```
+
+```powershell
+.\deploy.ps1 -Gpu
+```
+
+macOS 可以完整运行控制面，但 Apple Silicon/Intel Mac 不能运行本项目的 CUDA 推理栈；
+可在 `.env` 中配置远程 GPU 服务。详细前置条件、更新、停止和故障排查见
+[`docs/cross-platform-deployment.md`](docs/cross-platform-deployment.md)。
+
+## 源码开发
 
 如果你的终端没有 `pnpm`，直接使用 npm 即可：
 
 ```bash
-cd /Users/yangcheng/PycharmProjects/SynLive
+cd AvatarLive
 npm run dev
 ```
 
@@ -102,23 +137,16 @@ python3 scripts/generate_marketing_assets.py
 
 注意：Hero 主视觉和 `product-live-control.png` 当前由 GPT Image 生成，辅助脚本不会覆盖它们。
 
-## 后端 & 一键启动
+## 后端与兼容入口
 
 后端代码与文档在 `apps/api/`（FastAPI，已接入 Azure TTS + LiteLLM/GPT + LiveTalking 客户端）。基础设施编排、数字人渲染部署在 `infra/`。
 
-### 一键脚本
+旧的 `scripts/start.sh`、`scripts/deploy-full.sh` 和 `scripts/stop.sh` 仍可使用，
+它们现在转发到根目录的跨平台部署入口。新部署建议直接使用：
 
 ```bash
-# 1) 启动后端 docker 栈（postgres/redis/qdrant/minio/srs/api），自动生成 .env
-#    可选提前 export AZURE_SERVICE_KEY / LITELLM_LLM_API_KEY 自动注入密钥
-./scripts/start.sh
-./scripts/start.sh --with-frontend   # 顺带起 Next.js 前端 :3000
-
-# 2) 停止（保留数据）；--purge 连数据一起清
-./scripts/stop.sh
-
-# 3) 在 GPU 机器上部署 LiveTalking（渲染节点，跨机接入）
-AZURE_SPEECH_KEY=xxxx SRS_HOST=<SynLive主机IP> ./scripts/deploy-livetalking.sh
+./deploy.sh
+./stop.sh
 ```
 
 `start.sh`/`deploy-full.sh` 会同时启用 Compose 的 `media` profile。SRS 的 RTMP/API 端口分别为 `1935/1985`，WebRTC 使用 UDP `8000`，HTTP-FLV 默认映射到 `18080`（可用 `SRS_HTTP_PORT` 覆盖）。生产环境需把 `SRS_CANDIDATE` 设置为浏览器可达的服务器 IP；控制台会将最终竖屏 Canvas 和数字人音频经同源 WHIP 发布到 SRS，再由 API 为各 RTMP 目标启动独立 FFmpeg。`LIVE_RUN_ALLOW_TEST_PATTERN` 默认关闭。

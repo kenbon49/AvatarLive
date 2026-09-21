@@ -22,6 +22,7 @@ apps/api/.runtime/
 .venv/
 output/
 runtime/avatar-assets/
+.deploy-data/
 runtime/avatar-base-videos/
 runtime/aliyun-avatar-videos/
 secrets/

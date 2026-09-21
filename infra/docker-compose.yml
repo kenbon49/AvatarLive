@@ -20,7 +20,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synlive}
       POSTGRES_DB: ${POSTGRES_DB:-synlive}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${DATA_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${DATA_BIND_HOST:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -47,8 +47,8 @@ services:
     image: ${REGISTRY}qdrant/qdrant:latest
     restart: unless-stopped
     ports:
-      - "${QDRANT_PORT:-6333}:6333"   # REST / Dashboard
-      - "${QDRANT_GRPC_PORT:-6334}:6334" # gRPC
+      - "${DATA_BIND_HOST:-127.0.0.1}:${QDRANT_PORT:-6333}:6333"   # REST / Dashboard
+      - "${DATA_BIND_HOST:-127.0.0.1}:${QDRANT_GRPC_PORT:-6334}:6334" # gRPC
     volumes:
       - qdrant_data:/qdrant/storage
 
@@ -60,8 +60,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - "${MINIO_PORT:-9000}:9000"     # S3 API
-      - "${MINIO_CONSOLE_PORT:-9001}:9001" # Console
+      - "${DATA_BIND_HOST:-127.0.0.1}:${MINIO_PORT:-9000}:9000"     # S3 API
+      - "${DATA_BIND_HOST:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001" # Console
     volumes:
       - minio_data:/data
     healthcheck:
@@ -81,7 +81,7 @@ services:
     ports:
       - "${SRS_RTMP_PORT:-1935}:1935"   # RTMP 推流
       - "${SRS_HTTP_PORT:-18080}:8080"   # HTTP-FLV / HLS; 8080 is commonly occupied by another service
-      - "${SRS_API_PORT:-1985}:1985"      # HTTP API
+      - "${DATA_BIND_HOST:-127.0.0.1}:${SRS_API_PORT:-1985}:1985"      # HTTP API
       - "${SRS_WEBRTC_PORT:-8000}:8000/udp" # WebRTC
     volumes:
       - ./srs/conf/srs.conf:/usr/local/srs/conf/srs.conf
@@ -95,7 +95,7 @@ services:
         REGISTRY: ${REGISTRY}
     restart: unless-stopped
     env_file:
-      - ../.env
+      - ${AVATAR_ENV_FILE:-../.env}
     environment:
       # 覆盖为 docker 内网服务名
       REDIS_URL: redis://redis:6379/0
@@ -109,11 +109,15 @@ services:
       SRS_PUBLIC_WHIP_PATH: ${SRS_PUBLIC_WHIP_PATH:-/rtc/v1/whip/}
       MEDIA_SUPERVISOR_ENABLED: ${MEDIA_SUPERVISOR_ENABLED:-true}
       LIVE_RUN_ALLOW_TEST_PATTERN: ${LIVE_RUN_ALLOW_TEST_PATTERN:-false}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@avatarlive.app}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+    volumes:
+      - api_runtime:/app/runtime
     # 让 api 容器能访问宿主机上 --network=host 运行的 LiveTalking（Linux）
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${DATA_BIND_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -165,7 +169,7 @@ services:
       AVATAR_REGISTRY_KEY: ${AVATAR_REGISTRY_KEY:-}
     volumes:
       - ${AVATAR_ASSET_HOST_DIR:-../runtime/avatar-assets}:/app/runtime/avatar-assets
-      - ${AVATAR_BASE_VIDEO_HOST_DIR:-../../AvatarLive-backend/data/public}:/app/runtime/avatar-base-videos:ro
+      - ${AVATAR_BASE_VIDEO_HOST_DIR:-../.deploy-data/avatar-base-videos}:/app/runtime/avatar-base-videos:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -238,6 +242,7 @@ volumes:
   redis_data:
   qdrant_data:
   minio_data:
+  api_runtime:
   livetalking_models:
   livetalking_data:
 
