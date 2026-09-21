@@ -1,5 +1,7 @@
 import { aliyunAvatarVideoFile } from '@/lib/server/aliyun-avatar-video';
 import { responseBodyStream } from '@/lib/server/response-body-stream';
+import { assertAliyunVideoOwner } from '@/lib/server/aliyun-task-ownership';
+import { requireRequestUser } from '@/lib/server/user-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,6 +11,7 @@ type MediaRouteProps = { params: Promise<{ id: string }> };
 export async function GET(request: Request, { params }: MediaRouteProps) {
   try {
     const { id } = await params;
+    await assertAliyunVideoOwner(id, requireRequestUser(request));
     const asset = await aliyunAvatarVideoFile(id);
     const range = request.headers.get('range');
     const headers = new Headers({

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from ...db.session import get_db
 from ...models.live_library import LiveRoomProductSelection, LiveRoomScriptLibrary, Product, utc_now
+from ...models.account import User
+from ...security.accounts import owns, require_user
 from ...repositories.live_rooms import get_live_room
 from ...schemas.live_library import (
     LiveRoomProductCreate,
@@ -26,16 +28,16 @@ from ...schemas.live_library import (
 router = APIRouter(tags=["live library"])
 
 
-def require_room(db: Session, room_id: str):
+def require_room(db: Session, room_id: str, user: User | None = None):
     room = get_live_room(db, room_id)
-    if room is None:
+    if room is None or (user is not None and not owns(room.owner_id, user)):
         raise HTTPException(status_code=404, detail="live room not found")
     return room
 
 
-def require_product(db: Session, product_id: str) -> Product:
+def require_product(db: Session, product_id: str, user: User | None = None) -> Product:
     product = db.get(Product, product_id)
-    if product is None:
+    if product is None or (user is not None and not owns(product.owner_id, user)):
         raise HTTPException(status_code=404, detail="product not found")
     return product
 
@@ -78,8 +80,9 @@ def list_catalog_products(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
+    user: User = Depends(require_user),
 ):
-    statement = select(Product)
+    statement = select(Product).where(Product.owner_id == user.id)
     if source_type is not None:
         statement = statement.where(Product.source_type == source_type)
     if query.strip():
@@ -100,8 +103,8 @@ def list_catalog_products(
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
 )
-def create_catalog_product(payload: ProductCreate, db: Session = Depends(get_db)):
-    product = Product(**payload.model_dump())
+def create_catalog_product(payload: ProductCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    product = Product(owner_id=user.id, **payload.model_dump())
     db.add(product)
     db.commit()
     db.refresh(product)
@@ -109,8 +112,8 @@ def create_catalog_product(payload: ProductCreate, db: Session = Depends(get_db)
 
 
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_catalog_product(product_id: str, db: Session = Depends(get_db)):
-    product = require_product(db, product_id)
+def delete_catalog_product(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    product = require_product(db, product_id, user)
     if product.source_type != "self_built":
         raise HTTPException(status_code=409, detail="only self-built products can be deleted")
     selected_count = db.scalar(
@@ -132,8 +135,8 @@ def delete_catalog_product(product_id: str, db: Session = Depends(get_db)):
     response_model=list[LiveRoomProductResponse],
     response_model_exclude_none=True,
 )
-def list_room_products(room_id: str, db: Session = Depends(get_db)):
-    require_room(db, room_id)
+def list_room_products(room_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
     return selected_products(db, room_id)
 
 
@@ -143,9 +146,9 @@ def list_room_products(room_id: str, db: Session = Depends(get_db)):
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
 )
-def create_and_select_product(room_id: str, payload: LiveRoomProductCreate, db: Session = Depends(get_db)):
-    require_room(db, room_id)
-    product = Product(**payload.model_dump())
+def create_and_select_product(room_id: str, payload: LiveRoomProductCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
+    product = Product(owner_id=user.id, **payload.model_dump())
     db.add(product)
     db.flush()
     selection = LiveRoomProductSelection(
@@ -165,10 +168,10 @@ def create_and_select_product(room_id: str, payload: LiveRoomProductCreate, db: 
     response_model=list[LiveRoomProductResponse],
     response_model_exclude_none=True,
 )
-def attach_products(room_id: str, payload: LiveRoomProductSelectionCreate, db: Session = Depends(get_db)):
-    require_room(db, room_id)
+def attach_products(room_id: str, payload: LiveRoomProductSelectionCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
     product_ids = list(dict.fromkeys(payload.product_ids))
-    products = list(db.scalars(select(Product).where(Product.id.in_(product_ids))))
+    products = list(db.scalars(select(Product).where(Product.id.in_(product_ids), Product.owner_id == user.id)))
     found_ids = {product.id for product in products}
     missing = [product_id for product_id in product_ids if product_id not in found_ids]
     if missing:
@@ -194,9 +197,9 @@ def attach_products(room_id: str, payload: LiveRoomProductSelectionCreate, db: S
     response_model=LiveRoomProductResponse,
     response_model_exclude_none=True,
 )
-def update_product(room_id: str, product_id: str, payload: LiveRoomProductUpdate, db: Session = Depends(get_db)):
-    require_room(db, room_id)
-    product = require_product(db, product_id)
+def update_product(room_id: str, product_id: str, payload: LiveRoomProductUpdate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
+    product = require_product(db, product_id, user)
     selection = db.scalar(select(LiveRoomProductSelection).where(
         LiveRoomProductSelection.live_room_id == room_id,
         LiveRoomProductSelection.product_id == product_id,
@@ -214,8 +217,8 @@ def update_product(room_id: str, product_id: str, payload: LiveRoomProductUpdate
 
 
 @router.delete("/live-rooms/{room_id}/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-def detach_product(room_id: str, product_id: str, db: Session = Depends(get_db)):
-    require_room(db, room_id)
+def detach_product(room_id: str, product_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
     selection = db.scalar(select(LiveRoomProductSelection).where(
         LiveRoomProductSelection.live_room_id == room_id,
         LiveRoomProductSelection.product_id == product_id,
@@ -231,8 +234,8 @@ def detach_product(room_id: str, product_id: str, db: Session = Depends(get_db))
     response_model=list[LiveRoomProductResponse],
     response_model_exclude_none=True,
 )
-def reorder_products(room_id: str, payload: LiveRoomProductSelectionOrder, db: Session = Depends(get_db)):
-    require_room(db, room_id)
+def reorder_products(room_id: str, payload: LiveRoomProductSelectionOrder, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
     selections = list(db.scalars(select(LiveRoomProductSelection).where(
         LiveRoomProductSelection.live_room_id == room_id
     )))
@@ -251,8 +254,8 @@ def reorder_products(room_id: str, payload: LiveRoomProductSelectionOrder, db: S
     response_model=list[LiveRoomScriptResponse],
     response_model_exclude_none=True,
 )
-def list_scripts(room_id: str, db: Session = Depends(get_db)):
-    require_room(db, room_id)
+def list_scripts(room_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
     return list(db.scalars(select(LiveRoomScriptLibrary).where(
         LiveRoomScriptLibrary.live_room_id == room_id
     ).order_by(LiveRoomScriptLibrary.created_at.asc())))
@@ -263,8 +266,8 @@ def list_scripts(room_id: str, db: Session = Depends(get_db)):
     response_model=list[LiveRoomScriptResponse],
     response_model_exclude_none=True,
 )
-def list_product_scripts(product_id: str, db: Session = Depends(get_db)):
-    require_product(db, product_id)
+def list_product_scripts(product_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_product(db, product_id, user)
     return list(db.scalars(select(LiveRoomScriptLibrary).where(
         LiveRoomScriptLibrary.product_id == product_id
     ).order_by(LiveRoomScriptLibrary.created_at.desc())))
@@ -276,8 +279,8 @@ def list_product_scripts(product_id: str, db: Session = Depends(get_db)):
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
 )
-def create_script(room_id: str, payload: LiveRoomScriptCreate, db: Session = Depends(get_db)):
-    require_room(db, room_id)
+def create_script(room_id: str, payload: LiveRoomScriptCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
     if payload.product_id:
         selection = db.scalar(select(LiveRoomProductSelection).where(
             LiveRoomProductSelection.live_room_id == room_id,
@@ -297,8 +300,8 @@ def create_script(room_id: str, payload: LiveRoomScriptCreate, db: Session = Dep
     response_model=LiveRoomScriptResponse,
     response_model_exclude_none=True,
 )
-def update_script(room_id: str, script_id: str, payload: LiveRoomScriptUpdate, db: Session = Depends(get_db)):
-    require_room(db, room_id)
+def update_script(room_id: str, script_id: str, payload: LiveRoomScriptUpdate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
     script = db.scalar(select(LiveRoomScriptLibrary).where(
         LiveRoomScriptLibrary.id == script_id,
         LiveRoomScriptLibrary.live_room_id == room_id,
@@ -306,7 +309,7 @@ def update_script(room_id: str, script_id: str, payload: LiveRoomScriptUpdate, d
     if script is None:
         raise HTTPException(status_code=404, detail="script not found")
     if payload.product_id:
-        require_product(db, payload.product_id)
+        require_product(db, payload.product_id, user)
     for key, value in payload.model_dump().items():
         setattr(script, key, value)
     script.updated_at = utc_now()
@@ -316,8 +319,8 @@ def update_script(room_id: str, script_id: str, payload: LiveRoomScriptUpdate, d
 
 
 @router.delete("/live-rooms/{room_id}/scripts/{script_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_script(room_id: str, script_id: str, db: Session = Depends(get_db)):
-    require_room(db, room_id)
+def delete_script(room_id: str, script_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_room(db, room_id, user)
     script = db.scalar(select(LiveRoomScriptLibrary).where(
         LiveRoomScriptLibrary.id == script_id,
         LiveRoomScriptLibrary.live_room_id == room_id,

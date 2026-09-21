@@ -6,6 +6,11 @@
 
 from __future__ import annotations
 
+import re
+from urllib.parse import urlparse
+
+import httpx
+
 from ...core.config import settings
 
 # 可用模型表（id → LiteLLM model 串）
@@ -57,6 +62,12 @@ LITELLM_MODEL_OPTIONS = [
 ]
 
 MODEL_MAP = {item["id"]: item for item in LITELLM_MODEL_OPTIONS}
+MODEL_BY_DISPLAY_NAME = {item["display_model"]: item for item in LITELLM_MODEL_OPTIONS}
+MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$")
+
+
+class LlmModelDiscoveryError(RuntimeError):
+    pass
 
 # 数字人直播主播默认人设（口播向、简洁、不编造）
 DEFAULT_PERSONA_SYSTEM_PROMPT = (
@@ -68,11 +79,103 @@ DEFAULT_PERSONA_SYSTEM_PROMPT = (
 
 def get_litellm_config() -> tuple[str, str, int]:
     """返回 (api_key, api_base, max_output_tokens)，统一从 settings 读取。"""
+    from ...security.settings_store import effective_api_value
     return (
-        settings.llm_api_key,
-        settings.llm_base_url,
+        effective_api_value("llm_api_key"),
+        effective_api_value("llm_base_url"),
         settings.llm_max_output_tokens,
     )
+
+
+def get_litellm_default_model_id() -> str:
+    from ...security.settings_store import effective_api_value
+    return effective_api_value("llm_default_model_id").strip() or "llm-gpt"
+
+
+def resolve_litellm_model(model_id: str) -> dict:
+    """Resolve legacy aliases and provider model IDs discovered from /models."""
+    normalized = model_id.strip()
+    known = MODEL_MAP.get(normalized) or MODEL_BY_DISPLAY_NAME.get(normalized)
+    if known:
+        return {**known, "id": normalized}
+    if not MODEL_ID_PATTERN.fullmatch(normalized):
+        raise ValueError("不支持的 LLM 模型")
+    return {
+        "id": normalized,
+        "provider": "openai-compatible",
+        "name": normalized,
+        "model": f"openai/{normalized}",
+        "display_model": normalized,
+        "description": "OpenAI-compatible model",
+        "temperature": 0.7,
+        # OpenAI-compatible model catalogs do not expose modality metadata.
+        # Let the selected upstream validate image support when images are sent.
+        "supports_images": True,
+        "max_output_tokens": settings.llm_max_output_tokens,
+    }
+
+
+def validate_litellm_base_url(value: str) -> str:
+    normalized = value.strip().rstrip("/")
+    parsed = urlparse(normalized)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("LLM 服务地址必须是完整的 HTTPS 地址")
+    if parsed.query or parsed.fragment:
+        raise ValueError("LLM 服务地址不能包含查询参数或片段")
+    return normalized
+
+
+async def discover_litellm_models(*, api_key: str | None = None, api_base: str | None = None) -> list[dict]:
+    """Read an OpenAI-compatible /models catalog without making a billable completion."""
+    configured_key, configured_base, _ = get_litellm_config()
+    key = (api_key if api_key is not None else configured_key).strip()
+    base = validate_litellm_base_url(api_base if api_base is not None else configured_base)
+    if not key:
+        raise LlmModelDiscoveryError("LLM API Key 尚未配置")
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0, connect=8.0),
+            follow_redirects=False,
+        ) as client:
+            response = await client.get(
+                f"{base}/models",
+                headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+            )
+    except httpx.TimeoutException as exc:
+        raise LlmModelDiscoveryError("读取模型列表超时") from exc
+    except httpx.HTTPError as exc:
+        raise LlmModelDiscoveryError("无法连接 LLM 服务") from exc
+    if response.status_code in {401, 403}:
+        raise LlmModelDiscoveryError("LLM API Key 无效或无权读取模型列表")
+    if not response.is_success:
+        raise LlmModelDiscoveryError(f"LLM 模型接口返回 HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise LlmModelDiscoveryError("LLM 模型接口没有返回有效 JSON") from exc
+    candidates = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(candidates, list) and isinstance(payload, dict):
+        candidates = payload.get("models")
+    if not isinstance(candidates, list):
+        raise LlmModelDiscoveryError("LLM 模型接口返回格式不兼容")
+    discovered: dict[str, dict] = {}
+    for item in candidates[:2000]:
+        if isinstance(item, str):
+            model_id, owner = item.strip(), ""
+        elif isinstance(item, dict):
+            raw_id = item.get("id") or item.get("model") or item.get("name")
+            model_id = raw_id.strip() if isinstance(raw_id, str) else ""
+            raw_owner = item.get("owned_by") or item.get("provider") or ""
+            owner = raw_owner.strip()[:80] if isinstance(raw_owner, str) else ""
+        else:
+            continue
+        if MODEL_ID_PATTERN.fullmatch(model_id):
+            discovered[model_id] = {"id": model_id, "ownedBy": owner}
+        if len(discovered) >= 500:
+            break
+    if not discovered:
+        raise LlmModelDiscoveryError("LLM 服务没有返回可用模型")
+    return [discovered[key] for key in sorted(discovered, key=str.casefold)]
 
 
 def list_litellm_models() -> list[dict]:

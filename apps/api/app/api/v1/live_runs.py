@@ -18,13 +18,17 @@ from ...schemas.live_run import (
 )
 from ...services.live_runs import evaluate_preflight, media_supervisor
 from ...core.config import settings
+from ...models.account import User
+from ...repositories.live_rooms import get_live_room
+from ...security.accounts import owns, require_user
 
 router = APIRouter(prefix="/live-runs", tags=["live runs"])
 
 
-def require_run(db: Session, run_id: str):
+def require_run(db: Session, run_id: str, user: User | None = None):
     run = repository.get_live_run(db, run_id)
-    if run is None:
+    room = get_live_room(db, run.live_room_id) if run else None
+    if run is None or room is None or (user is not None and not owns(room.owner_id, user)):
         raise HTTPException(status_code=404, detail="live run not found")
     return run
 
@@ -53,7 +57,10 @@ def run_response(db: Session, run) -> LiveRunResponse:
 
 
 @router.post("/preflight", response_model=LiveRunPreflightResponse, response_model_exclude_none=True)
-def preflight(payload: LiveRunPreflightRequest, db: Session = Depends(get_db)):
+def preflight(payload: LiveRunPreflightRequest, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    room = get_live_room(db, payload.live_room_id)
+    if room is None or not owns(room.owner_id, user):
+        raise HTTPException(status_code=404, detail="live room not found")
     return evaluate_preflight(db, payload).response
 
 
@@ -63,7 +70,10 @@ def preflight(payload: LiveRunPreflightRequest, db: Session = Depends(get_db)):
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
 )
-def create_run(payload: LiveRunCreate, db: Session = Depends(get_db)):
+def create_run(payload: LiveRunCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    room = get_live_room(db, payload.live_room_id)
+    if room is None or not owns(room.owner_id, user):
+        raise HTTPException(status_code=404, detail="live room not found")
     existing = repository.get_live_run_by_request_id(db, payload.request_id)
     if existing is not None:
         if existing.live_room_id != payload.live_room_id:
@@ -104,13 +114,13 @@ def create_run(payload: LiveRunCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{run_id}", response_model=LiveRunResponse, response_model_exclude_none=True)
-def get_run(run_id: str, db: Session = Depends(get_db)):
-    return run_response(db, require_run(db, run_id))
+def get_run(run_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    return run_response(db, require_run(db, run_id, user))
 
 
 @router.post("/{run_id}/start", response_model=LiveRunResponse, response_model_exclude_none=True)
-def start_run(run_id: str, db: Session = Depends(get_db)):
-    require_run(db, run_id)
+def start_run(run_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    require_run(db, run_id, user)
     try:
         media_supervisor.start(run_id)
     except LookupError as exc:
@@ -124,8 +134,8 @@ def start_run(run_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{run_id}/stop", response_model=LiveRunResponse, response_model_exclude_none=True)
-def stop_run(run_id: str, db: Session = Depends(get_db)):
-    run = repository.request_stop(db, require_run(db, run_id))
+def stop_run(run_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    run = repository.request_stop(db, require_run(db, run_id, user))
     if run.status == "stopping":
         try:
             media_supervisor.stop(run_id)

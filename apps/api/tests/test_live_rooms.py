@@ -3,10 +3,13 @@ from __future__ import annotations
 import base64
 import json
 import os
+from pathlib import Path
+import stat
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 TEST_DIRECTORY = tempfile.TemporaryDirectory(prefix="avatarlive-live-rooms-")
@@ -14,6 +17,7 @@ os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{TEST_DIRECTORY.name}/live-roo
 os.environ["PLATFORM_ENCRYPTION_KEY"] = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii")
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.db import Base, SessionLocal, engine
 from app.core.config import settings
@@ -23,6 +27,15 @@ from app.models.live_library import LiveRoomProduct, LiveRoomProductSelection, L
 from app.models.live_run import LiveRun, LiveRunTarget
 from app.models.platform_connection import PlatformConnection
 from app.models.platform_event import PlatformLiveEvent
+from app.models.account import ApiUsage, CreditLedgerEntry, User
+from app.security.accounts import COOKIE_NAME, create_session, hash_password
+from app.bootstrap_admin import write_generated_credentials
+from app.security.platform_secrets import decrypt_secret
+from app.services.llm.chat import complete_litellm_chat
+from app.services.llm.config import (
+    LlmModelDiscoveryError, discover_litellm_models,
+    get_litellm_default_model_id, resolve_litellm_model,
+)
 from app.services.live_runs import preflight as live_run_preflight
 from app.services.live_runs import media_supervisor
 from app.services.live_runs.supervisor import _output_dimensions, _source_command
@@ -139,6 +152,12 @@ class LiveRoomApiTest(unittest.TestCase):
     def setUp(self) -> None:
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
+        with SessionLocal() as db:
+            admin = User(email="admin@example.com", password_hash=hash_password("test-password-1234"), role="admin", status="approved")
+            db.add(admin)
+            db.commit()
+            db.refresh(admin)
+            self.client.cookies.set(COOKIE_NAME, create_session(db, admin))
         settings.platform_webhook_secrets = json.dumps({"test-bridge": "test-webhook-secret-123456789"})
         settings.platform_webhook_rate_limit_per_minute = 600
         webhook_rate_limiter.reset()
@@ -152,6 +171,350 @@ class LiveRoomApiTest(unittest.TestCase):
             "X-SynLive-Signature": signature or f"sha256={sign_webhook('test-webhook-secret-123456789', timestamp, body)}",
         }
         return self.client.post("/api/v1/platform-events/webhooks/test-bridge", content=body, headers=headers)
+
+    def test_registration_review_login_and_resource_ownership(self) -> None:
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.get("/api/v1/live-rooms").status_code, 401)
+            self.assertEqual(anonymous.get("/api/v1/admin/settings").status_code, 401)
+            self.assertEqual(anonymous.get("/api/v1/admin/llm/models").status_code, 401)
+            new_user = {"email": "viewer@example.com", "password": "long-password-1234"}
+            self.assertEqual(anonymous.post("/api/v1/auth/register", json=new_user).status_code, 201)
+            self.assertEqual(anonymous.post("/api/v1/auth/login", json=new_user).status_code, 403)
+            pending = self.client.get("/api/v1/auth/pending").json()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(self.client.post(f"/api/v1/auth/pending/{pending[0]['id']}/approve").status_code, 200)
+            logged_in = anonymous.post("/api/v1/auth/login", json=new_user)
+            self.assertEqual(logged_in.status_code, 200, logged_in.text)
+            anonymous.cookies.set(COOKIE_NAME, logged_in.cookies[COOKIE_NAME])
+            self.assertEqual(anonymous.get("/api/v1/admin/settings").status_code, 403)
+            self.assertEqual(anonymous.get("/api/v1/admin/llm/models").status_code, 403)
+            self.assertEqual(anonymous.put("/api/v1/admin/llm/default-model", json={"model_id": "test-model"}).status_code, 403)
+            admin_room = self.client.post("/api/v1/live-rooms", json={"name": "管理员直播间", "config": room_config()}).json()
+            self.assertEqual(anonymous.get(f"/api/v1/live-rooms/{admin_room['id']}").status_code, 404)
+            self.assertEqual(anonymous.get("/api/v1/live-rooms").json(), [])
+            self.assertEqual(anonymous.post("/api/v1/live-rooms", json={"name": "用户直播间", "config": room_config()}).status_code, 201)
+            self.assertEqual(len(anonymous.get("/api/v1/live-rooms").json()), 1)
+            self.assertEqual(anonymous.post("/api/v1/auth/logout").status_code, 200)
+            self.assertEqual(anonymous.get("/api/v1/live-rooms").status_code, 401)
+
+    def test_administrator_can_login_with_username_and_email_clients_remain_compatible(self) -> None:
+        with SessionLocal() as db:
+            admin = db.scalar(select(User).where(User.role == "admin"))
+            admin.username = "admin"
+            db.commit()
+        with TestClient(app) as client:
+            username_login = client.post("/api/v1/auth/login", json={
+                "identifier": "ADMIN", "password": "test-password-1234",
+            })
+            self.assertEqual(username_login.status_code, 200, username_login.text)
+            self.assertEqual(username_login.json()["username"], "admin")
+        with TestClient(app) as legacy_client:
+            email_login = legacy_client.post("/api/v1/auth/login", json={
+                "email": "admin@example.com", "password": "test-password-1234",
+            })
+            self.assertEqual(email_login.status_code, 200, email_login.text)
+
+    def test_prepaid_credits_are_recharged_allocated_charged_and_reported(self) -> None:
+        registration = {"email": "credits@example.com", "password": "long-password-1234"}
+        with TestClient(app) as user_client:
+            self.assertEqual(user_client.post("/api/v1/auth/register", json=registration).status_code, 201)
+            managed = self.client.get("/api/v1/admin/users")
+            self.assertEqual(managed.status_code, 200, managed.text)
+            target = next(item for item in managed.json() if item["email"] == registration["email"])
+            self.assertEqual(target["creditBalance"], 0)
+            self.assertEqual(self.client.post(f"/api/v1/auth/pending/{target['id']}/approve").status_code, 200)
+
+            recharge = self.client.post("/api/v1/admin/credits/recharge", json={
+                "amount": 25, "payment_reference": "PAYMENT-UNIT-0001",
+            })
+            self.assertEqual(recharge.status_code, 200, recharge.text)
+            self.assertEqual(recharge.json()["balance"], 25)
+            duplicate = self.client.post("/api/v1/admin/credits/recharge", json={
+                "amount": 25, "payment_reference": "PAYMENT-UNIT-0001",
+            })
+            self.assertEqual(duplicate.status_code, 409, duplicate.text)
+
+            allocation = self.client.post(f"/api/v1/admin/users/{target['id']}/allocate", json={"amount": 12})
+            self.assertEqual(allocation.status_code, 200, allocation.text)
+            self.assertEqual(allocation.json()["adminBalance"], 13)
+            self.assertEqual(allocation.json()["userBalance"], 12)
+
+            login = user_client.post("/api/v1/auth/login", json=registration)
+            self.assertEqual(login.status_code, 200, login.text)
+            user_client.cookies.set(COOKIE_NAME, login.cookies[COOKIE_NAME])
+            llm_charge = user_client.post("/api/v1/billing/charge", json={
+                "operation": "llm_chat", "reference": "unit:llm:0001", "detail": {"test": True},
+            })
+            self.assertEqual(llm_charge.status_code, 200, llm_charge.text)
+            self.assertEqual(llm_charge.json()["credits"], 1)
+            video_charge = user_client.post("/api/v1/billing/charge", json={
+                "operation": "storyboard_video", "reference": "unit:video:0001",
+            })
+            self.assertEqual(video_charge.status_code, 200, video_charge.text)
+            self.assertEqual(video_charge.json()["credits"], 10)
+            insufficient = user_client.post("/api/v1/billing/charge", json={
+                "operation": "storyboard_video", "reference": "unit:video:0002",
+            })
+            self.assertEqual(insufficient.status_code, 402, insufficient.text)
+
+            report = user_client.get("/api/v1/resources/report")
+            self.assertEqual(report.status_code, 200, report.text)
+            self.assertEqual(report.json()["currentBalance"], 1)
+            self.assertEqual(report.json()["totalCalls"], 2)
+            self.assertEqual(report.json()["chargedCredits"], 11)
+            self.assertEqual(report.json()["operationCounts"]["llm_chat"], 1)
+            self.assertEqual(report.json()["operationCounts"]["storyboard_video"], 1)
+
+    def test_admin_api_calls_are_unlimited_without_spending_user_allocation_credits(self) -> None:
+        balance = self.client.get("/api/v1/billing/balance")
+        self.assertEqual(balance.status_code, 200)
+        self.assertEqual(balance.json()["balance"], 0)
+        self.assertTrue(balance.json()["unlimited"])
+        for operation, reference in (("llm_chat", "admin:llm:1"), ("storyboard_video", "admin:video:1")):
+            charged = self.client.post("/api/v1/billing/charge", json={"operation": operation, "reference": reference})
+            self.assertEqual(charged.status_code, 200, charged.text)
+            self.assertEqual(charged.json()["credits"], 0)
+            self.assertEqual(charged.json()["balance"], 0)
+            self.assertTrue(charged.json()["unlimited"])
+            repeated = self.client.post("/api/v1/billing/charge", json={"operation": operation, "reference": reference})
+            self.assertEqual(repeated.json()["usageId"], charged.json()["usageId"])
+            self.assertEqual(self.client.put(
+                f"/api/v1/billing/usages/{charged.json()['usageId']}/status", json={"status": "succeeded"},
+            ).status_code, 200)
+        with SessionLocal() as db:
+            self.assertEqual(db.query(ApiUsage).count(), 2)
+            self.assertEqual(db.query(CreditLedgerEntry).count(), 0)
+        report = self.client.get("/api/v1/resources/report").json()
+        self.assertTrue(report["unlimited"])
+        self.assertEqual(report["currentBalance"], 0)
+        self.assertEqual(report["totalCalls"], 2)
+        self.assertEqual(report["chargedCredits"], 0)
+        self.assertEqual(report["successfulCalls"], 2)
+        self.assertEqual(self.client.get("/api/v1/admin/users").json()[0]["usedCredits"], 0)
+
+        registration = {"email": "limited@example.com", "password": "long-password-1234"}
+        with TestClient(app) as user_client:
+            self.assertEqual(user_client.post("/api/v1/auth/register", json=registration).status_code, 201)
+            user_id = next(user["id"] for user in self.client.get("/api/v1/admin/users").json()
+                           if user["email"] == registration["email"])
+            self.assertEqual(self.client.post(f"/api/v1/auth/pending/{user_id}/approve").status_code, 200)
+            self.assertEqual(self.client.post(f"/api/v1/admin/users/{user_id}/allocate", json={"amount": 1}).status_code, 409)
+            login = user_client.post("/api/v1/auth/login", json=registration)
+            self.assertEqual(login.status_code, 200)
+            user_client.cookies.set(COOKIE_NAME, login.cookies[COOKIE_NAME])
+            self.assertFalse(user_client.get("/api/v1/billing/balance").json()["unlimited"])
+            self.assertEqual(user_client.post("/api/v1/billing/charge", json={
+                "operation": "llm_chat", "reference": "limited:llm:1",
+            }).status_code, 402)
+
+    def test_existing_password_can_be_rehashed_without_weakening_creation_policy(self) -> None:
+        with self.assertRaises(ValueError):
+            hash_password("ten-chars!")
+        encoded = hash_password("ten-chars!", minimum_length=10)
+        from app.security.accounts import verify_password
+        self.assertTrue(verify_password("ten-chars!", encoded))
+
+    def test_login_cookie_matches_http_and_https_entrypoints(self) -> None:
+        credentials = {"identifier": "admin@example.com", "password": "test-password-1234"}
+        with TestClient(app, base_url="http://testserver") as http_client:
+            response = http_client.post("/api/v1/auth/login", json=credentials)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertNotIn("secure", response.headers["set-cookie"].lower())
+            self.assertEqual(http_client.get("/api/v1/auth/me").status_code, 200)
+        with TestClient(app, base_url="https://testserver") as https_client:
+            response = https_client.post("/api/v1/auth/login", json=credentials)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("secure", response.headers["set-cookie"].lower())
+            self.assertEqual(https_client.get("/api/v1/auth/me").status_code, 200)
+
+    def test_admin_configuration_is_masked_and_key_rotation_preserves_secrets(self) -> None:
+        connection = self.client.post("/api/v1/platform-connections", json={
+            "name": "测试", "platformLabel": "通用 RTMP",
+            "serverUrl": "rtmp://example.com/live", "streamKey": "secret-rotation-value",
+        })
+        self.assertEqual(connection.status_code, 201, connection.text)
+        connection_id = connection.json()["id"]
+        room = self.client.post("/api/v1/live-rooms", json={"name": "历史任务", "config": room_config()}).json()
+        with SessionLocal() as db:
+            saved = db.get(PlatformConnection, connection_id)
+            run = LiveRun(request_id="rotation-run", live_room_id=room["id"], room_version=1,
+                          config_snapshot={}, media_source_kind="test_pattern", status="stopped")
+            db.add(run)
+            db.flush()
+            snapshot = LiveRunTarget(
+                live_run_id=run.id, platform_connection_id=connection_id, connection_version=1,
+                connection_name="测试", platform_label="通用 RTMP", server_url="rtmp://example.com/live",
+                stream_key_ciphertext=saved.stream_key_ciphertext, stream_key_last4="alue", status="stopped",
+            )
+            db.add(snapshot)
+            db.commit()
+            snapshot_id = snapshot.id
+        replacement = base64.urlsafe_b64encode(os.urandom(32)).decode("ascii")
+        response = self.client.put("/api/v1/admin/settings/platform_master_key", json={"value": replacement})
+        self.assertEqual(response.status_code, 200, response.text)
+        with SessionLocal() as db:
+            stored = db.get(PlatformConnection, connection_id)
+            self.assertEqual(decrypt_secret(stored.stream_key_ciphertext, connection_id), "secret-rotation-value")
+            target = db.get(LiveRunTarget, snapshot_id)
+            self.assertEqual(decrypt_secret(target.stream_key_ciphertext, connection_id), "secret-rotation-value")
+        listing = self.client.get("/api/v1/admin/settings")
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertNotIn(replacement, listing.text)
+        self.assertNotIn("secret-rotation-value", listing.text)
+        staged = self.client.put("/api/v1/admin/settings/database_url", json={"value": "postgresql+psycopg://newuser:newpass@db.test/newdb"})
+        self.assertEqual(staged.status_code, 200, staged.text)
+        self.assertEqual(staged.json()["mode"], "deployment")
+        status = self.client.get("/api/v1/admin/settings")
+        self.assertNotIn("newpass", status.text)
+        self.assertTrue(next(item for item in status.json()["settings"] if item["key"] == "database_url")["saved"])
+        self.assertTrue(any(item["key"] == "minio_secret_key" for item in status.json()["settings"]))
+
+    def test_master_key_rotation_rejects_active_runs_without_changing_credentials(self) -> None:
+        connection = self.client.post("/api/v1/platform-connections", json={
+            "name": "轮换保护", "platformLabel": "通用 RTMP",
+            "serverUrl": "rtmp://example.com/live", "streamKey": "unchanged-secret",
+        }).json()
+        room = self.client.post("/api/v1/live-rooms", json={"name": "未结束直播", "config": room_config()}).json()
+        with SessionLocal() as db:
+            db.add(LiveRun(request_id="rotation-active-run", live_room_id=room["id"], room_version=1,
+                           config_snapshot={}, media_source_kind="test_pattern", status="live"))
+            db.commit()
+        replacement = base64.urlsafe_b64encode(os.urandom(32)).decode("ascii")
+        response = self.client.put("/api/v1/admin/settings/platform_master_key", json={"value": replacement})
+        self.assertEqual(response.status_code, 409, response.text)
+        with SessionLocal() as db:
+            saved = db.get(PlatformConnection, connection["id"])
+            self.assertEqual(decrypt_secret(saved.stream_key_ciphertext, connection["id"]), "unchanged-secret")
+        self.assertFalse(next(item for item in self.client.get("/api/v1/admin/settings").json()["settings"]
+                              if item["key"] == "platform_master_key")["saved"])
+
+    def test_admin_setting_address_validation(self) -> None:
+        for name, value in (
+            ("seo_video_api_base_url", "file://example.com/media"),
+            ("llm_base_url", "http://example.com/v1"),
+            ("database_url", "sqlite:///tmp/new.sqlite3"),
+        ):
+            response = self.client.put(f"/api/v1/admin/settings/{name}", json={"value": value})
+            self.assertEqual(response.status_code, 422, response.text)
+
+    def test_admin_llm_configuration_discovers_models_before_saving(self) -> None:
+        original = (settings.llm_api_key, settings.llm_base_url, settings.llm_default_model_id)
+        models = [{"id": "custom-vision", "ownedBy": "provider"}, {"id": "custom-text", "ownedBy": "provider"}]
+        try:
+            with patch("app.api.v1.admin.discover_litellm_models", new=AsyncMock(return_value=models)) as discover:
+                response = self.client.put("/api/v1/admin/llm/configuration", json={
+                    "base_url": "https://models.example.com/v1/", "api_key": "test-secret",
+                })
+                self.assertEqual(response.status_code, 200, response.text)
+                discover.assert_awaited_once_with(api_key="test-secret", api_base="https://models.example.com/v1")
+                self.assertEqual([item["id"] for item in response.json()["models"]], ["custom-vision", "custom-text"])
+                self.assertNotIn("test-secret", response.text)
+                self.assertEqual(response.json()["baseUrl"], "https://models.example.com/v1")
+            listing = self.client.get("/api/v1/admin/settings").json()["settings"]
+            self.assertNotIn("test-secret", json.dumps(listing))
+            self.assertTrue(next(item for item in listing if item["key"] == "llm_api_key")["saved"])
+            with patch("app.api.v1.admin.discover_litellm_models", new=AsyncMock(return_value=models)):
+                selected = self.client.put("/api/v1/admin/llm/default-model", json={"model_id": "custom-vision"})
+                self.assertEqual(selected.status_code, 200, selected.text)
+                self.assertEqual(self.client.get("/health/ready").json()["llm_default_model_id"], "custom-vision")
+                with patch("app.api.v1.llm.discover_litellm_models", new=AsyncMock(return_value=models)):
+                    self.assertEqual(self.client.get("/api/v1/llm/models").json()["default_model_id"], "custom-vision")
+            self.assertEqual(resolve_litellm_model("custom-vision")["model"], "openai/custom-vision")
+            self.assertEqual(resolve_litellm_model("openai/custom-vision")["model"], "openai/openai/custom-vision")
+            with patch("app.services.llm.chat.litellm.completion", return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message={"content": "模型响应"})],
+            )) as completion:
+                generated = complete_litellm_chat(get_litellm_default_model_id(), [{"role": "user", "content": "测试"}])
+            self.assertEqual(generated["content"], "模型响应")
+            self.assertEqual(completion.call_args.kwargs["model"], "openai/custom-vision")
+            self.assertEqual(completion.call_args.kwargs["api_base"], "https://models.example.com/v1")
+            self.assertEqual(completion.call_args.kwargs["api_key"], "test-secret")
+            self.assertNotIn("temperature", completion.call_args.kwargs)
+            with patch("app.api.v1.admin.discover_litellm_models", new=AsyncMock(return_value=models)):
+                invalid = self.client.put("/api/v1/admin/llm/default-model", json={"model_id": "not-listed"})
+            self.assertEqual(invalid.status_code, 422)
+            self.assertEqual(self.client.get("/health/ready").json()["llm_default_model_id"], "custom-vision")
+            self.assertEqual(self.client.put("/api/v1/admin/settings/llm_default_model_id", json={"value": "not-listed"}).status_code, 422)
+            self.assertEqual(self.client.put("/api/v1/admin/settings/llm_api_key", json={"value": "bypass"}).status_code, 422)
+            with patch("app.api.v1.admin.discover_litellm_models", new=AsyncMock(side_effect=LlmModelDiscoveryError("鉴权失败"))):
+                rejected = self.client.put("/api/v1/admin/llm/configuration", json={
+                    "base_url": "https://bad.example.com/v1", "api_key": "wrong-secret",
+                })
+            self.assertEqual(rejected.status_code, 502)
+            self.assertNotIn("wrong-secret", rejected.text)
+            self.assertEqual(settings.llm_api_key, "test-secret")
+            self.assertEqual(settings.llm_base_url, "https://models.example.com/v1")
+            with patch("app.api.v1.admin.discover_litellm_models", new=AsyncMock(return_value=models)) as discover:
+                unchanged_key = self.client.put("/api/v1/admin/llm/configuration", json={
+                    "base_url": "https://new.example.com/v1",
+                })
+                self.assertEqual(unchanged_key.status_code, 200)
+                discover.assert_awaited_once_with(api_key="test-secret", api_base="https://new.example.com/v1")
+        finally:
+            settings.llm_api_key, settings.llm_base_url, settings.llm_default_model_id = original
+
+    def test_llm_model_discovery_handles_compatible_catalogs_and_failures(self) -> None:
+        import asyncio
+        import httpx
+
+        async_client = httpx.AsyncClient
+        received = []
+
+        def catalog(request):
+            received.append((str(request.url), request.headers.get("authorization")))
+            return httpx.Response(200, json={"data": [
+                {"id": "model-b", "owned_by": "vendor"}, {"id": "model-a"}, {"id": "model-a"},
+                {"id": "invalid model"},
+            ]})
+
+        with patch("app.services.llm.config.httpx.AsyncClient", side_effect=lambda **kwargs: async_client(
+            transport=httpx.MockTransport(catalog), **kwargs,
+        )):
+            models = asyncio.run(discover_litellm_models(api_key="only-in-header", api_base="https://models.example.com/v1"))
+        self.assertEqual([item["id"] for item in models], ["model-a", "model-b"])
+        self.assertEqual(received, [("https://models.example.com/v1/models", "Bearer only-in-header")])
+
+        for status, body in ((401, {"error": "invalid"}), (200, {"data": []})):
+            with patch("app.services.llm.config.httpx.AsyncClient", side_effect=lambda **kwargs: async_client(
+                transport=httpx.MockTransport(lambda request: httpx.Response(status, json=body)), **kwargs,
+            )):
+                with self.assertRaises(LlmModelDiscoveryError):
+                    asyncio.run(discover_litellm_models(api_key="invalid", api_base="https://models.example.com/v1"))
+
+    def test_admin_settings_recognize_environment_aliyun_keys_without_exposing_them(self) -> None:
+        with patch.object(settings, "aliyun_access_key_id", "environment-id"), patch.object(
+            settings, "aliyun_access_key_secret", "environment-secret"
+        ):
+            response = self.client.get("/api/v1/admin/settings")
+        self.assertEqual(response.status_code, 200, response.text)
+        listed = {item["key"]: item for item in response.json()["settings"]}
+        for key in ("aliyun_access_key_id", "aliyun_access_key_secret"):
+            self.assertTrue(listed[key]["configured"])
+            self.assertFalse(listed[key]["saved"])
+        self.assertNotIn("environment-id", response.text)
+        self.assertNotIn("environment-secret", response.text)
+
+    def test_generated_admin_credentials_require_private_new_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="avatarlive-credentials-") as directory:
+            path = Path(directory) / "admin.txt"
+            write_generated_credentials(path, "admin@example.com", "test-password")
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            self.assertIn("test-password", path.read_text(encoding="utf-8"))
+            with self.assertRaises(FileExistsError):
+                write_generated_credentials(path, "other@example.com", "overwrite")
+            self.assertNotIn("overwrite", path.read_text(encoding="utf-8"))
+            os.chmod(directory, 0o755)
+            with self.assertRaises(ValueError):
+                write_generated_credentials(Path(directory) / "other.txt", "admin@example.com", "password")
+            os.chmod(directory, 0o700)
+
+    def test_cross_origin_mutation_is_rejected(self) -> None:
+        response = self.client.post(
+            "/api/v1/live-rooms", json={"name": "不应创建", "config": room_config()},
+            headers={"Origin": "https://foreign.example"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.client.get("/api/v1/live-rooms").json(), [])
 
     def test_create_update_copy_publish_and_persist(self) -> None:
         create_response = self.client.post(
@@ -207,6 +570,12 @@ class LiveRoomApiTest(unittest.TestCase):
                 "backgroundColor": "#111827",
                 "backgroundOpacity": 72,
                 "backgroundRadius": 6,
+                "componentInstanceId": "component-tea-banner-1",
+                "componentSourceId": "tea-banner",
+                "componentName": "茶品标题组件",
+                "componentLayerId": "title",
+                "componentRole": "title",
+                "componentTextLimit": 80,
             },
         )
         update_payload = {
@@ -222,6 +591,10 @@ class LiveRoomApiTest(unittest.TestCase):
         self.assertEqual(update_response.json()["config"]["importedMaterialImages"][0]["name"], "六堡茶参考图.png")
         self.assertEqual(update_response.json()["config"]["layers"][0]["strokeWidth"], 2.5)
         self.assertTrue(update_response.json()["config"]["layers"][0]["backgroundEnabled"])
+        self.assertEqual(
+            update_response.json()["config"]["layers"][0]["componentInstanceId"],
+            "component-tea-banner-1",
+        )
 
         stale_response = self.client.put(f"/api/v1/live-rooms/{room_id}", json=update_payload)
         self.assertEqual(stale_response.status_code, 409)

@@ -157,7 +157,8 @@ LANGUAGE_OPTIONS = [
 
 def get_azure_config() -> tuple[str, str]:
     """返回 (subscription_key, region)，统一从 settings 读取。"""
-    return (settings.azure_service_key, settings.azure_service_region)
+    from ...security.settings_store import effective_api_value
+    return (effective_api_value("azure_service_key"), effective_api_value("azure_service_region"))
 
 
 def get_language_config(lang_code: str) -> dict | None:

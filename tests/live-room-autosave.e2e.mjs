@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { firstStudioRoom, loginStudio } from './studio-auth.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_PACKAGE ?? 'playwright');
 const baseUrl = process.env.LIVE_STUDIO_URL ?? 'http://127.0.0.1:3000';
-const sourceResponse = await fetch('http://127.0.0.1:8000/api/v1/live-rooms?limit=1');
-assert.equal(sourceResponse.ok, true, 'A read-only room fixture must be available');
-const [sourceRoom] = await sourceResponse.json();
-assert.ok(sourceRoom);
+const browser = await chromium.launch({ headless: true });
+const context = await browser.newContext();
+await loginStudio(context, baseUrl);
+const sourceRoom = await firstStudioRoom(context, baseUrl);
 
 const rooms = new Map(['first', 'second'].map((id) => [id, {
   ...structuredClone(sourceRoom), id: `autosave-test-${id}`, name: `自动保存测试-${id}`,
@@ -14,8 +15,6 @@ const rooms = new Map(['first', 'second'].map((id) => [id, {
 }]));
 const originalScriptCount = rooms.get('first').config.scripts.length;
 const sampleBackground = await readFile(new URL('../public/assets/live/scenes/nature-live-background.webp', import.meta.url));
-const browser = await chromium.launch({ headless: true });
-const context = await browser.newContext();
 await context.addInitScript(() => {
   if (!localStorage.getItem('synlive.activeLiveRoom.v1')) {
     localStorage.setItem('synlive.activeLiveRoom.v1', 'autosave-test-first');

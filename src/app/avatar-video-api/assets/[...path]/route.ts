@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-import { avatarAssetFile } from '@/lib/avatar-video-server';
+import { assertAvatarVideoOwner, avatarAssetFile, readAvatarVideoJob } from '@/lib/avatar-video-server';
+import { requireRequestUser } from '@/lib/server/user-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,10 @@ export async function GET(
 ) {
   try {
     const { path: segments } = await context.params;
+    const user = requireRequestUser(request);
+    const job = await readAvatarVideoJob(segments[1] || '');
+    assertAvatarVideoOwner(job, user);
+    if (job.avatarId !== segments[0]) throw new Error('素材不存在');
     const asset = await avatarAssetFile(segments);
     const contentType = CONTENT_TYPES[path.extname(asset.filepath).toLowerCase()] || 'application/octet-stream';
     const range = request.headers.get('range');

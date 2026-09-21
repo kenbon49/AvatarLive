@@ -20,8 +20,11 @@ def _ordered_connections() -> Select[tuple[PlatformConnection]]:
     )
 
 
-def list_platform_connections(db: Session) -> list[PlatformConnection]:
-    return list(db.scalars(_ordered_connections()))
+def list_platform_connections(db: Session, *, owner_id: str | None = None) -> list[PlatformConnection]:
+    statement = _ordered_connections()
+    if owner_id is not None:
+        statement = statement.where(PlatformConnection.owner_id == owner_id)
+    return list(db.scalars(statement))
 
 
 def get_platform_connection(db: Session, connection_id: str) -> PlatformConnection | None:
@@ -37,9 +40,11 @@ def create_platform_connection(
     server_url: str,
     stream_key_ciphertext: str,
     stream_key_last4: str,
+    owner_id: str | None = None,
 ) -> PlatformConnection:
     connection = PlatformConnection(
         id=connection_id,
+        owner_id=owner_id,
         kind="manual_rtmp",
         name=name,
         platform_label=platform_label,

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { loginStudio } from './studio-auth.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_PACKAGE ?? 'playwright');
 const baseUrl = process.env.LIVE_STUDIO_URL ?? 'http://127.0.0.1:3000';
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext();
+await loginStudio(context, baseUrl);
 await context.route(/\/api\/v1\/live-rooms(?:\/|\?|$)/, route => route.fulfill({ json: [] }));
 
 try {

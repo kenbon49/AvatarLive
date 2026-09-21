@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { scriptAvatarVideoInputSignature } from '../src/lib/script-avatar-video.ts';
+import { firstStudioRoom, loginStudio } from './studio-auth.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_PACKAGE ?? 'playwright');
 const baseUrl = process.env.LIVE_STUDIO_URL ?? 'http://127.0.0.1:3000';
-const response = await fetch('http://127.0.0.1:8000/api/v1/live-rooms?limit=1');
-assert.equal(response.ok, true);
-const [source] = await response.json();
+const browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
+const context = await browser.newContext();
+await loginStudio(context, baseUrl);
+const source = await firstStudioRoom(context, baseUrl);
 const initial = source.config.scripts[0];
 assert.ok(initial);
 const voice = source.config.voice;
@@ -28,8 +30,6 @@ const sample = spawnSync('ffmpeg', [
 ], { maxBuffer: 5 * 1024 * 1024 });
 assert.equal(sample.status, 0, sample.stderr?.toString());
 const videoUrl = '/storyboard-program-test.webm';
-const browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
-const context = await browser.newContext();
 await context.addInitScript(() => localStorage.setItem('synlive.activeLiveRoom.v1', 'storyboard-window-test'));
 await context.route(`**${videoUrl}`, (route) => route.fulfill({ body: sample.stdout, contentType: 'video/webm' }));
 await context.route(/\/api\/v1\/live-rooms(?:\/|\?|$)/, async (route) => {

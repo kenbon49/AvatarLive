@@ -1,8 +1,10 @@
-import { fetchSeoService } from '@/lib/server/seo-service';
+import { requireRequestUser } from '@/lib/server/user-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
+
+const API_UPSTREAM = (process.env.API_UPSTREAM || 'http://127.0.0.1:8000').replace(/\/$/, '');
 
 type ExpandPayload = { prompt?: unknown; systemPrompt?: unknown; maxTokens?: unknown; imageDataUrls?: unknown; stream?: unknown };
 
@@ -27,6 +29,7 @@ function parseEventStream(body: string) {
 
 export async function POST(request: Request) {
   try {
+    requireRequestUser(request);
     const input = await request.json() as ExpandPayload;
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
     if (!prompt || prompt.length > 30_000) {
@@ -50,19 +53,27 @@ export async function POST(request: Request) {
         ...imageDataUrls.map((url) => ({ type: 'image_url', image_url: { url } })),
       ]
       : prompt;
-    const { response } = await fetchSeoService('/api/agent/llm/chat', {
+    const response = await fetch(`${API_UPSTREAM}/api/v1/llm/chat/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: request.headers.get('cookie') || '',
+      },
       body: JSON.stringify({
-        model_id: process.env.LLM_DEFAULT_MODEL_ID || 'llm-gpt',
         messages: [{ role: 'user', content: messageContent }],
         system_prompt: systemPrompt || undefined,
         max_tokens: Math.max(100, Math.min(12_000, Math.round(requestedTokens))),
-        temperature: 1,
       }),
+      cache: 'no-store',
       signal: AbortSignal.timeout(150_000),
     });
-    if (!response.ok) throw new Error(`话术扩写服务返回 HTTP ${response.status}`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({})) as { detail?: unknown };
+      return Response.json(
+        { message: typeof payload.detail === 'string' ? payload.detail : `话术扩写服务返回 HTTP ${response.status}` },
+        { status: response.status, headers: { 'cache-control': 'no-store' } },
+      );
+    }
     if (wantsStream) {
       if (!response.body) throw new Error('话术扩写服务没有返回内容');
       return new Response(response.body, {

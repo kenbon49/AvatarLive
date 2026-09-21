@@ -248,32 +248,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/3293.json"
   },
   {
-    "id": "yijing-3289",
-    "sourceId": 3289,
-    "name": "8181",
-    "image": "/assets/xiling-live/yijing/covers/3289.png",
-    "category": "其他",
-    "categories": [
-      "其他"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3289.json"
-  },
-  {
-    "id": "yijing-3290",
-    "sourceId": 3290,
-    "name": "8182",
-    "image": "/assets/xiling-live/yijing/covers/3290.png",
-    "category": "其他",
-    "categories": [
-      "其他"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3290.json"
-  },
-  {
     "id": "yijing-3284",
     "sourceId": 3284,
     "name": "魅力秀场",
@@ -636,45 +610,6 @@
     "color": "浅蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/3256.json"
-  },
-  {
-    "id": "yijing-3246",
-    "sourceId": 3246,
-    "name": "省心购物",
-    "image": "/assets/xiling-live/yijing/covers/3246.png",
-    "category": "通用场景",
-    "categories": [
-      "通用场景"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3246.json"
-  },
-  {
-    "id": "yijing-3248",
-    "sourceId": 3248,
-    "name": "省心好物",
-    "image": "/assets/xiling-live/yijing/covers/3248.png",
-    "category": "通用场景",
-    "categories": [
-      "通用场景"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3248.json"
-  },
-  {
-    "id": "yijing-3247",
-    "sourceId": 3247,
-    "name": "省心热卖",
-    "image": "/assets/xiling-live/yijing/covers/3247.png",
-    "category": "通用场景",
-    "categories": [
-      "通用场景"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3247.json"
   },
   {
     "id": "yijing-3236",
@@ -1199,58 +1134,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/3163.json"
   },
   {
-    "id": "yijing-3072",
-    "sourceId": 3072,
-    "name": "健康齿久",
-    "image": "/assets/xiling-live/yijing/covers/3072.png",
-    "category": "医美医疗",
-    "categories": [
-      "医美医疗"
-    ],
-    "color": "深蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3072.json"
-  },
-  {
-    "id": "yijing-3071",
-    "sourceId": 3071,
-    "name": "眼睛救星",
-    "image": "/assets/xiling-live/yijing/covers/3071.png",
-    "category": "医美医疗",
-    "categories": [
-      "医美医疗"
-    ],
-    "color": "粉色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3071.json"
-  },
-  {
-    "id": "yijing-3068",
-    "sourceId": 3068,
-    "name": "名医名诊",
-    "image": "/assets/xiling-live/yijing/covers/3068.png",
-    "category": "医美医疗",
-    "categories": [
-      "医美医疗"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3068.json"
-  },
-  {
-    "id": "yijing-3067",
-    "sourceId": 3067,
-    "name": "严肃医疗",
-    "image": "/assets/xiling-live/yijing/covers/3067.png",
-    "category": "医美医疗",
-    "categories": [
-      "医美医疗"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3067.json"
-  },
-  {
     "id": "yijing-3056",
     "sourceId": 3056,
     "name": "康养生活",
@@ -1381,19 +1264,6 @@
     "color": "咖色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/3041.json"
-  },
-  {
-    "id": "yijing-3035",
-    "sourceId": 3035,
-    "name": "中医诊疗",
-    "image": "/assets/xiling-live/yijing/covers/3035.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3035.json"
   },
   {
     "id": "yijing-3030",
@@ -1709,19 +1579,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2883.json"
   },
   {
-    "id": "yijing-2876",
-    "sourceId": 2876,
-    "name": "买车补贴",
-    "image": "/assets/xiling-live/yijing/covers/2876.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2876.json"
-  },
-  {
     "id": "yijing-2874",
     "sourceId": 2874,
     "name": "惊喜权益",
@@ -1733,19 +1590,6 @@
     "color": "浅蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2874.json"
-  },
-  {
-    "id": "yijing-2896",
-    "sourceId": 2896,
-    "name": "车行视界",
-    "image": "/assets/xiling-live/yijing/covers/2896.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2896.json"
   },
   {
     "id": "yijing-2908",
@@ -1842,19 +1686,6 @@
     "color": "深蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1091.json"
-  },
-  {
-    "id": "yijing-2476",
-    "sourceId": 2476,
-    "name": "健康航路",
-    "image": "/assets/xiling-live/yijing/covers/2476.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "浅蓝",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2476.json"
   },
   {
     "id": "yijing-2601",
@@ -2161,19 +1992,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2403.json"
   },
   {
-    "id": "yijing-3336",
-    "sourceId": 3336,
-    "name": "姻缘",
-    "image": "/assets/xiling-live/yijing/covers/3336.png",
-    "category": "热门推荐",
-    "categories": [
-      "热门推荐"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3336.json"
-  },
-  {
     "id": "yijing-2053",
     "sourceId": 2053,
     "name": "保健优惠",
@@ -2322,105 +2140,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1536.json"
   },
   {
-    "id": "yijing-3344",
-    "sourceId": 3344,
-    "name": "养生图书1-交付",
-    "image": "/assets/xiling-live/yijing/covers/3344.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程",
-      "国学手播",
-      "书籍封面"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3344.json"
-  },
-  {
-    "id": "yijing-3343",
-    "sourceId": 3343,
-    "name": "K12-交付",
-    "image": "/assets/xiling-live/yijing/covers/3343.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程",
-      "国学手播",
-      "书籍封面"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3343.json"
-  },
-  {
-    "id": "yijing-3342",
-    "sourceId": 3342,
-    "name": "养生图书2-交付",
-    "image": "/assets/xiling-live/yijing/covers/3342.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程",
-      "国学手播",
-      "书籍封面"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3342.json"
-  },
-  {
-    "id": "yijing-3341",
-    "sourceId": 3341,
-    "name": "开学季-交付",
-    "image": "/assets/xiling-live/yijing/covers/3341.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程",
-      "国学手播",
-      "书籍封面"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3341.json"
-  },
-  {
-    "id": "yijing-3339",
-    "sourceId": 3339,
-    "name": "易经八字测算",
-    "image": "/assets/xiling-live/yijing/covers/3339.png",
-    "category": "热门推荐",
-    "categories": [
-      "热门推荐"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3339.json"
-  },
-  {
-    "id": "yijing-3338",
-    "sourceId": 3338,
-    "name": "塔罗牌",
-    "image": "/assets/xiling-live/yijing/covers/3338.png",
-    "category": "热门推荐",
-    "categories": [
-      "热门推荐"
-    ],
-    "color": "紫色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3338.json"
-  },
-  {
-    "id": "yijing-3337",
-    "sourceId": 3337,
-    "name": "取名",
-    "image": "/assets/xiling-live/yijing/covers/3337.png",
-    "category": "热门推荐",
-    "categories": [
-      "热门推荐"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3337.json"
-  },
-  {
     "id": "yijing-2832",
     "sourceId": 2832,
     "name": "优惠车展",
@@ -2540,73 +2259,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/527.json"
   },
   {
-    "id": "yijing-3349",
-    "sourceId": 3349,
-    "name": "事业",
-    "image": "/assets/xiling-live/yijing/covers/3349.png",
-    "category": "国学手播",
-    "categories": [
-      "国学手播"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3349.json"
-  },
-  {
-    "id": "yijing-3348",
-    "sourceId": 3348,
-    "name": "生肖",
-    "image": "/assets/xiling-live/yijing/covers/3348.png",
-    "category": "国学手播",
-    "categories": [
-      "国学手播"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3348.json"
-  },
-  {
-    "id": "yijing-3345",
-    "sourceId": 3345,
-    "name": "国学图书-交付",
-    "image": "/assets/xiling-live/yijing/covers/3345.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程",
-      "国学手播",
-      "书籍封面"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3345.json"
-  },
-  {
-    "id": "yijing-2838",
-    "sourceId": 2838,
-    "name": "车展优惠",
-    "image": "/assets/xiling-live/yijing/covers/2838.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2838.json"
-  },
-  {
-    "id": "yijing-2837",
-    "sourceId": 2837,
-    "name": "十月特促",
-    "image": "/assets/xiling-live/yijing/covers/2837.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2837.json"
-  },
-  {
     "id": "yijing-2836",
     "sourceId": 2836,
     "name": "温馨大促",
@@ -2631,32 +2283,6 @@
     "color": "白色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2835.json"
-  },
-  {
-    "id": "yijing-2834",
-    "sourceId": 2834,
-    "name": "车价特惠",
-    "image": "/assets/xiling-live/yijing/covers/2834.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2834.json"
-  },
-  {
-    "id": "yijing-2833",
-    "sourceId": 2833,
-    "name": "特惠车展",
-    "image": "/assets/xiling-live/yijing/covers/2833.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2833.json"
   },
   {
     "id": "yijing-2582",
@@ -2752,110 +2378,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1558.json"
   },
   {
-    "id": "yijing-3356",
-    "sourceId": 3356,
-    "name": "教育手播",
-    "image": "/assets/xiling-live/yijing/covers/3356.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3356.json"
-  },
-  {
-    "id": "yijing-3355",
-    "sourceId": 3355,
-    "name": "职业培训",
-    "image": "/assets/xiling-live/yijing/covers/3355.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3355.json"
-  },
-  {
-    "id": "yijing-3354",
-    "sourceId": 3354,
-    "name": "出国留学",
-    "image": "/assets/xiling-live/yijing/covers/3354.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3354.json"
-  },
-  {
-    "id": "yijing-3353",
-    "sourceId": 3353,
-    "name": "成人兴趣",
-    "image": "/assets/xiling-live/yijing/covers/3353.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3353.json"
-  },
-  {
-    "id": "yijing-3352",
-    "sourceId": 3352,
-    "name": "姻缘1",
-    "image": "/assets/xiling-live/yijing/covers/3352.png",
-    "category": "国学手播",
-    "categories": [
-      "国学手播"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3352.json"
-  },
-  {
-    "id": "yijing-3351",
-    "sourceId": 3351,
-    "name": "财运",
-    "image": "/assets/xiling-live/yijing/covers/3351.png",
-    "category": "国学手播",
-    "categories": [
-      "国学手播"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3351.json"
-  },
-  {
-    "id": "yijing-2843",
-    "sourceId": 2843,
-    "name": "优惠新车",
-    "image": "/assets/xiling-live/yijing/covers/2843.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2843.json"
-  },
-  {
-    "id": "yijing-2842",
-    "sourceId": 2842,
-    "name": "汽车新品",
-    "image": "/assets/xiling-live/yijing/covers/2842.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2842.json"
-  },
-  {
     "id": "yijing-2841",
     "sourceId": 2841,
     "name": "促销车价",
@@ -2880,19 +2402,6 @@
     "color": "橙色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2840.json"
-  },
-  {
-    "id": "yijing-2839",
-    "sourceId": 2839,
-    "name": "特价车型",
-    "image": "/assets/xiling-live/yijing/covers/2839.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2839.json"
   },
   {
     "id": "yijing-2588",
@@ -3023,19 +2532,6 @@
     "color": "红色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2082.json"
-  },
-  {
-    "id": "yijing-2087",
-    "sourceId": 2087,
-    "name": "养生有道",
-    "image": "/assets/xiling-live/yijing/covers/2087.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2087.json"
   },
   {
     "id": "yijing-2086",
@@ -3298,19 +2794,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2602.json"
   },
   {
-    "id": "yijing-2600",
-    "sourceId": 2600,
-    "name": "健康之舟",
-    "image": "/assets/xiling-live/yijing/covers/2600.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "其他",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2600.json"
-  },
-  {
     "id": "yijing-817",
     "sourceId": 817,
     "name": "美好启程",
@@ -3323,19 +2806,6 @@
     "color": "浅蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/817.json"
-  },
-  {
-    "id": "yijing-2088",
-    "sourceId": 2088,
-    "name": "守护安康",
-    "image": "/assets/xiling-live/yijing/covers/2088.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2088.json"
   },
   {
     "id": "yijing-1578",
@@ -3606,19 +3076,6 @@
     "color": "红色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/52.json"
-  },
-  {
-    "id": "yijing-2873",
-    "sourceId": 2873,
-    "name": "品牌简约",
-    "image": "/assets/xiling-live/yijing/covers/2873.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2873.json"
   },
   {
     "id": "yijing-2618",
@@ -4142,19 +3599,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/580.json"
   },
   {
-    "id": "yijing-2119",
-    "sourceId": 2119,
-    "name": "健康好物",
-    "image": "/assets/xiling-live/yijing/covers/2119.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "深蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2119.json"
-  },
-  {
     "id": "yijing-2116",
     "sourceId": 2116,
     "name": "乐享养生",
@@ -4292,19 +3736,6 @@
     "color": "紫色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/3146.json"
-  },
-  {
-    "id": "yijing-3145",
-    "sourceId": 3145,
-    "name": "温情脉脉",
-    "image": "/assets/xiling-live/yijing/covers/3145.png",
-    "category": "成人用品",
-    "categories": [
-      "成人用品"
-    ],
-    "color": "粉色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3145.json"
   },
   {
     "id": "yijing-3144",
@@ -4776,19 +4207,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2900.json"
   },
   {
-    "id": "yijing-2386",
-    "sourceId": 2386,
-    "name": "减肥促销",
-    "image": "/assets/xiling-live/yijing/covers/2386.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2386.json"
-  },
-  {
     "id": "yijing-2644",
     "sourceId": 2644,
     "name": "法律明镜",
@@ -4924,32 +4342,6 @@
     "color": "咖色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/80.json"
-  },
-  {
-    "id": "yijing-3160",
-    "sourceId": 3160,
-    "name": "柔情似水",
-    "image": "/assets/xiling-live/yijing/covers/3160.png",
-    "category": "成人用品",
-    "categories": [
-      "成人用品"
-    ],
-    "color": "粉色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3160.json"
-  },
-  {
-    "id": "yijing-3159",
-    "sourceId": 3159,
-    "name": "魂牵梦绕",
-    "image": "/assets/xiling-live/yijing/covers/3159.png",
-    "category": "成人用品",
-    "categories": [
-      "成人用品"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3159.json"
   },
   {
     "id": "yijing-3158",
@@ -5351,19 +4743,6 @@
     "color": "绿色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1117.json"
-  },
-  {
-    "id": "yijing-3167",
-    "sourceId": 3167,
-    "name": "比翼双飞",
-    "image": "/assets/xiling-live/yijing/covers/3167.png",
-    "category": "成人用品",
-    "categories": [
-      "成人用品"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3167.json"
   },
   {
     "id": "yijing-2909",
@@ -6896,19 +6275,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1146.json"
   },
   {
-    "id": "yijing-2170",
-    "sourceId": 2170,
-    "name": "健身养生",
-    "image": "/assets/xiling-live/yijing/covers/2170.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2170.json"
-  },
-  {
     "id": "yijing-1147",
     "sourceId": 1147,
     "name": "精选酒柜",
@@ -7247,47 +6613,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1408.json"
   },
   {
-    "id": "yijing-127",
-    "sourceId": 127,
-    "name": "好物大促",
-    "image": "/assets/xiling-live/yijing/covers/127.png",
-    "category": "家居日用",
-    "categories": [
-      "家居日用",
-      "服饰内衣"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/127.json"
-  },
-  {
-    "id": "yijing-126",
-    "sourceId": 126,
-    "name": "品质优选",
-    "image": "/assets/xiling-live/yijing/covers/126.png",
-    "category": "服饰内衣",
-    "categories": [
-      "服饰内衣"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/126.json"
-  },
-  {
-    "id": "yijing-125",
-    "sourceId": 125,
-    "name": "通用服装",
-    "image": "/assets/xiling-live/yijing/covers/125.png",
-    "category": "服饰内衣",
-    "categories": [
-      "服饰内衣",
-      "家居日用"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/125.json"
-  },
-  {
     "id": "yijing-2693",
     "sourceId": 2693,
     "name": "法界通晓",
@@ -7366,19 +6691,6 @@
     "color": "浅蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1159.json"
-  },
-  {
-    "id": "yijing-2438",
-    "sourceId": 2438,
-    "name": "保健狂欢",
-    "image": "/assets/xiling-live/yijing/covers/2438.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2438.json"
   },
   {
     "id": "yijing-2437",
@@ -7543,19 +6855,6 @@
     "color": "浅蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1162.json"
-  },
-  {
-    "id": "yijing-2445",
-    "sourceId": 2445,
-    "name": "福寿双全",
-    "image": "/assets/xiling-live/yijing/covers/2445.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "绿色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2445.json"
   },
   {
     "id": "yijing-2442",
@@ -7762,58 +7061,6 @@
     "color": "绿色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1171.json"
-  },
-  {
-    "id": "yijing-2450",
-    "sourceId": 2450,
-    "name": "滋补仙居",
-    "image": "/assets/xiling-live/yijing/covers/2450.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2450.json"
-  },
-  {
-    "id": "yijing-2449",
-    "sourceId": 2449,
-    "name": "滋补仙踪",
-    "image": "/assets/xiling-live/yijing/covers/2449.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "红色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2449.json"
-  },
-  {
-    "id": "yijing-2448",
-    "sourceId": 2448,
-    "name": "养生大观",
-    "image": "/assets/xiling-live/yijing/covers/2448.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2448.json"
-  },
-  {
-    "id": "yijing-2447",
-    "sourceId": 2447,
-    "name": "滋补盛宴",
-    "image": "/assets/xiling-live/yijing/covers/2447.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2447.json"
   },
   {
     "id": "yijing-2446",
@@ -8147,20 +7394,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1940.json"
   },
   {
-    "id": "yijing-1942",
-    "sourceId": 1942,
-    "name": "音乐之声",
-    "image": "/assets/xiling-live/yijing/covers/1942.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用"
-    ],
-    "color": "咖色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1942.json"
-  },
-  {
     "id": "yijing-2971",
     "sourceId": 2971,
     "name": "宝马香车",
@@ -8225,32 +7458,6 @@
     "color": "橙色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1177.json"
-  },
-  {
-    "id": "yijing-2460",
-    "sourceId": 2460,
-    "name": "滋补疗养",
-    "image": "/assets/xiling-live/yijing/covers/2460.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "绿色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2460.json"
-  },
-  {
-    "id": "yijing-2459",
-    "sourceId": 2459,
-    "name": "养生珍馐",
-    "image": "/assets/xiling-live/yijing/covers/2459.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "绿色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2459.json"
   },
   {
     "id": "yijing-2458",
@@ -8332,20 +7539,6 @@
     "color": "浅蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1947.json"
-  },
-  {
-    "id": "yijing-1946",
-    "sourceId": 1946,
-    "name": "精简家居",
-    "image": "/assets/xiling-live/yijing/covers/1946.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用"
-    ],
-    "color": "粉色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1946.json"
   },
   {
     "id": "yijing-1944",
@@ -8765,21 +7958,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1957.json"
   },
   {
-    "id": "yijing-1955",
-    "sourceId": 1955,
-    "name": "家居优品",
-    "image": "/assets/xiling-live/yijing/covers/1955.png",
-    "category": "家居日用",
-    "categories": [
-      "家居日用",
-      "服饰内衣",
-      "实景"
-    ],
-    "color": "咖色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1955.json"
-  },
-  {
     "id": "yijing-1954",
     "sourceId": 1954,
     "name": "家用好物",
@@ -8887,19 +8065,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1191.json"
   },
   {
-    "id": "yijing-2472",
-    "sourceId": 2472,
-    "name": "健康守望",
-    "image": "/assets/xiling-live/yijing/covers/2472.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2472.json"
-  },
-  {
     "id": "yijing-2471",
     "sourceId": 2471,
     "name": "悦活人生",
@@ -8980,19 +8145,6 @@
     "color": "咖色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1959.json"
-  },
-  {
-    "id": "yijing-1704",
-    "sourceId": 1704,
-    "name": "清雅之艺",
-    "image": "/assets/xiling-live/yijing/covers/1704.png",
-    "category": "服饰内衣",
-    "categories": [
-      "服饰内衣"
-    ],
-    "color": "粉色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1704.json"
   },
   {
     "id": "yijing-1447",
@@ -9099,19 +8251,6 @@
     "color": "绿色",
     "pageCount": 4,
     "layersUrl": "/assets/xiling-live/yijing/templates/2474.json"
-  },
-  {
-    "id": "yijing-2473",
-    "sourceId": 2473,
-    "name": "清和养生",
-    "image": "/assets/xiling-live/yijing/covers/2473.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2473.json"
   },
   {
     "id": "yijing-1194",
@@ -9236,19 +8375,6 @@
     "color": "浅蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1195.json"
-  },
-  {
-    "id": "yijing-3245",
-    "sourceId": 3245,
-    "name": "省心抢购",
-    "image": "/assets/xiling-live/yijing/covers/3245.png",
-    "category": "热门推荐",
-    "categories": [
-      "热门推荐"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3245.json"
   },
   {
     "id": "yijing-2989",
@@ -9398,33 +8524,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1964.json"
   },
   {
-    "id": "yijing-1965",
-    "sourceId": 1965,
-    "name": "华丽风采",
-    "image": "/assets/xiling-live/yijing/covers/1965.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1965.json"
-  },
-  {
-    "id": "yijing-1710",
-    "sourceId": 1710,
-    "name": "手工星辰",
-    "image": "/assets/xiling-live/yijing/covers/1710.png",
-    "category": "美妆个护",
-    "categories": [
-      "美妆个护"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1710.json"
-  },
-  {
     "id": "yijing-1198",
     "sourceId": 1198,
     "name": "口红彩妆",
@@ -9518,19 +8617,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1200.json"
   },
   {
-    "id": "yijing-2479",
-    "sourceId": 2479,
-    "name": "自然颐养",
-    "image": "/assets/xiling-live/yijing/covers/2479.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "红色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2479.json"
-  },
-  {
     "id": "yijing-2478",
     "sourceId": 2478,
     "name": "康悦天地",
@@ -9586,47 +8672,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2223.json"
   },
   {
-    "id": "yijing-2222",
-    "sourceId": 2222,
-    "name": "健康瑞气",
-    "image": "/assets/xiling-live/yijing/covers/2222.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2222.json"
-  },
-  {
-    "id": "yijing-1967",
-    "sourceId": 1967,
-    "name": "家用精选",
-    "image": "/assets/xiling-live/yijing/covers/1967.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用"
-    ],
-    "color": "咖色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1967.json"
-  },
-  {
-    "id": "yijing-1969",
-    "sourceId": 1969,
-    "name": "潮流家品",
-    "image": "/assets/xiling-live/yijing/covers/1969.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1969.json"
-  },
-  {
     "id": "yijing-1968",
     "sourceId": 1968,
     "name": "家用潮流",
@@ -9639,33 +8684,6 @@
     "color": "绿色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1968.json"
-  },
-  {
-    "id": "yijing-1966",
-    "sourceId": 1966,
-    "name": "时髦风尚",
-    "image": "/assets/xiling-live/yijing/covers/1966.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用"
-    ],
-    "color": "咖色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1966.json"
-  },
-  {
-    "id": "yijing-2480",
-    "sourceId": 2480,
-    "name": "健康智库",
-    "image": "/assets/xiling-live/yijing/covers/2480.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "浅蓝",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2480.json"
   },
   {
     "id": "yijing-3251",
@@ -9772,19 +8790,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2483.json"
   },
   {
-    "id": "yijing-2482",
-    "sourceId": 2482,
-    "name": "悦活养生",
-    "image": "/assets/xiling-live/yijing/covers/2482.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "浅蓝",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2482.json"
-  },
-  {
     "id": "yijing-1203",
     "sourceId": 1203,
     "name": "美妆促销",
@@ -9814,19 +8819,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/435.json"
   },
   {
-    "id": "yijing-2227",
-    "sourceId": 2227,
-    "name": "健康驿站",
-    "image": "/assets/xiling-live/yijing/covers/2227.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2227.json"
-  },
-  {
     "id": "yijing-2226",
     "sourceId": 2226,
     "name": "养生秘境",
@@ -9851,35 +8843,6 @@
     "color": "咖色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2225.json"
-  },
-  {
-    "id": "yijing-1971",
-    "sourceId": 1971,
-    "name": "精美家用",
-    "image": "/assets/xiling-live/yijing/covers/1971.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用"
-    ],
-    "color": "咖色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1971.json"
-  },
-  {
-    "id": "yijing-1970",
-    "sourceId": 1970,
-    "name": "家用潮选",
-    "image": "/assets/xiling-live/yijing/covers/1970.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用",
-      "数码家电"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1970.json"
   },
   {
     "id": "yijing-3252",
@@ -9962,19 +8925,6 @@
     "color": "橙色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1205.json"
-  },
-  {
-    "id": "yijing-2484",
-    "sourceId": 2484,
-    "name": "康健源泉",
-    "image": "/assets/xiling-live/yijing/covers/2484.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2484.json"
   },
   {
     "id": "yijing-1204",
@@ -10185,19 +9135,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1207.json"
   },
   {
-    "id": "yijing-2490",
-    "sourceId": 2490,
-    "name": "康健云堂",
-    "image": "/assets/xiling-live/yijing/covers/2490.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2490.json"
-  },
-  {
     "id": "yijing-439",
     "sourceId": 439,
     "name": "吃货狂欢",
@@ -10386,19 +9323,6 @@
     "color": "橙色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2748.json"
-  },
-  {
-    "id": "yijing-2492",
-    "sourceId": 2492,
-    "name": "康寿福海",
-    "image": "/assets/xiling-live/yijing/covers/2492.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "咖色",
-    "pageCount": 4,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2492.json"
   },
   {
     "id": "yijing-2491",
@@ -10945,20 +9869,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1989.json"
   },
   {
-    "id": "yijing-1988",
-    "sourceId": 1988,
-    "name": "家中典雅",
-    "image": "/assets/xiling-live/yijing/covers/1988.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1988.json"
-  },
-  {
     "id": "yijing-1991",
     "sourceId": 1991,
     "name": "为爱狂欢",
@@ -11149,22 +10059,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1993.json"
   },
   {
-    "id": "yijing-1994",
-    "sourceId": 1994,
-    "name": "家中欧式",
-    "image": "/assets/xiling-live/yijing/covers/1994.png",
-    "category": "家居日用",
-    "categories": [
-      "家居日用",
-      "服饰内衣",
-      "美妆个护",
-      "实景"
-    ],
-    "color": "咖色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1994.json"
-  },
-  {
     "id": "yijing-1740",
     "sourceId": 1740,
     "name": "游戏世界",
@@ -11258,19 +10152,6 @@
     "color": "红色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/3021.json"
-  },
-  {
-    "id": "yijing-2768",
-    "sourceId": 2768,
-    "name": "汽配售后",
-    "image": "/assets/xiling-live/yijing/covers/2768.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2768.json"
   },
   {
     "id": "yijing-2511",
@@ -11381,21 +10262,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1999.json"
   },
   {
-    "id": "yijing-1998",
-    "sourceId": 1998,
-    "name": "品质家居",
-    "image": "/assets/xiling-live/yijing/covers/1998.png",
-    "category": "家居日用",
-    "categories": [
-      "实景",
-      "家居日用",
-      "服饰内衣"
-    ],
-    "color": "紫色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/1998.json"
-  },
-  {
     "id": "yijing-1997",
     "sourceId": 1997,
     "name": "美妆秀场",
@@ -11477,19 +10343,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/3025.json"
   },
   {
-    "id": "yijing-2769",
-    "sourceId": 2769,
-    "name": "汽配查询",
-    "image": "/assets/xiling-live/yijing/covers/2769.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2769.json"
-  },
-  {
     "id": "yijing-2516",
     "sourceId": 2516,
     "name": "教育新潮",
@@ -11501,19 +10354,6 @@
     "color": "紫色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2516.json"
-  },
-  {
-    "id": "yijing-2515",
-    "sourceId": 2515,
-    "name": "智慧之航",
-    "image": "/assets/xiling-live/yijing/covers/2515.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2515.json"
   },
   {
     "id": "yijing-2514",
@@ -11553,19 +10393,6 @@
     "color": "红色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2260.json"
-  },
-  {
-    "id": "yijing-2259",
-    "sourceId": 2259,
-    "name": "养生天地",
-    "image": "/assets/xiling-live/yijing/covers/2259.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2259.json"
   },
   {
     "id": "yijing-2257",
@@ -11729,32 +10556,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2779.json"
   },
   {
-    "id": "yijing-2778",
-    "sourceId": 2778,
-    "name": "汽车预定",
-    "image": "/assets/xiling-live/yijing/covers/2778.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2778.json"
-  },
-  {
-    "id": "yijing-2524",
-    "sourceId": 2524,
-    "name": "学业灯塔",
-    "image": "/assets/xiling-live/yijing/covers/2524.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2524.json"
-  },
-  {
     "id": "yijing-2517",
     "sourceId": 2517,
     "name": "知识之光",
@@ -11849,19 +10650,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1499.json"
   },
   {
-    "id": "yijing-3037",
-    "sourceId": 3037,
-    "name": "中医健康",
-    "image": "/assets/xiling-live/yijing/covers/3037.png",
-    "category": "滋补保健",
-    "categories": [
-      "滋补保健"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3037.json"
-  },
-  {
     "id": "yijing-2783",
     "sourceId": 2783,
     "name": "汽车大促",
@@ -11886,19 +10674,6 @@
     "color": "深蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2782.json"
-  },
-  {
-    "id": "yijing-2781",
-    "sourceId": 2781,
-    "name": "推荐汽车",
-    "image": "/assets/xiling-live/yijing/covers/2781.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "橙色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2781.json"
   },
   {
     "id": "yijing-2015",
@@ -11952,19 +10727,6 @@
     "color": "紫色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2526.json"
-  },
-  {
-    "id": "yijing-2525",
-    "sourceId": 2525,
-    "name": "知识舵手",
-    "image": "/assets/xiling-live/yijing/covers/2525.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2525.json"
   },
   {
     "id": "yijing-2014",
@@ -12099,19 +10861,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2785.json"
   },
   {
-    "id": "yijing-2784",
-    "sourceId": 2784,
-    "name": "汽车配件",
-    "image": "/assets/xiling-live/yijing/covers/2784.png",
-    "category": "汽车",
-    "categories": [
-      "汽车"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2784.json"
-  },
-  {
     "id": "yijing-2274",
     "sourceId": 2274,
     "name": "护肝直播",
@@ -12162,20 +10911,6 @@
     "color": "橙色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2529.json"
-  },
-  {
-    "id": "yijing-2018",
-    "sourceId": 2018,
-    "name": "零食上新",
-    "image": "/assets/xiling-live/yijing/covers/2018.png",
-    "category": "食品酒水",
-    "categories": [
-      "实景",
-      "食品酒水"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2018.json"
   },
   {
     "id": "yijing-2275",
@@ -12340,19 +11075,6 @@
     "color": "橙色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2788.json"
-  },
-  {
-    "id": "yijing-2534",
-    "sourceId": 2534,
-    "name": "解惑明灯",
-    "image": "/assets/xiling-live/yijing/covers/2534.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2534.json"
   },
   {
     "id": "yijing-2533",
@@ -12567,19 +11289,6 @@
     "color": "深蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2536.json"
-  },
-  {
-    "id": "yijing-2535",
-    "sourceId": 2535,
-    "name": "教育辅翼",
-    "image": "/assets/xiling-live/yijing/covers/2535.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "绿色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2535.json"
   },
   {
     "id": "yijing-2026",
@@ -13036,19 +11745,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2547.json"
   },
   {
-    "id": "yijing-2548",
-    "sourceId": 2548,
-    "name": "智慧源泉",
-    "image": "/assets/xiling-live/yijing/covers/2548.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "紫色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2548.json"
-  },
-  {
     "id": "yijing-2546",
     "sourceId": 2546,
     "name": "学科导航",
@@ -13088,19 +11784,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/2551.json"
   },
   {
-    "id": "yijing-2549",
-    "sourceId": 2549,
-    "name": "解惑先锋",
-    "image": "/assets/xiling-live/yijing/covers/2549.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "浅蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2549.json"
-  },
-  {
     "id": "yijing-1523",
     "sourceId": 1523,
     "name": "时光安然",
@@ -13130,34 +11813,6 @@
     "layersUrl": "/assets/xiling-live/yijing/templates/1522.json"
   },
   {
-    "id": "yijing-3325",
-    "sourceId": 3325,
-    "name": "律师直播间2",
-    "image": "/assets/xiling-live/yijing/covers/3325.png",
-    "category": "法律进行时",
-    "categories": [
-      "法律进行时",
-      "热门推荐"
-    ],
-    "color": "红色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3325.json"
-  },
-  {
-    "id": "yijing-3324",
-    "sourceId": 3324,
-    "name": "律师直播间1",
-    "image": "/assets/xiling-live/yijing/covers/3324.png",
-    "category": "法律进行时",
-    "categories": [
-      "法律进行时",
-      "热门推荐"
-    ],
-    "color": "深蓝",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3324.json"
-  },
-  {
     "id": "yijing-3323",
     "sourceId": 3323,
     "name": "福利品1-2",
@@ -13169,32 +11824,6 @@
     "color": "其他",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/3323.json"
-  },
-  {
-    "id": "yijing-3322",
-    "sourceId": 3322,
-    "name": "11112",
-    "image": "/assets/xiling-live/yijing/covers/3322.png",
-    "category": "其他",
-    "categories": [
-      "其他"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3322.json"
-  },
-  {
-    "id": "yijing-3321",
-    "sourceId": 3321,
-    "name": "11111",
-    "image": "/assets/xiling-live/yijing/covers/3321.png",
-    "category": "其他",
-    "categories": [
-      "其他"
-    ],
-    "color": "其他",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3321.json"
   },
   {
     "id": "yijing-2812",
@@ -13260,19 +11889,6 @@
     "color": "浅蓝",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/2553.json"
-  },
-  {
-    "id": "yijing-2552",
-    "sourceId": 2552,
-    "name": "学海明灯",
-    "image": "/assets/xiling-live/yijing/covers/2552.png",
-    "category": "教育课程",
-    "categories": [
-      "教育课程"
-    ],
-    "color": "紫色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/2552.json"
   },
   {
     "id": "yijing-1534",
@@ -13346,20 +11962,6 @@
     "color": "橙色",
     "pageCount": 1,
     "layersUrl": "/assets/xiling-live/yijing/templates/1532.json"
-  },
-  {
-    "id": "yijing-3326",
-    "sourceId": 3326,
-    "name": "律师直播间3",
-    "image": "/assets/xiling-live/yijing/covers/3326.png",
-    "category": "法律进行时",
-    "categories": [
-      "法律进行时",
-      "热门推荐"
-    ],
-    "color": "咖色",
-    "pageCount": 1,
-    "layersUrl": "/assets/xiling-live/yijing/templates/3326.json"
   },
   {
     "id": "yijing-1535",

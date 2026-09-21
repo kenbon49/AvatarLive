@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.base import Base
@@ -16,6 +16,7 @@ class PlatformConnection(Base):
     __tablename__ = "platform_connections"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    owner_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
     kind: Mapped[str] = mapped_column(String(30), default="manual_rtmp", index=True)
     name: Mapped[str] = mapped_column(String(120))
     platform_label: Mapped[str] = mapped_column(String(80), default="通用 RTMP")

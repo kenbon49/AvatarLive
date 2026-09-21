@@ -26,6 +26,8 @@ from ...services.platforms import (
     verify_webhook_signature,
     webhook_rate_limiter,
 )
+from ...security.accounts import require_user, owns
+from ...models.account import User
 
 router = APIRouter(tags=["platform events"])
 PLATFORM_SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,49}$")
@@ -95,8 +97,11 @@ def list_platform_events(
     received_after: datetime | None = Query(default=None, alias="receivedAfter"),
     limit: int = Query(default=100, ge=1, le=200),
     db: Session = Depends(get_db),
+    user: User = Depends(require_user),
 ):
-    require_room(db, room_id)
+    room = require_room(db, room_id)
+    if not owns(room.owner_id, user):
+        raise HTTPException(status_code=404, detail="live room not found")
     return repository.list_events(
         db,
         live_room_id=room_id,

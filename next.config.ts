@@ -4,7 +4,11 @@ const apiUpstream = (process.env.API_UPSTREAM ?? 'http://localhost:8000').replac
 const srsApiUpstream = (process.env.SRS_API_UPSTREAM ?? 'http://localhost:1985').replace(/\/$/, '');
 
 const nextConfig: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   reactStrictMode: true,
+  experimental: {
+    proxyClientMaxBodySize: '64mb',
+  },
   // Hide Next.js development-only toolbar and its diagnostics panel.
   devIndicators: false,
   turbopack: {
@@ -14,13 +18,23 @@ const nextConfig: NextConfig = {
   // (/_next/webpack-hmr 等),客户端不 hydrate → 按钮点击无响应。放行本机常用入口。
   allowedDevOrigins: ['localhost', '127.0.0.1', '10.2.42.21', 'avator.ipaperview.com'],
   async headers() {
-    return [{
-      source: '/assets/aliyun-avatars/covers/:path*',
-      headers: [{
-        key: 'Cache-Control',
-        value: 'public, max-age=86400, stale-while-revalidate=604800',
-      }],
-    }];
+    return [
+      {
+        source: '/assets/aliyun-avatars/covers/:path*',
+        headers: [{
+          key: 'Cache-Control',
+          value: 'public, max-age=86400, stale-while-revalidate=604800',
+        }],
+      },
+      ...['/login', '/register'].map((source) => ({
+        source,
+        headers: [
+          { key: 'Cache-Control', value: 'private, no-store, max-age=0, must-revalidate' },
+          { key: 'Pragma', value: 'no-cache' },
+          { key: 'Expires', value: '0' },
+        ],
+      })),
+    ];
   },
   // dev 下前端(https://host:3000)经 Next 反代访问后端(:8000),一次解决:
   // ① https 页面 fetch http 后端的混合内容拦截;② 远程浏览器访问不到 host 的 localhost:8000;

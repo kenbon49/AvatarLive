@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import asyncio
 import time
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
+from sqlalchemy.orm import Session
 
-from ...core.config import settings
+from ...db.session import get_db
+from ...models.account import User
+from ...security.accounts import require_user
 from ...schemas.live import (
     AnswerRequest,
     AnswerResponse,
@@ -25,8 +29,9 @@ from ...schemas.live import (
 )
 from ...services.live.sessions import session_store
 from ...services.renderer import renderer_client
-from ...services.llm import DEFAULT_PERSONA_SYSTEM_PROMPT
+from ...services.llm import DEFAULT_PERSONA_SYSTEM_PROMPT, get_litellm_default_model_id
 from ...services.llm.chat import complete_litellm_chat
+from ...services.billing import charge_api_usage, mark_api_usage
 
 router = APIRouter(prefix="/live/sessions", tags=["live"])
 
@@ -73,7 +78,12 @@ async def say(session_id: str, req: SayRequest) -> SayResponse:
 
 
 @router.post("/{session_id}/answer", response_model=AnswerResponse)
-async def answer(session_id: str, req: AnswerRequest) -> AnswerResponse:
+async def answer(
+    session_id: str,
+    req: AnswerRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+) -> AnswerResponse:
     """弹幕问答编排：问题 → LLM(数字人主播 persona) → TTS → LiveTalking。
 
     这是数字人"会回答问题"的核心链路。RAG 启用后，把检索到的资料放进 req.context，
@@ -83,7 +93,7 @@ async def answer(session_id: str, req: AnswerRequest) -> AnswerResponse:
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
 
-    model_id = req.model_id or settings.llm_default_model_id
+    model_id = req.model_id or get_litellm_default_model_id()
 
     # 人设 + 可选参考资料（RAG 注入口）
     system_prompt = req.system_prompt.strip() or DEFAULT_PERSONA_SYSTEM_PROMPT
@@ -96,6 +106,7 @@ async def answer(session_id: str, req: AnswerRequest) -> AnswerResponse:
 
     # 1) LLM 生成回答（litellm.completion 是同步阻塞，丢线程池，避免卡事件循环）
     llm_start = time.perf_counter()
+    usage = charge_api_usage(db, user, "llm_chat", f"llm:{uuid4()}", detail={"model": model_id, "source": "live_answer"})
     try:
         result = await asyncio.to_thread(
             complete_litellm_chat,
@@ -105,11 +116,14 @@ async def answer(session_id: str, req: AnswerRequest) -> AnswerResponse:
             max_tokens=req.max_tokens,
         )
     except ValueError as exc:
+        mark_api_usage(db, usage.id, user.id, "failed")
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
+        mark_api_usage(db, usage.id, user.id, "failed")
         raise HTTPException(status_code=502, detail=str(exc))
     llm_latency_ms = int((time.perf_counter() - llm_start) * 1000)
     answer_text = result["content"]
+    mark_api_usage(db, usage.id, user.id, "succeeded")
 
     # 2) 可选：驱动数字人开口（渲染后端驱动 MetaHuman，音视频经 Pixel Streaming/WebRTC）
     livetalking: dict | None = None

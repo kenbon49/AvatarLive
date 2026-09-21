@@ -22,13 +22,15 @@ from ...services.platforms import (
     probe_rtmp_endpoint,
     run_local_rtmp_self_test,
 )
+from ...models.account import User
+from ...security.accounts import owns, require_user
 
 router = APIRouter(prefix="/platform-connections", tags=["platform connections"])
 
 
-def require_connection(db: Session, connection_id: str):
+def require_connection(db: Session, connection_id: str, user: User | None = None):
     connection = repository.get_platform_connection(db, connection_id)
-    if connection is None:
+    if connection is None or (user is not None and not owns(connection.owner_id, user)):
         raise HTTPException(status_code=404, detail="platform connection not found")
     return connection
 
@@ -41,8 +43,8 @@ def encryption_unavailable(exc: Exception) -> HTTPException:
 
 
 @router.get("", response_model=list[PlatformConnectionResponse], response_model_exclude_none=True)
-def list_connections(db: Session = Depends(get_db)) -> list:
-    return repository.list_platform_connections(db)
+def list_connections(db: Session = Depends(get_db), user: User = Depends(require_user)) -> list:
+    return repository.list_platform_connections(db, owner_id=user.id)
 
 
 @router.post("/local-rtmp-self-test", response_model=LocalRtmpSelfTestResponse)
@@ -64,7 +66,7 @@ def local_rtmp_self_test() -> LocalRtmpSelfTestResponse:
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
 )
-def create_connection(payload: PlatformConnectionCreate, db: Session = Depends(get_db)):
+def create_connection(payload: PlatformConnectionCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
     connection_id = str(uuid4())
     try:
         ciphertext = encrypt_secret(payload.stream_key, connection_id)
@@ -78,12 +80,13 @@ def create_connection(payload: PlatformConnectionCreate, db: Session = Depends(g
         server_url=payload.server_url,
         stream_key_ciphertext=ciphertext,
         stream_key_last4=payload.stream_key[-4:],
+        owner_id=user.id,
     )
 
 
 @router.get("/{connection_id}", response_model=PlatformConnectionResponse, response_model_exclude_none=True)
-def get_connection(connection_id: str, db: Session = Depends(get_db)):
-    return require_connection(db, connection_id)
+def get_connection(connection_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    return require_connection(db, connection_id, user)
 
 
 @router.put("/{connection_id}", response_model=PlatformConnectionResponse, response_model_exclude_none=True)
@@ -91,8 +94,9 @@ def update_connection(
     connection_id: str,
     payload: PlatformConnectionUpdate,
     db: Session = Depends(get_db),
+    user: User = Depends(require_user),
 ):
-    connection = require_connection(db, connection_id)
+    connection = require_connection(db, connection_id, user)
     ciphertext = None
     last4 = None
     if payload.stream_key is not None:
@@ -125,8 +129,8 @@ def update_connection(
     response_model=PlatformConnectionResponse,
     response_model_exclude_none=True,
 )
-def test_connection(connection_id: str, db: Session = Depends(get_db)):
-    connection = require_connection(db, connection_id)
+def test_connection(connection_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    connection = require_connection(db, connection_id, user)
     if connection.status != "enabled":
         raise HTTPException(status_code=409, detail="enable the platform connection before testing")
     try:

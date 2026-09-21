@@ -107,7 +107,7 @@ def evaluate_preflight(db: Session, payload: LiveRunPreflightRequest) -> Preflig
     )
 
     connections = [get_platform_connection(db, connection_id) for connection_id in selected_ids]
-    resolved_connections = [connection for connection in connections if connection is not None]
+    resolved_connections = [connection for connection in connections if connection is not None and room is not None and connection.owner_id == room.owner_id]
     targets_exist = bool(selected_ids) and len(resolved_connections) == len(selected_ids)
     checks.append(
         _check(

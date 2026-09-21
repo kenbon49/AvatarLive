@@ -27,6 +27,7 @@ class Product(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    owner_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
     source_type: Mapped[str] = mapped_column(String(30), default="self_built", index=True)
     platform: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     platform_account_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)

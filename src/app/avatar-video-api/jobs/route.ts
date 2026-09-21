@@ -29,6 +29,7 @@ import {
   writeAvatarVideoJob,
   type AvatarVideoJob,
 } from '@/lib/avatar-video-server';
+import { requireRequestUser } from '@/lib/server/user-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,6 +48,7 @@ async function responsePayload(response: Response) {
 }
 
 export async function POST(request: Request) {
+  const user = requireRequestUser(request);
   const seoUpstream = (process.env.SEO_VIDEO_API_BASE_URL || process.env.SEO_IMAGE_API_BASE_URL || '').replace(/\/$/, '');
   const seoApiKey = process.env.SEO_VIDEO_API_KEY || process.env.SEO_IMAGE_API_KEY || '';
   if (!seoUpstream || !seoApiKey) return errorResponse('动态形象视频服务尚未配置', 503);
@@ -111,6 +113,7 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
     job = {
       id: jobId,
+      ownerId: user.id,
       avatarId,
       avatarName,
       baseProfile,

@@ -8,7 +8,6 @@ import os
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from ..core.config import settings
 
 
 class SecretConfigurationError(RuntimeError):
@@ -20,31 +19,24 @@ class SecretDecryptionError(RuntimeError):
 
 
 def _master_key() -> bytes:
-    encoded = settings.platform_encryption_key.strip()
-    if not encoded:
-        raise SecretConfigurationError("PLATFORM_ENCRYPTION_KEY is not configured")
-    try:
-        padding = "=" * (-len(encoded) % 4)
-        key = base64.urlsafe_b64decode(encoded + padding)
-    except (ValueError, TypeError) as exc:
-        raise SecretConfigurationError("PLATFORM_ENCRYPTION_KEY must be URL-safe base64") from exc
-    if len(key) != 32:
-        raise SecretConfigurationError("PLATFORM_ENCRYPTION_KEY must decode to exactly 32 bytes")
-    return key
+    from ..db.session import SessionLocal
+    from .settings_store import active_platform_key
+    with SessionLocal() as db:
+        return active_platform_key(db)
 
 
 def _aad(connection_id: str) -> bytes:
     return f"synlive:platform-connection:{connection_id}:v1".encode("utf-8")
 
 
-def encrypt_secret(value: str, connection_id: str) -> str:
+def encrypt_secret(value: str, connection_id: str, *, key: bytes | None = None) -> str:
     nonce = os.urandom(12)
-    encrypted = AESGCM(_master_key()).encrypt(nonce, value.encode("utf-8"), _aad(connection_id))
+    encrypted = AESGCM(key or _master_key()).encrypt(nonce, value.encode("utf-8"), _aad(connection_id))
     envelope = base64.urlsafe_b64encode(nonce + encrypted).decode("ascii").rstrip("=")
     return f"v1.{envelope}"
 
 
-def decrypt_secret(envelope: str, connection_id: str) -> str:
+def decrypt_secret(envelope: str, connection_id: str, *, key: bytes | None = None) -> str:
     try:
         version, encoded = envelope.split(".", 1)
         if version != "v1":
@@ -54,7 +46,7 @@ def decrypt_secret(envelope: str, connection_id: str) -> str:
         nonce, encrypted = payload[:12], payload[12:]
         if len(nonce) != 12 or not encrypted:
             raise ValueError("invalid envelope")
-        plaintext = AESGCM(_master_key()).decrypt(nonce, encrypted, _aad(connection_id))
+        plaintext = AESGCM(key or _master_key()).decrypt(nonce, encrypted, _aad(connection_id))
         return plaintext.decode("utf-8")
     except SecretConfigurationError:
         raise

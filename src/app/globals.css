@@ -40,10 +40,14 @@ img, video, canvas { display: block; }
 .sidebarUtilities { margin-top: auto; display: grid; gap: 7px; }
 .sidebarUtilities > button { min-height: 39px; padding: 0 11px; border: 0; border-radius: 8px; display: flex; align-items: center; gap: 10px; color: #646b81; background: transparent; font-size: 11px; cursor: pointer; }
 .sidebarUtilities > button:hover { color: var(--blue); background: #f4f6ff; }
-.sidebarAccount { padding: 10px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
-.sidebarAccount > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sidebarUtilityLink { min-height: 39px; padding: 0 11px; border-radius: 8px; display: flex; align-items: center; gap: 10px; color: #646b81; font-size: 11px; }
+.sidebarUtilityLink:hover { color: var(--blue); background: #f4f6ff; }
+.sidebarAccount { min-height: 52px; padding: 10px; border-top: 1px solid var(--line); border-radius: 8px; display: flex; align-items: center; gap: 10px; transition: color .2s, background .2s; }
+.sidebarAccount:hover { color: var(--blue); background: #f4f6ff; }
+.sidebarAccountDetails { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
 .sidebarAccount strong { font-size: 10px; }
 .sidebarAccount small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.sidebarAccountArrow { flex: 0 0 auto; color: #a0a5b6; }
 
 .consoleBody { min-width: 0; }
 .accountAvatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: white; background: var(--navy); font-size: 9px; font-weight: 700; }
@@ -1125,6 +1129,80 @@ img, video, canvas { display: block; }
 .xlPlatformCenterFooter > div button { height: 32px; padding: 0 13px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px; color: #c4c4c4; background: #303132; white-space: nowrap; }
 .xlPlatformCenterFooter > div button:last-child { color: #0e0f0f; background: var(--xl-accent); }
 .xlPlatformCenterFooter > div button:disabled { opacity: .35; }
+
+/* The launch dialog follows the main console palette without changing the dark studio. */
+.xlLivePlatformModal { --xl-accent: var(--blue); width: min(760px, 96vw); max-height: min(800px, 94dvh); border: 1px solid #dce2ed; border-radius: 8px; color: var(--ink); background: #fff; box-shadow: 0 24px 70px rgba(17, 26, 55, .24); }
+.xlLivePlatformModal.windowMode { width: min(620px, 96vw); }
+.xlLivePlatformModal.rtmpMode { width: min(920px, 96vw); }
+.xlLivePlatformModal > header { border-color: var(--line); }
+.xlLivePlatformModal > header strong { color: var(--ink); font-weight: 700; }
+.xlLivePlatformModal > header button { color: #67718a; }
+.xlLivePlatformModal > header button:hover { color: var(--blue-dark); background: var(--blue-soft); }
+.xlPlatformCenterBody { padding: 18px 22px; }
+.xlLivePlatformModal .xlCaptureModePanel { margin: 0; padding: 0 0 18px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.xlLivePlatformModal .xlCaptureModePanel strong { color: var(--ink); font-size: 13px; }
+.xlLivePlatformModal .xlCaptureModeChoice { margin-top: 11px; gap: 8px; }
+.xlLivePlatformModal .xlCaptureModeChoice button { min-height: 36px; padding: 0 13px; border: 1px solid #d8deea !important; color: #4f5a73 !important; background: #fff !important; font-size: 12px; }
+.xlLivePlatformModal .xlCaptureModeChoice button:hover { border-color: var(--blue) !important; color: var(--blue-dark) !important; }
+.xlLivePlatformModal .xlCaptureModeChoice button.active { border-color: var(--blue) !important; color: var(--blue-dark) !important; background: var(--blue-soft) !important; font-weight: 700; }
+.xlLivePlatformModal .xlCaptureModeChoice button:disabled { opacity: .5; cursor: not-allowed; }
+.xlLivePlatformModal .xlCaptureModeHint { max-width: 64ch; margin-top: 12px; color: #69738b; font-size: 11px; line-height: 1.5; }
+.xlLivePlatformModal .xlProgramVideoOptions { max-width: 380px; color: #65718b; font-size: 12px; }
+.xlLivePlatformModal .xlProgramVideoOptions strong { color: var(--ink); font-size: 12px; }
+.xlLivePlatformModal .xlProgramVideoOptions input { accent-color: var(--blue); }
+.xlLivePlatformModal .xlCaptureWindowState { color: #31524e; background: #edf8f5; font-size: 11px; }
+.xlLivePlatformModal .xlCaptureWindowState.failed { color: #a83a35; background: #fff0ef; }
+.xlLivePlatformModal .xlPlatformSummary { margin: 0; padding: 15px 0; border-bottom: 1px solid var(--line); color: #66718b; font-size: 12px; flex-wrap: wrap; }
+.xlLivePlatformModal .xlPlatformSummary strong { color: var(--ink); }
+.xlLivePlatformModal .xlPlatformSource select { border-color: #d8deea; color: var(--ink); background: #fff; }
+.xlLivePlatformModal .xlPlatformCenterGrid { margin-top: 16px; grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; }
+.xlLivePlatformModal.windowMode .xlPlatformCenterGrid { grid-template-columns: minmax(0, 1fr); }
+.xlLivePlatformModal .xlRtmpConnections, .xlLivePlatformModal .xlPlatformPreflight > section { border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.xlLivePlatformModal .xlRtmpConnections > header { border-color: var(--line); }
+.xlLivePlatformModal .xlRtmpConnections > header strong, .xlLivePlatformModal .xlPlatformPreflight section > header strong { color: var(--ink); font-size: 12px; font-weight: 700; }
+.xlLivePlatformModal .xlRtmpConnections > header button, .xlLivePlatformModal .xlPlatformEmpty button { min-height: 32px; color: #fff; background: var(--blue); font-size: 11px; }
+.xlLivePlatformModal .xlPlatformLoading, .xlLivePlatformModal .xlPlatformEmpty { color: #6a758d; font-size: 12px; }
+.xlLivePlatformModal .xlPlatformEmpty { min-height: 120px; }
+.xlLivePlatformModal .xlPlatformEmpty strong { color: var(--ink); font-size: 12px; }
+.xlLivePlatformModal .xlRtmpConnectionList > article { border-color: var(--line); background: #fff; }
+.xlLivePlatformModal .xlRtmpConnectionList > article.selected { border-color: #b6c2fc; background: #f7f8ff; }
+.xlLivePlatformModal .xlRtmpConnectionIcon { color: var(--blue-dark); background: var(--blue-soft); }
+.xlLivePlatformModal .xlRtmpConnectionMain strong { color: var(--ink); font-size: 12px; }
+.xlLivePlatformModal .xlRtmpConnectionMain small, .xlLivePlatformModal .xlRtmpConnectionList > article > p { color: #717b90; font-size: 11px; }
+.xlLivePlatformModal .xlConnectionStatus { color: #626c83; background: #eef0f5; font-size: 10px; }
+.xlLivePlatformModal .xlConnectionStatus.passed { color: #137b66; background: #e8f5f0; }
+.xlLivePlatformModal .xlRtmpConnectionActions button { color: #536078; background: #f1f3f8; font-size: 11px; }
+.xlLivePlatformModal .xlRtmpConnectionActions button:hover { color: var(--blue-dark); background: var(--blue-soft); }
+.xlLivePlatformModal .xlRtmpConnectionActions button.selected { color: var(--blue-dark); background: var(--blue-soft); }
+.xlLivePlatformModal .xlRtmpForm { border-color: #c9d3f3; background: #f8f9fc; }
+.xlLivePlatformModal .xlRtmpForm > header, .xlLivePlatformModal .xlRtmpForm > footer { border-color: var(--line); }
+.xlLivePlatformModal .xlRtmpForm > header strong, .xlLivePlatformModal .xlRtmpFormGrid label > span { color: var(--ink); font-size: 11px; }
+.xlLivePlatformModal .xlRtmpForm > header small, .xlLivePlatformModal .xlRtmpFieldHint, .xlLivePlatformModal .xlRtmpForm > footer > span { color: #68748c; font-size: 10px; }
+.xlLivePlatformModal .xlRtmpFormGrid input { border-color: #d6deeb; color: var(--ink); background: #fff; }
+.xlLivePlatformModal .xlRtmpFormGrid input:focus { border-color: var(--blue); }
+.xlLivePlatformModal .xlRtmpForm > footer button { color: #4d5973; background: #e8ebf2; font-size: 11px; }
+.xlLivePlatformModal .xlRtmpForm > footer button:last-child { color: #fff; background: var(--blue); }
+.xlLivePlatformModal .xlPlatformPreflight section > header span { color: var(--blue-dark); font-size: 12px; }
+.xlLivePlatformModal .xlPlatformPreflight section:first-child p { color: #6b748a; font-size: 11px; line-height: 1.4; }
+.xlLivePlatformModal .xlPlatformPreflight section:first-child p.passed { color: #36465d; }
+.xlLivePlatformModal .xlPlatformPreflight section:first-child p.passed > i { color: #fff; background: #168b72; }
+.xlLivePlatformModal .xlPlatformPreflight section:first-child p > i { color: #a86120; background: #fff2e2; }
+.xlLivePlatformModal .xlPlatformPreflight section:first-child > button { color: var(--blue-dark); background: var(--blue-soft); font-size: 11px; }
+.xlLivePlatformModal .xlPlatformDiagnostics { padding: 12px; border-top: 1px solid var(--line); }
+.xlLivePlatformModal .xlPlatformDiagnostics summary { width: fit-content; color: #57647e; font-size: 11px; cursor: pointer; }
+.xlLivePlatformModal .xlLocalRtmpTest { margin: 10px 0 0; padding: 0; border: 0; background: transparent; }
+.xlLivePlatformModal .xlLocalRtmpTest > span { align-items: center; color: #57647e; }
+.xlLivePlatformModal .xlLocalRtmpTest strong { color: #57647e; font-size: 11px; }
+.xlLivePlatformModal .xlLocalRtmpTest > button { color: var(--blue-dark) !important; border-color: #cbd4f7 !important; background: var(--blue-soft) !important; font-size: 11px; }
+.xlLivePlatformModal .xlPlatformMessage { color: #364c6b; background: #eef2fc; font-size: 11px; }
+.xlLivePlatformModal .xlPlatformMessage.passed { color: #176d54; background: #e8f6ef; }
+.xlLivePlatformModal .xlPlatformMessage.failed, .xlLivePlatformModal .xlPlatformError { color: #a83838; background: #fff0ef; font-size: 11px; }
+.xlLivePlatformModal .xlPlatformCenterFooter { border-color: var(--line); justify-content: flex-end; }
+.xlLivePlatformModal .xlPlatformTerms { margin-right: auto; color: #5d687e; font-size: 11px; line-height: 1.4; }
+.xlLivePlatformModal .xlPlatformTerms input { accent-color: var(--blue); }
+.xlLivePlatformModal .xlPlatformCenterFooter > div button { min-height: 36px; color: #516078; background: #eff1f6; font-size: 12px; }
+.xlLivePlatformModal .xlPlatformCenterFooter > div button:last-child { color: #fff; background: var(--blue); }
+.xlLivePlatformModal :is(button, input, select, summary):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .liveProgramOutput { width: 100vw; height: 100vh; min-width: 240px; min-height: 240px; overflow: hidden; position: relative; display: grid; place-items: center; background: #070909; }
 .liveProgramOutput video { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; background: #070909; }
 .liveProgramOutput.portrait video { width: min(100%, calc(100vh * 9 / 16)); aspect-ratio: 9 / 16; }
@@ -1251,7 +1329,7 @@ img, video, canvas { display: block; }
   .xlPlatformCenterBody { padding-inline: 12px; }
   .xlLocalRtmpTest { align-items: stretch; flex-direction: column; }
   .xlLocalRtmpTest > button { width: 100%; }
-  .xlPlatformCenterGrid { grid-template-columns: 1fr; }
+  .xlLivePlatformModal .xlPlatformCenterGrid { grid-template-columns: minmax(0, 1fr); }
   .xlPlatformPreflight { grid-template-columns: 1fr 1fr; }
 }
 
@@ -1327,6 +1405,7 @@ img, video, canvas { display: block; }
   .xlRtmpConnectionActions { margin-left: 0; }
   .xlPlatformCenterFooter { align-items: stretch; flex-direction: column; }
   .xlPlatformCenterFooter > div { justify-content: flex-end; }
+  .xlLivePlatformModal .xlPlatformCenterFooter { flex-wrap: wrap; }
 }
 
 .creatorShell { min-height: 100vh; overflow: hidden; background: #f5f6f8; color: var(--ink); }
@@ -1571,13 +1650,18 @@ img, video, canvas { display: block; }
   .consoleShell { display: block; }
   .consoleSidebar { width: 100%; height: 64px; padding: 0 16px; flex-direction: row; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); }
   .consoleBrand { margin: 0 auto 0 0; }
-  .navSectionLabel, .sidebarAccount { display: none; }
+  .navSectionLabel { display: none; }
   .consoleNav { margin: 0; display: flex; gap: 5px; }
   .consoleNav a { min-height: 38px; padding: 0 11px; }
   .consoleNav a.active::before { left: 11px; right: 11px; bottom: -13px; width: auto; height: 3px; border-radius: 3px 3px 0 0; }
   .sidebarUtilities { margin: 0 0 0 6px; display: flex; gap: 0; }
   .sidebarUtilities > button { width: 38px; min-height: 38px; padding: 0; justify-content: center; }
+  .sidebarUtilityLink { width: 38px; min-height: 38px; padding: 0; justify-content: center; }
+  .sidebarAccount { width: 38px; min-height: 38px; padding: 0; border-top: 0; justify-content: center; }
   .sidebarUtilities > button span { display: none; }
+  .sidebarUtilityLink span { display: none; }
+  .sidebarAccountDetails, .sidebarAccountArrow { display: none; }
+  .sidebarAccount .accountAvatar { width: 28px; height: 28px; }
   .xilingLive { overflow: visible; }
   .xlTopbar { top: 64px; }
   .consoleMain { padding: 22px 18px 38px; }
@@ -1637,6 +1721,7 @@ img, video, canvas { display: block; }
   .consoleNav a svg { width: 16px; }
   .consoleNav a.active::before { bottom: -11px; }
   .sidebarUtilities > button { width: 34px; min-height: 34px; }
+  .sidebarUtilityLink, .sidebarAccount { width: 34px; min-height: 34px; }
   .xlTopbar { top: 58px; }
   .consoleMain { padding: 14px 11px 28px; }
   .chatCatalogPage { padding: 0 0 28px; }

@@ -27,6 +27,7 @@ export type AvatarVideoJobStatus =
 
 export type AvatarVideoJob = {
   id: string;
+  ownerId?: string;
   avatarId: string;
   avatarName: string;
   baseProfile: string;
@@ -54,6 +55,11 @@ export type AvatarVideoJob = {
     fps: number;
   };
 };
+
+export function assertAvatarVideoOwner(job: AvatarVideoJob, user: { id: string; role: string }) {
+  if (job.ownerId === user.id || (user.role === 'admin' && !job.ownerId)) return;
+  throw new Error('动态素材任务不存在');
+}
 
 type ProbeResult = {
   streams?: Array<{

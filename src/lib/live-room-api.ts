@@ -183,6 +183,24 @@ export class LiveRoomApiError extends Error {
   }
 }
 
+type ApiValidationIssue = {
+  loc?: Array<string | number>;
+  msg?: string;
+};
+
+function responseErrorDetail(body: { detail?: unknown }, fallback: string): string {
+  if (typeof body.detail === 'string') return body.detail;
+  if (!Array.isArray(body.detail)) return fallback;
+  const issues = body.detail.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const issue = item as ApiValidationIssue;
+    if (typeof issue.msg !== 'string') return [];
+    const location = issue.loc?.filter((part) => part !== 'body').join('.');
+    return [location ? `${location}：${issue.msg}` : issue.msg];
+  });
+  return issues.join('；') || fallback;
+}
+
 async function roomFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -191,8 +209,8 @@ async function roomFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
     try {
-      const body = await response.json() as { detail?: string };
-      detail = body.detail || detail;
+      const body = await response.json() as { detail?: unknown };
+      detail = responseErrorDetail(body, detail);
     } catch {
       // Keep the HTTP status when the upstream did not return JSON.
     }

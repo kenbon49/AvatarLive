@@ -13,12 +13,12 @@ from loguru import logger
 
 from .config import (
     DEFAULT_PERSONA_SYSTEM_PROMPT,
-    MODEL_MAP,
     _format_litellm_error,
     _messages_have_images,
     _normalize_messages,
     _normalize_temperature,
     get_litellm_config,
+    resolve_litellm_model,
 )
 
 # 关掉 litellm 自身的冗长日志/遥测
@@ -44,9 +44,7 @@ def complete_litellm_chat(
     """非流式对话调用，返回模型文本内容与元信息。失败抛 RuntimeError。"""
     from ...core.config import settings
 
-    model_config = MODEL_MAP.get(model_id)
-    if not model_config:
-        raise ValueError("不支持的 LLM 模型")
+    model_config = resolve_litellm_model(model_id)
 
     api_key, api_base, configured_max_output = get_litellm_config()
     if not api_key:
@@ -65,8 +63,8 @@ def complete_litellm_chat(
     model_name = model_config["model"]
     safe_max_tokens = int(max_tokens or 4096)
     max_output_tokens = max(1, int(configured_max_output or model_config.get("max_output_tokens", 8192)))
-    safe_temperature = _normalize_temperature(
-        model_name, temperature, float(model_config.get("temperature", 0.7))
+    safe_temperature = None if model_config["provider"] == "openai-compatible" and temperature is None else (
+        _normalize_temperature(model_name, temperature, float(model_config.get("temperature", 0.7)))
     )
 
     params = {
@@ -74,11 +72,12 @@ def complete_litellm_chat(
         "messages": [{"role": "system", "content": prompt}] + clean_messages,
         "stream": False,
         "max_tokens": max(1, min(safe_max_tokens, max_output_tokens)),
-        "temperature": safe_temperature,
         "api_key": api_key,
         "api_base": api_base,
         "timeout": settings.llm_request_timeout,
     }
+    if safe_temperature is not None:
+        params["temperature"] = safe_temperature
 
     try:
         response = litellm.completion(**params)
@@ -116,8 +115,9 @@ def stream_litellm_chat(
     """SSE 流式对话，逐段 yield 已格式化的 SSE 字符串。"""
     from ...core.config import settings
 
-    model_config = MODEL_MAP.get(model_id)
-    if not model_config:
+    try:
+        model_config = resolve_litellm_model(model_id)
+    except ValueError:
         yield sse_event("error", {"message": "不支持的 LLM 模型"})
         return
 
@@ -145,8 +145,8 @@ def stream_litellm_chat(
     model_name = model_config["model"]
     safe_max_tokens = int(max_tokens or 4096)
     max_output_tokens = max(1, int(configured_max_output or model_config.get("max_output_tokens", 8192)))
-    safe_temperature = _normalize_temperature(
-        model_name, temperature, float(model_config.get("temperature", 0.7))
+    safe_temperature = None if model_config["provider"] == "openai-compatible" and temperature is None else (
+        _normalize_temperature(model_name, temperature, float(model_config.get("temperature", 0.7)))
     )
 
     params = {
@@ -154,11 +154,12 @@ def stream_litellm_chat(
         "messages": request_messages,
         "stream": True,
         "max_tokens": max(1, min(safe_max_tokens, max_output_tokens)),
-        "temperature": safe_temperature,
         "api_key": api_key,
         "api_base": api_base,
         "timeout": settings.llm_request_timeout,
     }
+    if safe_temperature is not None:
+        params["temperature"] = safe_temperature
 
     try:
         yield sse_event(

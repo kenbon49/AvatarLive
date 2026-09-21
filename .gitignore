@@ -1,5 +1,6 @@
 node_modules
 .next
+.next-*/
 out
 dist
 .env
@@ -15,6 +16,7 @@ tsconfig.tsbuildinfo
 
 tmp/
 .cache/
+.system-update/
 apps/api/.runtime/
 
 .venv/
@@ -41,6 +43,17 @@ secrets/
 *.npz
 *.bin
 artifacts/**/quicktalk-face-cache/
+artifacts/*.json
+artifacts/*.png
+artifacts/*.xlsx
+
+# 可由资源抓取脚本重新生成的远端素材缓存
+public/assets/aliyun-avatars/covers/
+public/assets/xiling-live/yijing/component-layers/
+public/assets/xiling-live/yijing/components/
+public/assets/xiling-live/yijing/covers/
+public/assets/xiling-live/yijing/elements/
+public/assets/xiling-live/yijing/fonts/*.ttf
 
 # TalkingHead 形象 GLB 体积大（单个 5–14MB），不入库；
 # 本机跑 /app/avatar-web 前需自行下载到 public/vendor/talkinghead/avatars/（见该目录 README）

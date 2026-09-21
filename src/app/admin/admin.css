@@ -1,0 +1,56 @@
+.adminPage { min-height: 100dvh; padding: 32px max(24px, calc((100% - 960px) / 2)); background: #f6f8f8; color: #233039; }
+.adminHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.adminHeader h1 { margin: 8px 0 20px; font-size: 26px; }
+.adminHeader a { color: #146d68; font-size: 13px; }
+.adminHeader button { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #cfd9da; border-radius: 4px; background: #fff; cursor: pointer; }
+.adminTabs { display: flex; gap: 20px; border-bottom: 1px solid #d9e0e1; }
+.adminTabs button { min-height: 42px; padding: 0 4px; display: inline-flex; align-items: center; gap: 7px; border: 0; border-bottom: 2px solid transparent; color: #59686d; background: transparent; font: inherit; cursor: pointer; }
+.adminTabs button.active { border-color: #146d68; color: #146d68; font-weight: 700; }
+.adminContent { padding: 22px 0; }
+.adminContent h2 { font-size: 18px; margin: 0 0 20px; }
+.adminContent h3 { margin: 25px 0 10px; font-size: 14px; }
+.adminNote { margin: 10px 0; display: flex; align-items: flex-start; gap: 8px; color: #5b6870; font-size: 12px; line-height: 1.6; }
+.adminNote svg { flex: 0 0 auto; }
+.adminList, .adminGroup { border-top: 1px solid #dde4e5; }
+.adminRow { min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #dde4e5; overflow-wrap: anywhere; }
+.adminRow > div, .adminSettingEdit { display: flex; gap: 8px; }
+.adminRow button, .adminSetting button { min-height: 34px; padding: 0 10px; border: 1px solid #cad3d4; border-radius: 4px; display: inline-flex; align-items: center; gap: 5px; background: #fff; color: #344249; font: inherit; font-size: 12px; cursor: pointer; }
+.adminRow button.primary, .adminSetting button.primary { border-color: #146d68; background: #146d68; color: white; }
+.adminRow button:disabled, .adminSetting button:disabled { opacity: .55; cursor: not-allowed; }
+.adminSetting { padding: 14px 0; display: grid; grid-template-columns: minmax(140px, 1fr) auto; gap: 10px 18px; border-bottom: 1px solid #dde4e5; }
+.adminSetting > div:first-child { display: grid; gap: 3px; }
+.adminSetting small { color: #879094; font-size: 11px; overflow-wrap: anywhere; }
+.adminSetting > span { align-self: start; font-size: 11px; }
+.adminSetting > span small { display: block; margin-top: 4px; color: #626f75; font-size: 11px; }
+.adminSetting .configured { color: #147767; }
+.adminSetting .missing { color: #a24a27; }
+.adminSettingEdit { grid-column: 1 / -1; }
+.adminSettingEdit input { flex: 1; min-width: 0; min-height: 36px; padding: 0 10px; border: 1px solid #cbd5d5; border-radius: 4px; font: inherit; font-size: 12px; }
+.adminEmpty, .adminMessage, .adminError { font-size: 13px; }
+.adminMessage { color: #136756; }
+.adminError { color: #a83732; }
+.adminCreditSummary { min-height: 62px; margin-top: 18px; padding: 0 14px; border: 1px solid #d7dfdf; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; background: #fff; }
+.adminCreditSummary span { color: #5f6e73; font-size: 12px; }
+.adminCreditSummary strong { color: #146d68; font-size: 24px; }
+.adminRecharge { margin-top: 12px; display: grid; grid-template-columns: 160px minmax(220px, 1fr) auto; align-items: end; gap: 10px; }
+.adminRecharge label { display: grid; gap: 6px; color: #536268; font-size: 11px; }
+.adminRecharge input, .adminAllocate input { min-width: 0; min-height: 36px; padding: 0 10px; border: 1px solid #cbd5d5; border-radius: 4px; background: #fff; font: inherit; font-size: 12px; }
+.adminRecharge button, .adminUserActions button, .adminAllocate button { min-height: 36px; padding: 0 11px; border: 1px solid #cad3d4; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.adminRecharge button.primary, .adminUserActions button.primary, .adminAllocate button.primary { border-color: #146d68; background: #146d68; color: #fff; }
+.adminRecharge button:disabled, .adminUserActions button:disabled, .adminAllocate button:disabled { opacity: .55; cursor: not-allowed; }
+.adminUsersHeading { margin-top: 34px !important; }
+.adminUserList { border-top: 1px solid #d9e1e2; }
+.adminUserRow { min-height: 82px; padding: 12px 0; border-bottom: 1px solid #d9e1e2; display: grid; grid-template-columns: minmax(180px, 1fr) 270px minmax(180px, auto); align-items: center; gap: 18px; }
+.adminUserIdentity { min-width: 0; display: grid; gap: 4px; }
+.adminUserIdentity strong, .adminUserIdentity small { overflow-wrap: anywhere; }
+.adminUserIdentity strong { font-size: 13px; }
+.adminUserIdentity small, .adminUserLocked { color: #78858a; font-size: 11px; }
+.adminUserMetrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.adminUserMetrics > span { display: grid; gap: 3px; }
+.adminUserMetrics small { color: #78858a; font-size: 10px; }
+.adminUserMetrics strong { font-size: 14px; }
+.adminUserActions, .adminAllocate { display: flex; justify-content: flex-end; gap: 8px; }
+.adminAllocate input { width: 100px; }
+.adminUserLocked { text-align: right; }
+@media(max-width: 760px) { .adminRecharge { grid-template-columns: 1fr 1fr; } .adminRecharge button { grid-column: 1 / -1; } .adminUserRow { grid-template-columns: 1fr; gap: 12px; } .adminUserActions, .adminAllocate { justify-content: flex-start; } .adminUserLocked { text-align: left; } }
+@media(max-width: 520px) { .adminPage { padding: 18px 16px; } .adminRow { align-items: start; flex-direction: column; padding: 10px 0; } .adminRecharge { grid-template-columns: 1fr; } .adminRecharge button { grid-column: auto; } .adminTabs { gap: 12px; } .adminUserMetrics { width: 100%; } }

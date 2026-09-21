@@ -120,6 +120,12 @@ class LiveRoomLayerItem(CamelModel):
     chroma_key_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     chroma_key_tolerance: float | None = Field(default=None, ge=0, le=40)
     chroma_key_softness: float | None = Field(default=None, ge=0, le=40)
+    component_instance_id: str | None = Field(default=None, max_length=160)
+    component_source_id: str | None = Field(default=None, max_length=160)
+    component_name: str | None = Field(default=None, max_length=500)
+    component_layer_id: str | None = Field(default=None, max_length=160)
+    component_role: str | None = Field(default=None, max_length=80)
+    component_text_limit: int | None = Field(default=None, ge=1, le=10000)
 
 
 class LiveRoomVoiceSettings(CamelModel):

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     debug: bool = False
     api_prefix: str = "/api/v1"
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
+    auth_cookie_secure: bool = True
 
     # --- Azure TTS（与 LiveTalking azuretts 插件共用同一把 Key）---
     azure_service_key: str = ""
@@ -56,10 +57,14 @@ class Settings(BaseSettings):
         default="https://litellm.zuzuche.com/v1",
         validation_alias=AliasChoices("LLM_BASE_URL", "LITELLM_LLM_BASE_URL"),
     )
-    # 默认模型 id（llm-gpt / llm-deepseek / llm-gemini / llm-doubao）
+    # Can be a legacy alias or an ID returned by the configured /models endpoint.
     llm_default_model_id: str = "llm-gpt"
     llm_max_output_tokens: int = 8192
     llm_request_timeout: int = 120
+    llm_credit_cost: int = Field(default=1, ge=1, le=1_000_000)
+    storyboard_video_credit_cost: int = Field(default=10, ge=1, le=1_000_000)
+    aliyun_access_key_id: str = ""
+    aliyun_access_key_secret: str = ""
 
     # --- 持久化与基础设施 ---
     database_url: str = "postgresql+psycopg://synlive:synlive@localhost:5432/synlive"

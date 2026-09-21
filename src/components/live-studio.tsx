@@ -727,18 +727,19 @@ async function prepareProductReferenceImage(file: File): Promise<string> {
   if (typeof createImageBitmap !== 'function') return fileAsDataUrl(file);
   const bitmap = await createImageBitmap(file);
   try {
-    // Preserve readable package text whenever the original already fits the multimodal request limit.
-    if (file.size <= 5.5 * 1024 * 1024 && Math.max(bitmap.width, bitmap.height) <= 2048) {
+    // Small files are already efficient; larger inputs are persisted as WebP so
+    // several references do not inflate every live-room autosave request.
+    if (file.size <= 700 * 1024 && Math.max(bitmap.width, bitmap.height) <= 1600) {
       return fileAsDataUrl(file);
     }
-    const scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     const context = canvas.getContext('2d');
     if (!context) return fileAsDataUrl(file);
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+    const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
     return fileAsDataUrl(compressed ?? file);
   } finally {
     bitmap.close();
@@ -820,17 +821,6 @@ const SQUARE_ASSETS: Record<'image' | 'video', AssetItem[]> = {
     { id: 'square-video-4', kind: 'video', name: '关注引导视频' },
   ],
 };
-
-const PLATFORMS = [
-  { name: '抖音', logo: '/assets/brand-logos/douyin.svg', color: '#111111' },
-  { name: '美团', logo: '/assets/brand-logos/meituan.svg', color: '#ffc72c' },
-  { name: '快手', logo: '/assets/brand-logos/kuaishou.svg', color: '#ff4e22' },
-  { name: '京东', logo: '/assets/brand-logos/jd.svg', color: '#e1251b' },
-  { name: '淘宝', logo: '/assets/brand-logos/taobao.svg', color: '#ff5000' },
-  { name: '拼多多', logo: '/assets/brand-logos/pinduoduo.svg', color: '#e02e24' },
-  { name: '唯品会', logo: '/assets/brand-logos/vipshop.svg', color: '#d62f7f' },
-  { name: '小红书', logo: '/assets/brand-logos/xiaohongshu.svg', color: '#ff2442' },
-] as const;
 
 const FEATURED_LIVE_AVATAR_ID = 'aliyun-M1xuUWr440XEDhA6QPRvRiDQ';
 const FEATURED_LIVE_AVATAR_NAME = '灵婉';
@@ -4275,11 +4265,9 @@ export function LiveStudio({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model_id: 'llm-gpt',
           messages: [{ role: 'user', content }],
           system_prompt: PRODUCT_SCRIPT_SYSTEM_PROMPT,
           max_tokens: Math.min(12_000, Math.max(800, Math.ceil(productScriptCount * productScriptMaxCharacters * 1.8))),
-          temperature: 1,
         }),
       });
       const payload = await response.json().catch(() => ({})) as {
@@ -5016,16 +5004,12 @@ export function LiveStudio({
 
   const importAssets = async (kind: 'image' | 'video', files: FileList | null) => {
     if (!files?.length) return;
-    const imported = await Promise.all(Array.from(files).map((file, index) => new Promise<AssetItem>((resolve) => {
+    const imported = await Promise.all(Array.from(files).map(async (file, index): Promise<AssetItem> => {
       if (kind === 'video') {
-        resolve({ id: `${kind}-${Date.now()}-${index}`, kind, name: file.name });
-        return;
+        return { id: `${kind}-${Date.now()}-${index}`, kind, name: file.name };
       }
-      const reader = new FileReader();
-      reader.onload = () => resolve({ id: `${kind}-${Date.now()}-${index}`, kind, name: file.name, preview: typeof reader.result === 'string' ? reader.result : undefined });
-      reader.onerror = () => resolve({ id: `${kind}-${Date.now()}-${index}`, kind, name: file.name });
-      reader.readAsDataURL(file);
-    })));
+      return { id: `${kind}-${Date.now()}-${index}`, kind, name: file.name, preview: await prepareProductReferenceImage(file) };
+    }));
     setAssets((items) => ({ ...items, [kind]: [...imported, ...items[kind]] }));
     setAssetScope('mine');
     if (kind === 'image' && selectedLayer?.kind === 'image' && imported[0]?.preview) {
@@ -6111,43 +6095,36 @@ export function LiveStudio({
       </div>}
 
       {dialog === 'livePlatform' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
-        <section className="xlModal xlLivePlatformModal" role="dialog" aria-modal="true" aria-label="开播编排" onMouseDown={(event) => event.stopPropagation()}>
+        <section className={`xlModal xlLivePlatformModal ${windowCaptureMode ? 'windowMode' : 'rtmpMode'}`} role="dialog" aria-modal="true" aria-label="开播编排" onMouseDown={(event) => event.stopPropagation()}>
           <header><span><Link2 size={17} /><strong>开播编排</strong></span><button type="button" aria-label="关闭开播编排" onClick={() => setDialog(null)}><X size={17} /></button></header>
           <div className="xlPlatformCenterBody">
-            <div className="xlPlatformNotice"><ShieldCheck size={16} /><span><strong>{windowCaptureMode ? '窗口采集模式不需要平台 RTMP 密钥' : '通用 RTMP 已接入真实安全存储'}</strong><small>{windowCaptureMode ? 'AvatarLive 会打开纯净节目输出窗口；请使用平台官方直播伴侣捕获该窗口并完成开播。' : '推流密钥使用服务端 AES-GCM 加密且不会返回浏览器；连接测试只代表服务器可达，不等于平台账号或互动权限已授权。'}</small></span></div>
-            <div className="xlLocalRtmpTest">
-              <span><Server size={16} /><span><strong>没有平台密钥也能先测媒体链路</strong><small>向项目内置 SRS 推送 2 秒 H.264/AAC 测试画面，验证 FFmpeg 与 RTMP 服务；不会连接抖音等外部平台。</small></span></span>
-              <button type="button" disabled={platformActionId !== null} onClick={() => void runLocalMediaSelfTest()}>{platformActionId === 'local-rtmp-self-test' ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <Play size={13} />}{platformActionId === 'local-rtmp-self-test' ? '正在推流自检' : '运行本机推流自检'}</button>
-            </div>
-            {localRtmpSelfTestResult && <div className="xlPlatformMessage xlLocalRtmpTestResult passed" role="status">{localRtmpSelfTestResult.message}（耗时 {(localRtmpSelfTestResult.durationMs / 1000).toFixed(1)} 秒）</div>}
-            {localRtmpSelfTestError && <div className="xlPlatformError xlLocalRtmpTestError" role="alert">{localRtmpSelfTestError}</div>}
             <section className="xlCaptureModePanel">
-              <header><span><strong>开播方式</strong><small>{windowCaptureMode ? '不需要平台 RTMP 密钥，由官方直播伴侣捕获节目窗口。' : '使用已保存的 RTMP 地址，由服务端 FFmpeg 转推到平台。'}</small></span><Radio size={16} /></header>
+              <header><strong>开播方式</strong></header>
               <div className="xlCaptureModeChoice" role="group" aria-label="选择开播方式">
                 <button className={windowCaptureMode ? 'active' : ''} type="button" onClick={() => { setPublishMode('window_capture'); setTermsAccepted(false); setPlatformError(''); }}>窗口采集（推荐）</button>
                 <button className={!windowCaptureMode ? 'active' : ''} type="button" onClick={() => { setPublishMode('manual_rtmp'); setTermsAccepted(false); setPlatformError(''); }}>手工 RTMP</button>
               </div>
               {windowCaptureMode && <>
                 <div className="xlCaptureModeChoice" role="group" aria-label="选择节目窗口模式">
-                  <button className={captureWindowStyle === 'picture_in_picture' && pictureInPictureSupported ? 'active' : ''} type="button" disabled={!pictureInPictureSupported} onClick={() => setCaptureWindowStyle('picture_in_picture')}>置顶画中画</button>
+                  <button className={captureWindowStyle === 'picture_in_picture' && pictureInPictureSupported ? 'active' : ''} type="button" disabled={!pictureInPictureSupported} title={!pictureInPictureSupported ? '当前浏览器不支持置顶画中画' : undefined} onClick={() => setCaptureWindowStyle('picture_in_picture')}>置顶画中画</button>
                   <button className={captureWindowStyle === 'browser_window' || !pictureInPictureSupported ? 'active' : ''} type="button" onClick={() => setCaptureWindowStyle('browser_window')}>普通窗口</button>
                 </div>
                 <div className="xlCaptureModeChoice" role="group" aria-label="选择节目窗口比例">
-                  <button className={captureOrientation === 'portrait' ? 'active' : ''} type="button" onClick={() => setCaptureOrientation('portrait')}>9:16 竖屏手机窗口</button>
-                  <button className={captureOrientation === 'landscape' ? 'active' : ''} type="button" onClick={() => setCaptureOrientation('landscape')}>16:9 横屏 PC 窗口</button>
+                  <button className={captureOrientation === 'portrait' ? 'active' : ''} type="button" onClick={() => setCaptureOrientation('portrait')}>9:16 竖屏</button>
+                  <button className={captureOrientation === 'landscape' ? 'active' : ''} type="button" onClick={() => setCaptureOrientation('landscape')}>16:9 横屏</button>
                 </div>
                 {windowCaptureUsesStoryboard && <div className="xlProgramVideoOptions"><span>可播分镜 <strong>{programVideos.length}/{scripts.length}</strong></span><label><input type="checkbox" checked={programPlaybackLoop} onChange={(event) => setProgramPlaybackLoop(event.target.checked)} />循环播放</label></div>}
-                <p className="xlCaptureModeHint">请在官方直播伴侣中选择节目画面和系统声音。画中画若未出现在窗口采集列表中，可切换普通窗口。控制台需保持打开；普通窗口若提示启用声音，请在该窗口点击启用。</p>
+                <p className="xlCaptureModeHint">在直播伴侣中采集节目窗口和系统声音，直播时保持控制台打开。</p>
                 {windowCaptureState !== 'stopped' && <div className={`xlCaptureWindowState ${windowCaptureState === 'failed' ? 'failed' : ''}`}>{windowCaptureState === 'connecting' ? '节目窗口正在连接…' : windowCaptureState === 'live' ? '节目窗口已连接，可以交给官方直播伴侣捕获' : windowCaptureMessage || '节目窗口连接失败'}</div>}
               </>}
             </section>
-            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出预设</strong>{windowCaptureMode ? `${captureOrientation === 'portrait' ? '9:16' : '16:9'} · ${outputConfig.resolution} · ${outputConfig.frameRate}` : `${outputConfig.protocol} · ${outputConfig.resolution} · ${outputConfig.frameRate} · ${outputConfig.codec}`}</span>{windowCaptureMode ? <span><i />节目窗口模式</span> : <span><i />已选 {selectedPlatformConnectionIds.length} 个目标</span>}{!windowCaptureMode && <label className="xlPlatformSource"><strong>最终画面来源</strong><select value={mediaSourceKind} onChange={(event) => setMediaSourceKind(event.target.value as 'browser_ingest' | 'test_pattern')}><option value="browser_ingest">浏览器媒体网关（生产）</option><option value="test_pattern">服务端测试画面（仅联调）</option></select></label>}</div>
+            <div className="xlPlatformSummary"><span><Radio size={15} /><strong>输出</strong>{windowCaptureMode ? `${captureOrientation === 'portrait' ? '9:16' : '16:9'} · ${outputConfig.resolution} · ${outputConfig.frameRate}` : `${outputConfig.protocol} · ${outputConfig.resolution} · ${outputConfig.frameRate} · ${outputConfig.codec}`}</span>{!windowCaptureMode && <label className="xlPlatformSource"><strong>画面来源</strong><select value={mediaSourceKind} onChange={(event) => setMediaSourceKind(event.target.value as 'browser_ingest' | 'test_pattern')}><option value="browser_ingest">浏览器媒体网关</option><option value="test_pattern">测试画面（仅联调）</option></select></label>}</div>
 
             <div className="xlPlatformCenterGrid">
-              <section className="xlRtmpConnections">
-                <header><span><strong>推流目标</strong><small>{windowCaptureMode ? '窗口采集模式不会使用这里的 RTMP 目标' : '从平台直播后台获取合法地址和密钥'}</small></span><button type="button" onClick={openNewRtmpConnection}><Plus size={14} />新增 RTMP</button></header>
+              {!windowCaptureMode && <section className="xlRtmpConnections">
+                <header><span><strong>推流目标</strong></span><button type="button" onClick={openNewRtmpConnection}><Plus size={14} />新增 RTMP</button></header>
                 {platformConnectionsLoading && <div className="xlPlatformLoading"><LoaderCircle className="xlVoiceSpinner" size={17} />正在读取平台连接…</div>}
-                {!platformConnectionsLoading && !platformConnections.length && <div className="xlPlatformEmpty"><KeyRound size={25} /><strong>还没有推流目标</strong><span>新增后密钥只会加密保存在服务端。</span><button type="button" onClick={openNewRtmpConnection}><Plus size={13} />添加第一个目标</button></div>}
+                {!platformConnectionsLoading && !platformConnections.length && <div className="xlPlatformEmpty"><KeyRound size={25} /><strong>还没有推流目标</strong></div>}
                 <div className="xlRtmpConnectionList">{platformConnections.map((connection) => {
                   const selected = selectedPlatformConnectionIds.includes(connection.id);
                   const busy = platformActionId === connection.id;
@@ -6180,7 +6157,12 @@ export function LiveStudio({
                 </form>}
                 {liveRunPreflight && <div className={`xlPlatformMessage ${liveRunPreflight.ready ? 'passed' : 'failed'}`}>服务端预检：{liveRunPreflight.checks.filter((check) => check.passed).length}/{liveRunPreflight.checks.length} 项通过</div>}
                 {platformError && <div className="xlPlatformError" role="alert">{platformError}</div>}
-              </section>
+                <details className="xlPlatformDiagnostics"><summary>连接自检</summary>
+                  <div className="xlLocalRtmpTest"><span><Server size={16} /><strong>本机媒体链路</strong></span><button type="button" disabled={platformActionId !== null} onClick={() => void runLocalMediaSelfTest()}>{platformActionId === 'local-rtmp-self-test' ? <LoaderCircle className="xlVoiceSpinner" size={13} /> : <Play size={13} />}{platformActionId === 'local-rtmp-self-test' ? '自检中' : '运行自检'}</button></div>
+                  {localRtmpSelfTestResult && <div className="xlPlatformMessage xlLocalRtmpTestResult passed" role="status">{localRtmpSelfTestResult.message}（{(localRtmpSelfTestResult.durationMs / 1000).toFixed(1)} 秒）</div>}
+                  {localRtmpSelfTestError && <div className="xlPlatformError xlLocalRtmpTestError" role="alert">{localRtmpSelfTestError}</div>}
+                </details>
+              </section>}
 
               <aside className="xlPlatformPreflight">
                 <section>
@@ -6188,15 +6170,10 @@ export function LiveStudio({
                   <div>{platformPreflightChecks.map((check) => <p className={check.passed ? 'passed' : ''} key={check.label}><i>{check.passed ? <Check size={11} /> : '!'}</i><span>{check.label}</span></p>)}</div>
                   {roomDirty && <button type="button" onClick={() => void saveLiveRoom()}><Save size={12} />保存直播间配置</button>}
                 </section>
-                <section className="xlOfficialPlatforms">
-                  <header><strong>官方账号授权</strong><span>下一阶段</span></header>
-                  <p>OAuth、评论互动、商品和订单属于独立权限，需平台企业应用审核通过后逐项接入。</p>
-                  <div>{PLATFORMS.map((platform) => <span key={platform.name}><i style={{ backgroundColor: platform.color }}><img src={platform.logo} alt="" /></i><strong>{platform.name}</strong><em>待申请</em></span>)}</div>
-                </section>
               </aside>
             </div>
           </div>
-          <footer className="xlPlatformCenterFooter"><label className="xlPlatformTerms">{windowCaptureMode ? <span>节目窗口由官方直播伴侣捕获；平台账号登录和实际开播由官方客户端完成。</span> : <><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>我已确认推流地址来源合法，并了解“服务器可达”不代表平台已授权</span></>}</label><div><button type="button" onClick={() => setDialog(null)}>关闭</button><button type="button" disabled={!platformPreflightReady || (!windowCaptureMode && !termsAccepted) || liveRunBusy} onClick={() => void completeLivePreflight()}>{liveRunBusy ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <ShieldCheck size={14} />}{liveRunBusy ? (windowCaptureMode ? '打开节目窗口中' : '服务端检查中') : (windowCaptureMode ? '打开节目输出窗口' : '完成开播预检')}</button></div></footer>
+          <footer className="xlPlatformCenterFooter">{!windowCaptureMode && <label className="xlPlatformTerms"><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /><span>已确认推流地址合法，连接测试不代表平台授权</span></label>}<div><button type="button" onClick={() => setDialog(null)}>关闭</button><button type="button" disabled={!platformPreflightReady || (!windowCaptureMode && !termsAccepted) || liveRunBusy} onClick={() => void completeLivePreflight()}>{liveRunBusy ? <LoaderCircle className="xlVoiceSpinner" size={14} /> : <ShieldCheck size={14} />}{liveRunBusy ? (windowCaptureMode ? '打开节目窗口中' : '服务端检查中') : (windowCaptureMode ? '打开节目输出窗口' : '完成开播预检')}</button></div></footer>
         </section>
       </div>}
 

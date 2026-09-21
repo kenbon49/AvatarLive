@@ -18,16 +18,20 @@ def _ordered_rooms() -> Select[tuple[LiveRoom]]:
     return select(LiveRoom).order_by(LiveRoom.created_at.asc(), LiveRoom.id.asc())
 
 
-def list_live_rooms(db: Session, *, offset: int = 0, limit: int = 50) -> list[LiveRoom]:
-    return list(db.scalars(_ordered_rooms().offset(offset).limit(limit)))
+def list_live_rooms(db: Session, *, owner_id: str | None = None, offset: int = 0, limit: int = 50) -> list[LiveRoom]:
+    statement = _ordered_rooms()
+    if owner_id is not None:
+        statement = statement.where(LiveRoom.owner_id == owner_id)
+    return list(db.scalars(statement.offset(offset).limit(limit)))
 
 
 def get_live_room(db: Session, room_id: str) -> LiveRoom | None:
     return db.get(LiveRoom, room_id)
 
 
-def create_live_room(db: Session, *, name: str, config: dict, slug: str | None = None) -> LiveRoom:
+def create_live_room(db: Session, *, name: str, config: dict, slug: str | None = None, owner_id: str | None = None) -> LiveRoom:
     room = LiveRoom(
+        owner_id=owner_id,
         slug=slug or f"room-{uuid4().hex[:12]}",
         name=name,
         config=config,
@@ -71,6 +75,7 @@ def copy_live_room(db: Session, room: LiveRoom, *, name: str | None = None) -> L
         db,
         name=name or f"{room.name} - 副本",
         config=dict(room.config),
+        owner_id=room.owner_id,
     )
 
 
