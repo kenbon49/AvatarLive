@@ -5,8 +5,8 @@ AI 数字人直播中控平台原型。
 ## 一键部署（Windows / Linux / macOS）
 
 前端、控制 API、PostgreSQL、Redis、Qdrant、MinIO、SRS 和统一入口都由
-Docker Compose 管理。首次执行会创建 `.env`、生成本地安全密钥、执行数据库迁移并
-创建初始管理员。
+Docker Compose 管理。默认是云端 API/Core 模式：首次执行会创建 `.env`、生成本地安全密钥、
+执行数据库迁移并创建初始管理员，不会下载 MuseTalk、MeloTTS 或 server-total 模型。
 
 Linux / macOS：
 
@@ -14,16 +14,28 @@ Linux / macOS：
 ./deploy.sh
 ```
 
-Windows PowerShell：
+Windows PowerShell（首次部署可自动安装 Git 和 Docker Desktop）：
 
 ```powershell
 .\deploy.ps1
 ```
 
+首次部署且尚未安装依赖时使用：
+
+```powershell
+.\deploy.ps1 -Install
+```
+
+只检查环境而不启动服务：
+
+```powershell
+.\deploy.ps1 -Check
+```
+
 Windows 也可以双击 `deploy.cmd`。启动完成后访问 `http://localhost:8018/live`。
 
-完整 MuseTalk/TTS 推理需要将 `AvatarLive-backend` 克隆在本仓库旁边，并在支持
-NVIDIA 容器的 Linux 或 Windows/WSL2 主机执行：
+本地 MuseTalk/MeloTTS/server-total 是可选的 GPU 兼容模式。只有确实需要本地推理时，才将
+`AvatarLive-backend` 克隆在本仓库旁边，并在支持 NVIDIA 容器的 Linux 或 Windows/WSL2 主机执行：
 
 ```bash
 ./deploy.sh --gpu

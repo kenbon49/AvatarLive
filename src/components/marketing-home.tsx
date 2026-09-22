@@ -8,7 +8,7 @@ const featuredModules = [
   {
     slug: 'live',
     title: '直播中控',
-    href: '/app/live',
+    href: '/live',
     description: '预览、弹幕、回复、接管一屏完成。',
   },
   {

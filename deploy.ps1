@@ -5,7 +5,10 @@ param(
     [string]$BackendDir = "",
     [string]$EnvFile = "",
     [switch]$NoBuild,
-    [switch]$InitOnly
+    [switch]$NoModelDownload,
+    [switch]$InitOnly,
+    [switch]$Check,
+    [switch]$Install
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +20,90 @@ function Invoke-Docker {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
     & docker @Arguments
     if ($LASTEXITCODE -ne 0) { throw "docker $($Arguments -join ' ') failed with exit code $LASTEXITCODE" }
+}
+
+function Test-CommandAvailable {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Install-WingetPackage {
+    param([Parameter(Mandatory = $true)][string]$Id)
+    Write-Host "Installing $Id with winget..." -ForegroundColor Cyan
+    & winget install --id $Id --exact --source winget --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) { throw "winget could not install $Id (exit code $LASTEXITCODE)." }
+}
+
+function Install-OptionalDependencies {
+    if (-not (Test-CommandAvailable "winget")) {
+        throw "-Install requires winget. Install App Installer from the Microsoft Store, then rerun .\deploy.ps1 -Install."
+    }
+    if (-not (Test-CommandAvailable "git")) { Install-WingetPackage "Git.Git" }
+    if (-not (Test-CommandAvailable "docker")) { Install-WingetPackage "Docker.DockerDesktop" }
+
+    # winget updates PATH for future processes; refresh this process as well.
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($userPath -or $machinePath) { $env:Path = (($userPath, $machinePath) -ne $null) -join ";" }
+
+    $dockerDesktop = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
+    if ((Test-Path -LiteralPath $dockerDesktop) -and -not (Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue)) {
+        Write-Host "Starting Docker Desktop..." -ForegroundColor Cyan
+        Start-Process -FilePath $dockerDesktop | Out-Null
+    }
+    if (Test-CommandAvailable "docker") {
+        for ($attempt = 0; $attempt -lt 45; $attempt++) {
+            & docker info *> $null
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+
+function Test-DeploymentEnvironment {
+    param([switch]$RequireGpu)
+    $issues = [System.Collections.Generic.List[string]]::new()
+
+    if (-not (Test-CommandAvailable "git")) {
+        $issues.Add("Git is missing. Install Git for Windows or rerun with -Install.")
+    }
+    $dockerAvailable = Test-CommandAvailable "docker"
+    if (-not $dockerAvailable) {
+        $issues.Add("Docker Desktop is missing. Install Docker Desktop or rerun with -Install.")
+    }
+    else {
+        & docker compose version *> $null
+        if ($LASTEXITCODE -ne 0) { $issues.Add("Docker Compose v2 is unavailable. Update Docker Desktop.") }
+        & docker info *> $null
+        if ($LASTEXITCODE -ne 0) { $issues.Add("Docker Desktop is not running. Start it and wait for the engine to become ready.") }
+    }
+
+    if ($RequireGpu) {
+        if (-not (Test-CommandAvailable "wsl")) {
+            $issues.Add("WSL2 is required for the optional -Gpu mode. Install it with 'wsl --install' and restart Windows.")
+        }
+        else {
+            & wsl --status *> $null
+            if ($LASTEXITCODE -ne 0) { $issues.Add("WSL2 is not initialized. Run 'wsl --install' and restart Windows.") }
+        }
+        if (-not (Test-CommandAvailable "nvidia-smi")) {
+            $issues.Add("nvidia-smi is missing. Install a current NVIDIA driver before using -Gpu.")
+        }
+        if ($dockerAvailable) {
+            $probeImage = if ($env:CUDA_PROBE_IMAGE) { $env:CUDA_PROBE_IMAGE } else { "nvidia/cuda:12.8.0-base-ubuntu22.04" }
+            & docker run --rm --gpus all --entrypoint nvidia-smi $probeImage *> $null
+            if ($LASTEXITCODE -ne 0) { $issues.Add("Docker cannot access the NVIDIA GPU. Enable Docker Desktop WSL2 GPU support and verify the NVIDIA driver.") }
+        }
+    }
+
+    if ($issues.Count -gt 0) {
+        Write-Host "Environment check found $($issues.Count) issue(s):" -ForegroundColor Yellow
+        $issues | ForEach-Object { Write-Host " - $_" -ForegroundColor Yellow }
+        return $false
+    }
+    Write-Host "Environment check passed: Git, Docker Compose, and Docker daemon are ready." -ForegroundColor Green
+    if ($RequireGpu) { Write-Host "GPU check passed: WSL2 and NVIDIA Docker runtime are available." -ForegroundColor Green }
+    return $true
 }
 
 function Get-EnvValue {
@@ -79,15 +166,20 @@ if ($InitOnly) {
     return
 }
 
+if ($Install) { Install-OptionalDependencies }
+
+if ($Check) {
+    if (-not (Test-DeploymentEnvironment -RequireGpu:$Gpu)) { exit 1 }
+    return
+}
+
 if ($Tunnel -and (-not (Test-Path -LiteralPath $tunnelToken -PathType Leaf) -or (Get-Item -LiteralPath $tunnelToken).Length -eq 0)) {
     throw "Cloudflare Tunnel requires a nonempty secrets/cloudflare-tunnel-token file."
 }
 
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    throw "Docker is required. Install and start Docker Desktop first."
+if (-not (Test-DeploymentEnvironment -RequireGpu:$Gpu)) {
+    throw "Environment is not ready. Fix the reported issues, or run .\deploy.ps1 -Check for a diagnostic-only check."
 }
-Invoke-Docker -Arguments @("compose", "version") | Out-Null
-Invoke-Docker -Arguments @("info") | Out-Null
 
 if ($Gpu) {
     $backendScript = Join-Path $BackendDir "deploy.ps1"
@@ -98,6 +190,7 @@ if ($Gpu) {
         EnvFile = $EnvFile
         AvatarAssetDir = (Join-Path $Root "runtime\avatar-assets")
         NoBuild = $NoBuild
+        NoModelDownload = $NoModelDownload
     }
     & $backendScript @backendParams
     if ($LASTEXITCODE -ne 0) { throw "AvatarLive-backend deployment failed." }
@@ -146,6 +239,6 @@ if ($credentials) {
     $credentials | ForEach-Object { Write-Host $_ }
 }
 if (-not $Gpu) {
-    Write-Host "`nCore mode is active. Use .\deploy.ps1 -Gpu on an NVIDIA-capable Windows/WSL2 host," -ForegroundColor Yellow
-    Write-Host "or configure a remote inference URL."
+    Write-Host "`nCloud/Core mode is active. No local MuseTalk, MeloTTS, server-total, GPU, or model download was used." -ForegroundColor Yellow
+    Write-Host "Configure the cloud API credentials in .env; use -Gpu only for the optional local inference stack."
 }

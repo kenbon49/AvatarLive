@@ -9,7 +9,7 @@
 //
 // 形象可切换(顶部下拉):均为标准 ARKit52 + Oculus15 viseme morph 命名,TalkingHead 通用兼容,
 // 换模型零适配。默认 Avaturn 写实向(比原 RPM 卡通示例更接近真人);brunette 留作对照。
-// 注意:浏览器 GLB 路径天花板是「次世代半写实」,做不到 UE MetaHuman 级写实(那是 /app/live 的活)。
+// 注意:浏览器 GLB 路径天花板是「次世代半写实」,做不到 UE MetaHuman 级写实(那是 /live 的活)。
 //
 // 模块加载:talkinghead.mjs / dynamicbones.mjs 里的 three bare import 已就地改写为 CDN 绝对
 // URL(见 public/vendor/talkinghead/,升级 vendor 后需重新 sed —— 见本目录 README),且内部用
@@ -388,7 +388,7 @@ export function AvatarWebConsole() {
               <strong>已知限制(POC):</strong>
             </p>
             <ul style={{ margin: '0 0 0 1.2em', padding: 0 }}>
-              <li>浏览器 GLB 路径天花板是「次世代半写实」,做不到 UE MetaHuman 级写实(那是 /app/live + UE 工程的活)。</li>
+              <li>浏览器 GLB 路径天花板是「次世代半写实」,做不到 UE MetaHuman 级写实(那是 /live + UE 工程的活)。</li>
               <li>HeadAudio 预训练模型是英语 MFCC,中文口型能动但不完美;后续可升级后端 Azure Speech SDK 出精确 viseme。</li>
               <li>三个 GLB 均为各平台「示例/演示」模型(非商用授权),商用/公开前需替换为自有或商用授权形象。</li>
             </ul>

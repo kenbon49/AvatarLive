@@ -4,16 +4,17 @@
 
 | 模式 | Windows | Linux | macOS | 包含内容 |
 | --- | --- | --- | --- | --- |
-| Core | Docker Desktop | Docker Engine / Desktop | Docker Desktop | Web、控制 API、PostgreSQL、Redis、Qdrant、MinIO、SRS、Caddy |
-| GPU | Docker Desktop + WSL2 GPU | NVIDIA Driver + Container Toolkit | 不支持本地 CUDA | MuseTalk、MeloTTS、流式聚合 API |
+| Core / Cloud（默认） | Docker Desktop | Docker Engine / Desktop | Docker Desktop | Web、控制 API、PostgreSQL、Redis、Qdrant、MinIO、SRS、Caddy、云端形象/语音/LLM API |
+| GPU（可选） | Docker Desktop + WSL2 GPU | NVIDIA Driver + Container Toolkit | 不支持本地 CUDA | MuseTalk、MeloTTS、流式聚合 API |
 
-Core 模式可以管理直播间、脚本、素材、账号和推流。数字人口型实时推理依赖 CUDA；
-macOS 或没有 NVIDIA GPU 的电脑应连接一台远程 GPU 主机。
+Core / Cloud 模式可以管理直播间、脚本、素材、账号和推流，并使用云端形象、语音和模型；
+它不需要 AvatarLive-backend、CUDA、GPU 或模型权重。GPU 模式只是保留给需要本地实时推理的
+兼容场景；macOS 或没有 NVIDIA GPU 的电脑应继续使用云端模式或连接远程 GPU 主机。
 部署脚本会启动服务，但云端 LLM、阿里云成片、Azure TTS 等外部能力仍需各自的有效凭据。
 
 ## 目录结构
 
-两个仓库应放在同一个父目录：
+默认云端/Core 部署只需要 `AvatarLive`；只有启用可选 GPU 模式时才需要把两个仓库放在同一个父目录：
 
 ```text
 workspace/
@@ -23,15 +24,17 @@ workspace/
 
 ```bash
 git clone --branch feat/avatar-design https://github.com/kenbon49/AvatarLive.git
+# GPU 模式才需要：
 git clone --branch feat/avatar-design https://github.com/kenbon49/AvatarLive-backend.git
 ```
 
-只运行 Core 时可以不克隆 `AvatarLive-backend`。
+只运行 Core / Cloud 时不要克隆或部署 `AvatarLive-backend` 也可以。
 
 ## 首次启动
 
-前置条件只有 Git 和 Docker。Windows/macOS 安装 Docker Desktop，Linux 安装 Docker
-Engine 与 Compose v2。Docker daemon 必须已经启动。
+前置条件是 Git 和 Docker。Windows/macOS 安装 Docker Desktop，Linux 安装 Docker
+Engine 与 Compose v2。Docker daemon 必须已经启动。Windows 可用 `-Install` 让脚本通过
+`winget` 安装 Git 和 Docker Desktop；WSL2/GPU 不属于默认 Core 模式依赖。
 
 Linux / macOS：
 
@@ -45,6 +48,18 @@ Windows PowerShell：
 ```powershell
 Set-Location AvatarLive
 .\deploy.ps1
+```
+
+首次部署且尚未安装 Git 或 Docker Desktop：
+
+```powershell
+.\deploy.ps1 -Install
+```
+
+只检测环境、不启动容器：
+
+```powershell
+.\deploy.ps1 -Check
 ```
 
 Windows 资源管理器中也可以双击 `deploy.cmd`。脚本会自动：
@@ -71,7 +86,7 @@ docker compose -f infra/docker-compose.yml exec -T api \
 请妥善保存初始密码，并限制能够访问 Docker daemon 和该 volume 的系统账号。
 凭据已转存后可删除容器中的 `initial-admin.txt`；管理员账号仍留在数据库中。
 
-## 完整 GPU 启动
+## 可选 GPU 启动
 
 Linux 需要 NVIDIA 驱动和 NVIDIA Container Toolkit；Windows 需要 Docker Desktop 的
 WSL2 后端与 NVIDIA GPU 容器支持。确认 `nvidia-smi` 和 Docker GPU runtime 正常后执行：
@@ -84,15 +99,15 @@ WSL2 后端与 NVIDIA GPU 容器支持。确认 `nvidia-smi` 和 Docker GPU runt
 .\deploy.ps1 -Gpu
 ```
 
-脚本会调用相邻 `AvatarLive-backend` 的部署入口，检查模型文件；缺失时通过临时 Python
-容器下载约数 GB 权重，然后构建并启动：
+只有显式传入 `-Gpu` 时，脚本才会调用相邻 `AvatarLive-backend` 的部署入口，检查模型文件；
+缺失时通过临时 Python 容器下载约数 GB 权重，然后构建并启动：
 
 - MuseTalk：`8083`
 - MeloTTS：`8084`
 - 流式聚合 API：`8085`
 
 自定义目录布局可使用 `--backend-dir PATH` 或 PowerShell 的 `-BackendDir PATH`。
-已有模型环境可在后端入口传 `--no-model-download`，缺文件时立即失败而不下载。
+已有模型环境或禁止下载时可传 `-NoModelDownload`，缺文件会立即失败。
 
 ## 配置外部服务
 
@@ -126,15 +141,22 @@ VPN 或带鉴权和 TLS 的反向代理。
 
 ## 更新与停止
 
-更新不会删除数据库和缓存 volume：
+更新不会删除数据库和缓存 volume。默认仍只更新 Core / Cloud 服务：
+
+```bash
+git pull --ff-only
+./deploy.sh
+```
+
+只有使用可选 GPU 模式时才需要更新并部署后端：
 
 ```bash
 git -C ../AvatarLive-backend pull --ff-only
-git pull --ff-only
 ./deploy.sh --gpu
 ```
 
-Windows 使用相同的 `git pull`，然后执行 `.\deploy.ps1 -Gpu`。
+Windows 使用相同的 `git pull`，默认执行 `.\deploy.ps1`；GPU 模式再执行
+`.\deploy.ps1 -Gpu`。
 
 停止并保留数据：
 

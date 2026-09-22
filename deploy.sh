@@ -189,5 +189,6 @@ fi
 if ((WITH_GPU == 0)); then
   echo
   echo "Core mode is active. Run './deploy.sh --gpu' on an NVIDIA-capable host"
-  echo "to add local MuseTalk/TTS inference, or configure a remote inference URL."
+  echo "No local MuseTalk/MeloTTS/server-total services were started. Use --gpu only for the optional local inference stack,"
+  echo "or configure the cloud API credentials in .env."
 fi

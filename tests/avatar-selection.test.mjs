@@ -8,7 +8,6 @@ import {
 import {
   ALIYUN_PUBLIC_AVATARS,
   LIVE_AVATARS,
-  LOCAL_LIVE_AVATARS,
   aliyunAvatarForCloudVideo,
 } from '../src/lib/live-avatar-catalog.ts';
 
@@ -88,10 +87,11 @@ test('exposes the complete synchronized Alibaba Cloud public avatar catalog', ()
   assert.equal(new Set(ALIYUN_PUBLIC_AVATARS.map((avatar) => avatar.officialId)).size, 182);
 });
 
-test('keeps local renderable avatars available under My Avatars', () => {
-  assert.equal(LIVE_AVATARS.length, LOCAL_LIVE_AVATARS.length + ALIYUN_PUBLIC_AVATARS.length);
-  assert.ok(LOCAL_LIVE_AVATARS.every((avatar) => avatar.scope === 'mine' && avatar.rendererProfile));
-  assert.ok(LIVE_AVATARS.every((avatar) => avatar.id !== 'chinese' && avatar.name !== '中文女'));
+test('uses the Alibaba Cloud catalog as the only live avatar source', () => {
+  assert.equal(LIVE_AVATARS, ALIYUN_PUBLIC_AVATARS);
+  assert.equal(LIVE_AVATARS.length, 182);
+  assert.ok(LIVE_AVATARS.every((avatar) => avatar.scope === 'aliyun' && avatar.rendererProfile === undefined));
+  assert.ok(LIVE_AVATARS.every((avatar) => avatar.name !== '商务男' && avatar.name !== '陈屿'));
 });
 
 test('uses the selected Alibaba Cloud avatar directly for cloud video synthesis', () => {
@@ -102,5 +102,4 @@ test('uses the selected Alibaba Cloud avatar directly for cloud video synthesis'
   assert.equal(aliyunAvatarForCloudVideo(lingruo), lingruo);
   assert.ok(liveLingwan);
   assert.equal(aliyunAvatarForCloudVideo(liveLingwan), liveLingwan);
-  assert.equal(aliyunAvatarForCloudVideo(LOCAL_LIVE_AVATARS[0]), undefined);
 });

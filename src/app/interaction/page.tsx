@@ -1,5 +1,5 @@
-import { InteractionConsole } from '@/components/interaction-console';
+import { redirect } from 'next/navigation';
 
 export default function InteractionPage() {
-  return <InteractionConsole />;
+  redirect('/live');
 }

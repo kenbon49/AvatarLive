@@ -27,7 +27,7 @@ function AvatarMedia({ avatar, className = '' }: { avatar: Avatar; className?: s
 }
 
 const IDLE_SEEK_TIMEOUT_MS = 250;
-const CONFIGURED_INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'business-male-1', 'chenyu', 'suqing', 'guyan']);
+const CONFIGURED_INTERACTIVE_AVATAR_IDS = new Set(['chinese', 'suqing', 'guyan']);
 
 function isInteractiveAvatar(avatar: Avatar, availableAvatarIds: Set<string>) {
   if (avatar.custom) return Boolean(avatar.video) && availableAvatarIds.has(avatar.profile);

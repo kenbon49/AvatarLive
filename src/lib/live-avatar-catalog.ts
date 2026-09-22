@@ -33,35 +33,6 @@ export type LiveAvatarCatalogItem = {
   transparent?: boolean;
 };
 
-export const LOCAL_LIVE_AVATARS: LiveAvatarCatalogItem[] = [
-  {
-    id: 'business_male_1',
-    name: '商务男',
-    role: '企业服务顾问',
-    image: '/assets/musetalk-avatars/business-male-1.jpg',
-    type: '真人',
-    gender: '男',
-    age: '青年',
-    scope: 'mine',
-    providerName: '本地 MuseTalk',
-    capability: '实时',
-    rendererProfile: 'business_male_1',
-  },
-  {
-    id: 'chen_yu',
-    name: '陈屿',
-    role: '企业服务顾问',
-    image: '/assets/musetalk-avatars/chen-yu.jpg',
-    type: '真人',
-    gender: '男',
-    age: '青年',
-    scope: 'mine',
-    providerName: '本地 MuseTalk',
-    capability: '实时',
-    rendererProfile: 'chen_yu',
-  },
-];
-
 const SOURCE_TYPE_LABELS: Record<AliyunAvatarSourceType, string> = {
   AVATAR_2D: '2D 数字人',
   AVATAR_2D_MOBILE: '移动端 2D',
@@ -107,4 +78,6 @@ export function aliyunAvatarForCloudVideo(avatar: LiveAvatarCatalogItem) {
   return avatar.scope === 'aliyun' && avatar.officialId ? avatar : undefined;
 }
 
-export const LIVE_AVATARS = [...LOCAL_LIVE_AVATARS, ...ALIYUN_PUBLIC_AVATARS];
+// Cloud avatars are the only selectable live sources in the current product.
+// Local MuseTalk remains an optional compatibility backend, not a catalog entry.
+export const LIVE_AVATARS = ALIYUN_PUBLIC_AVATARS;

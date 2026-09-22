@@ -14,7 +14,7 @@ export const moduleEntries: ModuleEntry[] = [
     slug: 'live',
     title: 'AI 直播中控',
     eyebrow: 'Control Room',
-    href: '/app/live',
+    href: '/live',
     description: '一个界面完成开播、播报、弹幕、AI 回复、场景切换和人工接管。',
     tags: ['实时预览', '弹幕问答', '一键接管'],
     metric: '端到端链路可观测',
