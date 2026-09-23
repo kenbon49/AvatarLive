@@ -31,7 +31,8 @@ from ...services.live.sessions import session_store
 from ...services.renderer import renderer_client
 from ...services.llm import DEFAULT_PERSONA_SYSTEM_PROMPT, get_litellm_default_model_id
 from ...services.llm.chat import complete_litellm_chat
-from ...services.billing import charge_api_usage, mark_api_usage
+from ...core.config import settings
+from ...services.billing import fail_api_usage, mark_api_usage, reserve_llm_usage, settle_llm_usage
 
 router = APIRouter(prefix="/live/sessions", tags=["live"])
 
@@ -106,7 +107,13 @@ async def answer(
 
     # 1) LLM 生成回答（litellm.completion 是同步阻塞，丢线程池，避免卡事件循环）
     llm_start = time.perf_counter()
-    usage = charge_api_usage(db, user, "llm_chat", f"llm:{uuid4()}", detail={"model": model_id, "source": "live_answer"})
+    max_output_tokens = max(1, min(int(req.max_tokens or 4096), settings.llm_max_output_tokens))
+    usage = reserve_llm_usage(
+        db, user, f"llm:{uuid4()}", model=model_id,
+        messages=[{"role": "user", "content": req.question}],
+        system_prompt=system_prompt, max_output_tokens=max_output_tokens,
+        source="live_answer",
+    )
     try:
         result = await asyncio.to_thread(
             complete_litellm_chat,
@@ -116,14 +123,18 @@ async def answer(
             max_tokens=req.max_tokens,
         )
     except ValueError as exc:
-        mark_api_usage(db, usage.id, user.id, "failed")
+        fail_api_usage(db, usage.id, user.id, str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
-        mark_api_usage(db, usage.id, user.id, "failed")
+        fail_api_usage(db, usage.id, user.id, str(exc))
         raise HTTPException(status_code=502, detail=str(exc))
     llm_latency_ms = int((time.perf_counter() - llm_start) * 1000)
     answer_text = result["content"]
-    mark_api_usage(db, usage.id, user.id, "succeeded")
+    token_usage = result.pop("_usage", None)
+    if token_usage:
+        settle_llm_usage(db, usage.id, user.id, token_usage)
+    else:
+        mark_api_usage(db, usage.id, user.id, "succeeded")
 
     # 2) 可选：驱动数字人开口（渲染后端驱动 MetaHuman，音视频经 Pixel Streaming/WebRTC）
     livetalking: dict | None = None

@@ -61,6 +61,17 @@ class Settings(BaseSettings):
     llm_default_model_id: str = "llm-gpt"
     llm_max_output_tokens: int = 8192
     llm_request_timeout: int = 120
+    # Cost accounting uses integer micro-RMB. Pricing overrides accept the
+    # same RMB-per-million-token values published by the configured gateway.
+    llm_pricing_override_json: str = "{}"
+    deepseek_holiday_dates: str = ""
+    billing_markup_basis_points: int = Field(default=10_000, ge=0, le=100_000)
+    billing_min_charge_micros: int = Field(default=1, ge=0, le=1_000_000)
+    aliyun_video_micros_per_second: int = Field(default=100_000, ge=1)
+    aliyun_balance_cache_seconds: int = Field(default=600, ge=60, le=86_400)
+    aliyun_low_balance_micros: int = Field(default=50_000_000, ge=0)
+    # Kept for compatibility with older stored settings. New requests are not
+    # billed by these fixed values.
     llm_credit_cost: int = Field(default=1, ge=1, le=1_000_000)
     storyboard_video_credit_cost: int = Field(default=10, ge=1, le=1_000_000)
     aliyun_access_key_id: str = ""

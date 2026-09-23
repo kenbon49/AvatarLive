@@ -34,6 +34,32 @@ def sse_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _field(value: object, name: str, default=None):
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _extract_usage(response: object) -> dict | None:
+    usage = _field(response, "usage")
+    if not usage:
+        return None
+    prompt = int(_field(usage, "prompt_tokens", 0) or 0)
+    completion = int(_field(usage, "completion_tokens", 0) or 0)
+    hit = _field(usage, "prompt_cache_hit_tokens")
+    miss = _field(usage, "prompt_cache_miss_tokens")
+    if hit is None:
+        prompt_details = _field(usage, "prompt_tokens_details", {}) or {}
+        hit = _field(prompt_details, "cached_tokens", 0)
+    hit = int(hit or 0)
+    miss = int(miss if miss is not None else max(0, prompt - hit))
+    return {
+        "prompt_cache_hit_tokens": max(0, hit),
+        "prompt_cache_miss_tokens": max(0, miss),
+        "completion_tokens": max(0, completion),
+    }
+
+
 def complete_litellm_chat(
     model_id: str,
     messages: list[dict],
@@ -102,6 +128,7 @@ def complete_litellm_chat(
         "model_id": model_config["id"],
         "model": model_config["display_model"],
         "provider": model_config["provider"],
+        "_usage": _extract_usage(response),
     }
 
 
@@ -111,6 +138,7 @@ def stream_litellm_chat(
     system_prompt: str = "",
     max_tokens: int | None = None,
     temperature: float | None = None,
+    usage_sink: dict | None = None,
 ) -> Generator[str, None, None]:
     """SSE 流式对话，逐段 yield 已格式化的 SSE 字符串。"""
     from ...core.config import settings
@@ -153,6 +181,7 @@ def stream_litellm_chat(
         "model": model_name,
         "messages": request_messages,
         "stream": True,
+        "stream_options": {"include_usage": True},
         "max_tokens": max(1, min(safe_max_tokens, max_output_tokens)),
         "api_key": api_key,
         "api_base": api_base,
@@ -173,6 +202,10 @@ def stream_litellm_chat(
 
         response = litellm.completion(**params)
         for chunk in response:
+            provider_usage = _extract_usage(chunk)
+            if provider_usage is not None and usage_sink is not None:
+                usage_sink.clear()
+                usage_sink.update(provider_usage)
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta

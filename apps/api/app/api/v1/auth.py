@@ -16,6 +16,7 @@ from ...core.config import settings
 from ...db.session import get_db
 from ...models.account import LoginSession, User
 from ...security.accounts import COOKIE_NAME, SESSION_DAYS, create_session, hash_password, lookup_user, require_admin, require_user, session_hash, verify_password
+from ...services.user_admin import record_user_admin_audit
 
 
 router = APIRouter(prefix="/auth", tags=["accounts"])
@@ -115,7 +116,7 @@ def pending(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> 
 
 
 @router.post("/pending/{user_id}/{decision}")
-def review(user_id: str, decision: str, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
+def review(user_id: str, decision: str, admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
     if decision not in {"approve", "reject"}:
         raise HTTPException(status_code=404, detail="未知审核操作")
     user = db.get(User, user_id)
@@ -123,5 +124,11 @@ def review(user_id: str, decision: str, _: User = Depends(require_admin), db: Se
         raise HTTPException(status_code=404, detail="待审核用户不存在")
     user.status = "approved" if decision == "approve" else "rejected"
     user.reviewed_at = datetime.now(timezone.utc)
+    record_user_admin_audit(
+        db,
+        actor=admin,
+        target=user,
+        action="account_approved" if decision == "approve" else "account_rejected",
+    )
     db.commit()
     return public_user(user)

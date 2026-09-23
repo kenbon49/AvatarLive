@@ -7,25 +7,27 @@ import { aliyunAvatarVideoConfiguration } from '@/lib/server/aliyun-avatar-video
 
 function ownerFile(taskId: string) {
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(taskId)) throw new Error('任务不存在');
-  return path.join(process.cwd(), 'runtime', 'aliyun-avatar-videos', 'owners', `${taskId}.json`);
+  return path.join(/*turbopackIgnore: true*/ process.cwd(), 'runtime', 'aliyun-avatar-videos', 'owners', `${taskId}.json`);
 }
 
-export async function recordAliyunVideoOwner(taskId: string, ownerId: string) {
-  await writeJsonAtomic(ownerFile(taskId), { ownerId });
+export type AliyunVideoOwnership = { ownerId?: string; usageId?: string };
+
+export async function recordAliyunVideoOwner(taskId: string, ownerId: string, usageId?: string) {
+  await writeJsonAtomic(ownerFile(taskId), { ownerId, usageId });
 }
 
 export async function assertAliyunVideoOwner(taskId: string, user: { id: string; role: string }) {
-  if (taskId === aliyunAvatarVideoConfiguration().featuredVideoId) return;
+  if (taskId === aliyunAvatarVideoConfiguration().featuredVideoId) return {} as AliyunVideoOwnership;
   try {
-    const owner = JSON.parse(await readFile(/*turbopackIgnore: true*/ ownerFile(taskId), 'utf8')) as { ownerId?: string };
-    if (owner.ownerId === user.id) return;
+    const owner = JSON.parse(await readFile(/*turbopackIgnore: true*/ ownerFile(taskId), 'utf8')) as AliyunVideoOwnership;
+    if (owner.ownerId === user.id || user.role === 'admin') return owner;
   } catch {
     // Existing unowned cached media remains accessible only to the administrator.
   }
   if (user.role === 'admin') {
     try {
       await readFile(/*turbopackIgnore: true*/ ownerFile(taskId));
-    } catch { return; }
+    } catch { return {} as AliyunVideoOwnership; }
   }
   throw new Error('任务不存在');
 }

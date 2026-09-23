@@ -22,6 +22,10 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="user")
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     credit_balance: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Monetary values use integer micro-RMB. One visible credit is 0.01 RMB,
+    # therefore one credit equals 10,000 micro-RMB.
+    credit_balance_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    reserved_balance_micros: Mapped[int] = mapped_column(BigInteger, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -54,6 +58,21 @@ class SettingAudit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class UserAdminAudit(Base):
+    __tablename__ = "user_admin_audit"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    target_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="RESTRICT"), index=True,
+    )
+    actor_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="RESTRICT"), index=True,
+    )
+    action: Mapped[str] = mapped_column(String(40), index=True)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
 class CreditLedgerEntry(Base):
     __tablename__ = "credit_ledger_entries"
 
@@ -65,6 +84,11 @@ class CreditLedgerEntry(Base):
     kind: Mapped[str] = mapped_column(String(30), index=True)
     amount: Mapped[int] = mapped_column(BigInteger)
     balance_after: Mapped[int] = mapped_column(BigInteger)
+    amount_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    balance_after_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    usage_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("api_usages.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     reference: Mapped[str] = mapped_column(String(160), unique=True)
     description: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
@@ -76,9 +100,64 @@ class ApiUsage(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     operation: Mapped[str] = mapped_column(String(40), index=True)
-    status: Mapped[str] = mapped_column(String(20), default="charged", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="reserved", index=True)
     request_units: Mapped[int] = mapped_column(BigInteger, default=1)
     credits: Mapped[int] = mapped_column(BigInteger)
+    reserved_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    settled_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    upstream_cost_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    provider: Mapped[str] = mapped_column(String(40), default="")
+    model: Mapped[str] = mapped_column(String(160), default="")
+    provider_resource_id: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    pricing_version: Mapped[str] = mapped_column(String(80), default="")
+    pricing_time_band: Mapped[str] = mapped_column(String(20), default="")
+    input_cache_hit_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    input_cache_miss_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
     reference: Mapped[str] = mapped_column(String(160), unique=True)
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PlatformFundingAccount(Base):
+    __tablename__ = "platform_funding_accounts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default="primary")
+    available_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_funded_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_allocated_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_returned_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class PlatformFundingEntry(Base):
+    __tablename__ = "platform_funding_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    account_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("platform_funding_accounts.id", ondelete="RESTRICT"), index=True,
+    )
+    actor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="RESTRICT"))
+    target_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    kind: Mapped[str] = mapped_column(String(30), index=True)
+    amount_micros: Mapped[int] = mapped_column(BigInteger)
+    balance_after_micros: Mapped[int] = mapped_column(BigInteger)
+    reference: Mapped[str] = mapped_column(String(160), unique=True)
+    description: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
+class ProviderBalanceSnapshot(Base):
+    __tablename__ = "provider_balance_snapshots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    provider: Mapped[str] = mapped_column(String(40), index=True)
+    currency: Mapped[str] = mapped_column(String(12), default="CNY")
+    available_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="ok", index=True)
+    error: Mapped[str] = mapped_column(String(300), default="")
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)

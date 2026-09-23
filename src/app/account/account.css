@@ -5,10 +5,10 @@
 .accountHeader h1 { margin: 20px 0 6px; font-size: 26px; }
 .accountHeader p { margin: 0; color: #68777c; font-size: 13px; }
 .accountTabs { min-height: 50px; margin-top: 8px; display: flex; gap: 24px; }
-.accountTabs button { min-height: 50px; padding: 0 3px; display: inline-flex; align-items: center; gap: 7px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #68777c; font: inherit; font-size: 13px; cursor: pointer; }
-.accountTabs button:hover { color: #244b4a; }
+.accountTabs button, .accountTabs a { min-height: 50px; padding: 0 3px; display: inline-flex; align-items: center; gap: 7px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #68777c; font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }
+.accountTabs button:hover, .accountTabs a:hover { color: #244b4a; }
 .accountTabs button.active { border-color: #146d68; color: #146d68; font-weight: 700; }
-.accountTabs button:focus-visible { outline: 2px solid #5a9490; outline-offset: -3px; }
+.accountTabs button:focus-visible, .accountTabs a:focus-visible { outline: 2px solid #5a9490; outline-offset: -3px; }
 .accountPanel { padding-top: 26px; }
 .accountIdentity { min-height: 64px; display: flex; align-items: center; gap: 14px; }
 .accountPageAvatar { width: 52px; height: 52px; flex: 0 0 auto; border-radius: 50%; display: grid; place-items: center; background: #111a37; color: #fff; font-size: 14px; font-weight: 700; }
@@ -87,7 +87,7 @@
   .accountPage { padding: 22px 16px 40px; }
   .accountHeader h1 { margin-top: 18px; font-size: 23px; }
   .accountTabs { gap: 14px; overflow-x: auto; }
-  .accountTabs button { flex: 0 0 auto; font-size: 12px; }
+  .accountTabs button, .accountTabs a { flex: 0 0 auto; font-size: 12px; }
   .accountDetails > div { grid-template-columns: 110px minmax(0, 1fr); gap: 12px; }
   .accountActions { align-items: stretch; flex-direction: column; }
   .accountActions button { width: 100%; }

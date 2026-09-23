@@ -4,7 +4,7 @@ import { SCRIPT_EDITOR_LIMIT } from '@/lib/live-script-editor';
 import { createAliyunAvatarVideo } from '@/lib/server/aliyun-avatar-video';
 import { recordAliyunVideoOwner } from '@/lib/server/aliyun-task-ownership';
 import { requireRequestUser } from '@/lib/server/user-context';
-import { chargeApiUsage, markApiUsage } from '@/lib/server/billing';
+import { bindApiUsage, chargeApiUsage, failApiUsage } from '@/lib/server/billing';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +22,7 @@ type CreateVideoPayload = {
 
 export async function POST(request: Request) {
   let usageId = '';
+  let providerTaskId = '';
   try {
     const user = requireRequestUser(request);
     const payload = await request.json() as CreateVideoPayload;
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
     const usage = await chargeApiUsage(request, 'storyboard_video', `storyboard:${randomUUID()}`, {
       source: 'aliyun_avatar_video',
       characters: text.length,
+      speechRate,
     });
     usageId = usage.usageId;
     const result = await createAliyunAvatarVideo({
@@ -60,11 +62,17 @@ export async function POST(request: Request) {
       speechRate,
       pitchRate,
     });
-    await recordAliyunVideoOwner(result.id, user.id);
-    await markApiUsage(request, usageId, 'succeeded');
+    providerTaskId = result.id;
+    await recordAliyunVideoOwner(result.id, user.id, usageId);
+    await bindApiUsage(request, usageId, result.id).catch((cause) => {
+      console.warn('[avatar-video] provider reference binding deferred', cause);
+    });
     return Response.json({ video: result }, { status: 202, headers: { 'cache-control': 'no-store' } });
   } catch (cause) {
-    if (usageId) await markApiUsage(request, usageId, 'failed').catch(() => undefined);
+    if (usageId && !providerTaskId) {
+      const reason = cause instanceof Error ? cause.message : '阿里云数字人任务提交失败';
+      await failApiUsage(request, usageId, reason).catch(() => undefined);
+    }
     const message = cause instanceof Error ? cause.message : '透明数字人口播提交失败';
     return Response.json({ message }, { status: 503, headers: { 'cache-control': 'no-store' } });
   }

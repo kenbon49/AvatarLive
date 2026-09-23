@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from ...db.session import get_db
 from ...models.account import ApiUsage, User
 from ...security.accounts import require_user
-from ...services.billing import OPERATION_LABELS, pricing
+from ...services.billing import OPERATION_LABELS, pricing, wallet_response
+from ...services.cost_pricing import micros_to_credits, micros_to_rmb
 
 
 router = APIRouter(prefix="/resources", tags=["resources"])
@@ -32,12 +33,14 @@ def report(db: Session = Depends(get_db), user: User = Depends(require_user)) ->
     failed = sum(item.status == "failed" for item in rows)
     return {
         "periodDays": 30,
-        "currentBalance": user.credit_balance,
+        "currentBalance": wallet_response(user)["balance"],
+        "reservedCredits": micros_to_credits(user.reserved_balance_micros),
         "unlimited": user.role == "admin",
         "totalCalls": len(rows),
         "successfulCalls": succeeded,
         "failedCalls": failed,
-        "chargedCredits": sum(item.credits for item in rows),
+        "chargedCredits": micros_to_credits(sum(item.settled_micros for item in rows)),
+        "upstreamCostRmb": micros_to_rmb(sum(item.upstream_cost_micros for item in rows)),
         "operationCounts": operation_counts,
         "pricing": pricing(),
         "recentUsages": [
@@ -47,6 +50,11 @@ def report(db: Session = Depends(get_db), user: User = Depends(require_user)) ->
                 "label": OPERATION_LABELS.get(item.operation, item.operation),
                 "status": item.status,
                 "credits": item.credits,
+                "chargedCredits": micros_to_credits(item.settled_micros),
+                "reservedCredits": micros_to_credits(item.reserved_micros),
+                "upstreamCostRmb": micros_to_rmb(item.upstream_cost_micros),
+                "provider": item.provider,
+                "model": item.model,
                 "createdAt": item.created_at.isoformat(),
             }
             for item in rows[:50]

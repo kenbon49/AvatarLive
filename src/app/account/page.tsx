@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowLeft, Coins, Cpu, LogOut, Mail, Pencil, RefreshCw, Save, Settings2, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
+import { ArrowLeft, Cpu, LogOut, Mail, Pencil, RefreshCw, Save, Settings2, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import './account.css';
 
@@ -14,7 +14,6 @@ type Account = {
   role: 'admin' | 'user';
   status: string;
 };
-type Balance = { balance: number; unlimited: boolean; pricing: { operation: string; label: string; credits: number }[] };
 type Setting = {
   key: string;
   label: string;
@@ -32,10 +31,9 @@ type LlmConfiguration = {
   defaultModel: string;
   models: { id: string; ownedBy: string }[];
 };
-type AccountTab = 'profile' | 'billing' | 'settings';
+type AccountTab = 'profile' | 'settings';
 
 const CREDENTIAL_KEYS = new Set(['aliyun_access_key_id', 'aliyun_access_key_secret']);
-const BILLING_KEYS = new Set(['llm_credit_cost', 'storyboard_video_credit_cost']);
 
 async function responseError(response: Response, fallback: string) {
   try {
@@ -49,7 +47,6 @@ async function responseError(response: Response, fallback: string) {
 export default function AccountPage() {
   const router = useRouter();
   const [account, setAccount] = useState<Account | null>(null);
-  const [balance, setBalance] = useState<Balance | null>(null);
   const [configuration, setConfiguration] = useState<SettingList | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingSetting, setSavingSetting] = useState('');
@@ -72,11 +69,6 @@ export default function AccountPage() {
       if (!accountResponse.ok) throw new Error('无法读取账号信息');
       const currentAccount = await accountResponse.json() as Account;
       setAccount(currentAccount);
-      if (currentAccount.role === 'admin') {
-        const balanceResponse = await fetch(`${API_BASE}/api/v1/billing/balance`, { cache: 'no-store', credentials: 'same-origin', signal: controller.signal });
-        if (!balanceResponse.ok) throw new Error('无法读取额度信息');
-        setBalance(await balanceResponse.json() as Balance);
-      }
     }).catch((cause: unknown) => {
       if (cause instanceof DOMException && cause.name === 'AbortError') return;
       setError(cause instanceof Error ? cause.message : '无法读取账号信息');
@@ -220,60 +212,45 @@ export default function AccountPage() {
 
   const displayName = account?.username || account?.email || '正在读取账号';
   const credentialSettings = configuration?.settings.filter((item) => CREDENTIAL_KEYS.has(item.key)) ?? [];
-  const billingSettings = configuration?.settings.filter((item) => BILLING_KEYS.has(item.key)) ?? [];
   const llmBaseSetting = configuration?.settings.find((item) => item.key === 'llm_base_url');
   const llmKeySetting = configuration?.settings.find((item) => item.key === 'llm_api_key');
   const llmBaseUrl = drafts.llm_base_url ?? llmBaseSetting?.value ?? llmConfiguration?.baseUrl ?? '';
   const llmApiKey = drafts.llm_api_key ?? '';
   const canSaveLlm = Boolean(llmBaseUrl.trim() && (llmApiKey.trim() || llmKeySetting?.configured || llmConfiguration?.keyConfigured));
-  const tabs: { id: AccountTab; label: string }[] = [
-    { id: 'profile', label: '账号资料' },
-    ...(account?.role === 'admin' ? [
-      { id: 'billing' as const, label: '额度与计费' },
-      { id: 'settings' as const, label: '系统设置' },
-    ] : []),
-  ];
-
-  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, currentTab: AccountTab) {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const currentIndex = tabs.findIndex((tab) => tab.id === currentTab);
-    const nextIndex = event.key === 'Home' ? 0
-      : event.key === 'End' ? tabs.length - 1
-        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-    const nextTab = tabs[nextIndex].id;
-    setActiveTab(nextTab);
-    requestAnimationFrame(() => document.getElementById(`account-tab-${nextTab}`)?.focus());
-  }
-
   return <main className="accountPage">
     <header className="accountHeader">
       <Link href="/"><ArrowLeft size={16} />返回控制台</Link>
       <h1>账号与登录</h1>
-      <p>管理当前账号、使用额度和访问权限。</p>
+      <p>管理当前账号、使用积分和访问权限。</p>
     </header>
 
-    {account?.role === 'admin' && <nav className="accountTabs" role="tablist" aria-label="账号管理">
-      {tabs.map((tab) => <button
-        key={tab.id}
-        id={`account-tab-${tab.id}`}
+    {account?.role === 'admin' && <nav className="accountTabs" aria-label="账号管理">
+      <button
+        id="account-tab-profile"
         type="button"
-        role="tab"
-        aria-selected={activeTab === tab.id}
-        aria-controls={`account-panel-${tab.id}`}
-        tabIndex={activeTab === tab.id ? 0 : -1}
-        className={activeTab === tab.id ? 'active' : ''}
-        onClick={() => setActiveTab(tab.id)}
-        onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
+        aria-pressed={activeTab === 'profile'}
+        aria-controls="account-panel-profile"
+        className={activeTab === 'profile' ? 'active' : ''}
+        onClick={() => setActiveTab('profile')}
       >
-        {tab.id === 'profile' ? <UserRound size={16} /> : tab.id === 'billing' ? <Coins size={16} /> : <Settings2 size={16} />}
-        {tab.label}
-      </button>)}
+        <UserRound size={16} />账号资料
+      </button>
+      <Link href="/admin"><UsersRound size={16} />用户管理</Link>
+      <button
+        id="account-tab-settings"
+        type="button"
+        aria-pressed={activeTab === 'settings'}
+        aria-controls="account-panel-settings"
+        className={activeTab === 'settings' ? 'active' : ''}
+        onClick={() => setActiveTab('settings')}
+      >
+        <Settings2 size={16} />系统设置
+      </button>
     </nav>}
 
     {error && <p className="accountError" role="alert">{error}</p>}
 
-    {activeTab === 'profile' && <section className="accountPanel accountProfile" id="account-panel-profile" role={account?.role === 'admin' ? 'tabpanel' : undefined} aria-labelledby={account?.role === 'admin' ? 'account-tab-profile' : undefined}>
+    {activeTab === 'profile' && <section className="accountPanel accountProfile" id="account-panel-profile" aria-labelledby={account?.role === 'admin' ? 'account-tab-profile' : undefined}>
         <div className="accountIdentity">
           <span className="accountPageAvatar">{displayName.slice(0, 2).toUpperCase()}</span>
           <div><strong>{displayName}</strong><span>{account?.role === 'admin' ? '系统管理员' : '普通用户'}</span></div>
@@ -291,25 +268,9 @@ export default function AccountPage() {
         </div>
       </section>}
 
-    {account?.role === 'admin' && activeTab === 'billing' && <section className="accountPanel accountBilling" id="account-panel-billing" role="tabpanel" aria-labelledby="account-tab-billing">
-      <header className="accountPanelHeader">
-        <div><span><Coins size={17} />额度账户</span><h2>额度与计费</h2></div>
-        {account?.role === 'admin' && <Link href="/admin"><UsersRound size={16} />用户与额度</Link>}
-      </header>
-      <div className="accountBalance">
-        <span>管理员 API 调用</span>
-        <strong>{balance?.unlimited ? '不限额' : '—'}</strong>
-      </div>
-      <div className="accountPricing">
-        <h3>普通用户计费标准</h3>
-        {balance?.pricing.length ? <dl>{balance.pricing.map((item) => <div key={item.operation}><dt>{item.label}</dt><dd>{item.credits} 额度 / 次</dd></div>)}</dl> : <p>正在读取计费标准</p>}
-      </div>
-    </section>}
-
-    {account?.role === 'admin' && activeTab === 'settings' && <section className="accountPanel accountAdmin" id="account-panel-settings" role="tabpanel" aria-labelledby="account-tab-settings">
+    {account?.role === 'admin' && activeTab === 'settings' && <section className="accountPanel accountAdmin" id="account-panel-settings" aria-labelledby="account-tab-settings">
       <header className="accountAdminHeader">
         <div><span><Settings2 size={17} />管理员功能</span><h2>系统设置</h2></div>
-        <Link href="/admin"><UsersRound size={16} />用户与额度</Link>
       </header>
       <p className="accountAdminNote"><ShieldCheck size={16} />{configuration?.rootKeyConfigured ? '密钥加密已启用' : '密钥加密未启用'} · 已配置的密钥不会回显。</p>
       {settingsMessage && <p className="accountSettingsMessage" role="status">{settingsMessage}</p>}
@@ -342,16 +303,6 @@ export default function AccountPage() {
         </div>)}
       </div>}
 
-      <div className="accountSettingGroup">
-        <h3>计费标准</h3>
-        {billingSettings.map((setting) => <div className="accountSetting" key={setting.key}>
-          <div><strong>{setting.label}</strong></div>
-          <span className={setting.configured ? 'configured' : 'missing'}>{setting.configured ? '已配置' : '未配置'}</span>
-          <details className="accountSettingEdit"><summary><Pencil size={13} />修改</summary>
-            <div><input type="number" min="1" step="1" aria-label={`修改${setting.label}`} placeholder="输入单次扣减额度" value={drafts[setting.key] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))} />
-              <button type="button" disabled={!drafts[setting.key]?.trim() || Boolean(savingSetting)} onClick={() => void saveSetting(setting)}><Save size={14} />保存</button></div></details>
-        </div>)}
-      </div>
     </section>}
   </main>;
 }

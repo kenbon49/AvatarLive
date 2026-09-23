@@ -25,8 +25,6 @@ SETTING_FIELDS = {
     "llm_api_key": ("LLM API Key", True, "api"),
     "llm_base_url": ("LLM 服务地址", False, "api"),
     "llm_default_model_id": ("LLM 默认模型", False, "api"),
-    "llm_credit_cost": ("LLM 单次调用额度", False, "api"),
-    "storyboard_video_credit_cost": ("数字人分镜单次合成额度", False, "api"),
     "seo_image_api_key": ("SEO 图片服务 Key", True, "deployment"),
     "seo_image_api_base_url": ("SEO 图片服务地址", False, "deployment"),
     "seo_voice_api_key": ("SEO 声音服务 Key", True, "deployment"),
@@ -47,7 +45,7 @@ SETTING_FIELDS = {
     "database_url": ("数据库连接地址", True, "deployment"),
     "platform_master_key": ("平台凭据加密主密钥", True, "rotation"),
 }
-INTEGER_SETTING_FIELDS = {"llm_credit_cost", "storyboard_video_credit_cost"}
+INTEGER_SETTING_FIELDS: set[str] = set()
 
 
 def runtime_value(name: str, value: str):

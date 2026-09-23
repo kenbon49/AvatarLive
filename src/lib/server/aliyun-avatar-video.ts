@@ -10,6 +10,7 @@ import LingMouClient, {
 import { $OpenApiUtil } from '@alicloud/openapi-core';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 
 import {
@@ -102,7 +103,7 @@ function client() {
 }
 
 function videoDirectory() {
-  return path.join(process.cwd(), 'runtime', 'aliyun-avatar-videos');
+  return path.join(/*turbopackIgnore: true*/ process.cwd(), 'runtime', 'aliyun-avatar-videos');
 }
 
 function videoFile(taskId: string) {
@@ -250,4 +251,19 @@ export async function aliyunAvatarVideoFile(taskId: string) {
     details,
     stream: (start?: number, end?: number) => createReadStream(/*turbopackIgnore: true*/ filepath, { start, end }),
   };
+}
+
+export async function aliyunAvatarVideoDuration(taskId: string) {
+  const filepath = videoFile(assertTaskId(taskId));
+  const output = await new Promise<string>((resolve, reject) => {
+    execFile(
+      'ffprobe',
+      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nokey=1:noprint_wrappers=1', filepath],
+      { timeout: 30_000, encoding: 'utf8' },
+      (error, stdout) => error ? reject(error) : resolve(stdout),
+    );
+  });
+  const duration = Number(output.trim());
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error('无法读取透明数字人成片时长');
+  return duration;
 }

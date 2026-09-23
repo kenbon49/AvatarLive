@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ...core.config import settings
 from ...db.session import get_db
-from ...models.account import ApiUsage, SystemSetting, User
+from ...models.account import (
+    ApiUsage,
+    CreditLedgerEntry,
+    LoginSession,
+    SystemSetting,
+    User,
+    UserAdminAudit,
+)
+from ...models.live_library import Product
+from ...models.live_room import LiveRoom
+from ...models.platform_connection import PlatformConnection
 from ...security.accounts import require_admin
 from ...security.platform_secrets import SecretConfigurationError, SecretDecryptionError
 from ...security.settings_store import (
@@ -30,7 +42,16 @@ from ...services.llm import (
     resolve_litellm_model,
     validate_litellm_base_url,
 )
-from ...services.billing import allocate_credits, recharge_admin
+from ...services.billing import (
+    adjust_user_credits as adjust_user_wallet,
+    allocate_credits,
+    funding_summary,
+    recharge_admin,
+    sync_funding_from_provider_balance,
+)
+from ...services.cost_pricing import micros_to_credits
+from ...services.provider_balances import latest_provider_snapshot, refresh_aliyun_balance, snapshot_response
+from ...services.user_admin import record_user_admin_audit
 
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -47,6 +68,17 @@ class CreditRecharge(BaseModel):
 
 class CreditAllocation(BaseModel):
     amount: int = Field(ge=1, le=1_000_000_000)
+
+
+class CreditAdjustment(BaseModel):
+    mode: Literal["add", "subtract", "set"]
+    amount: int = Field(ge=0, le=1_000_000_000)
+    reason: str = Field(min_length=2, max_length=200)
+
+
+class UserStatusUpdate(BaseModel):
+    status: Literal["approved", "suspended"]
+    reason: str = Field(min_length=2, max_length=200)
 
 
 class LlmConfigurationUpdate(BaseModel):
@@ -74,26 +106,137 @@ def _llm_configuration_response(models: list[dict]) -> dict:
     }
 
 
-@router.get("/users")
-def list_users(db: Session = Depends(get_db)) -> list[dict]:
-    usage_rows = db.execute(
-        select(ApiUsage.user_id, func.count(ApiUsage.id), func.coalesce(func.sum(ApiUsage.credits), 0))
-        .group_by(ApiUsage.user_id)
-    ).all()
-    usage = {user_id: {"calls": calls, "used": used} for user_id, calls, used in usage_rows}
-    users = db.scalars(select(User).order_by(User.role.desc(), User.created_at.asc())).all()
-    return [{
+def _managed_user_response(user: User, usage: dict | None = None) -> dict:
+    usage = usage or {}
+    available_micros = max(0, user.credit_balance_micros - user.reserved_balance_micros)
+    return {
         "id": user.id,
         "username": user.username,
         "email": user.email,
         "role": user.role,
         "status": user.status,
-        "creditBalance": user.credit_balance,
+        "creditBalance": micros_to_credits(available_micros),
+        "walletMicros": user.credit_balance_micros,
+        "reservedMicros": user.reserved_balance_micros,
         "unlimited": user.role == "admin",
-        "usedCredits": int(usage.get(user.id, {}).get("used", 0)),
-        "apiCalls": int(usage.get(user.id, {}).get("calls", 0)),
+        "usedCredits": micros_to_credits(int(usage.get("used_micros", 0))),
+        "upstreamCostRmb": float(int(usage.get("cost_micros", 0)) / 1_000_000),
+        "apiCalls": int(usage.get("calls", 0)),
         "createdAt": user.created_at.isoformat(),
-    } for user in users]
+        "reviewedAt": user.reviewed_at.isoformat() if user.reviewed_at else None,
+    }
+
+
+@router.get("/users")
+def list_users(db: Session = Depends(get_db)) -> list[dict]:
+    usage_rows = db.execute(
+        select(
+            ApiUsage.user_id,
+            func.count(ApiUsage.id),
+            func.coalesce(func.sum(ApiUsage.settled_micros), 0),
+            func.coalesce(func.sum(ApiUsage.upstream_cost_micros), 0),
+        )
+        .group_by(ApiUsage.user_id)
+    ).all()
+    usage = {
+        user_id: {"calls": calls, "used_micros": used, "cost_micros": cost}
+        for user_id, calls, used, cost in usage_rows
+    }
+    users = db.scalars(select(User).order_by(User.role.desc(), User.created_at.asc())).all()
+    return [_managed_user_response(user, usage.get(user.id)) for user in users]
+
+
+@router.get("/users/{user_id}")
+def user_detail(user_id: str, db: Session = Depends(get_db)) -> dict:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    usage_summary = db.execute(
+        select(
+            func.count(ApiUsage.id),
+            func.coalesce(func.sum(ApiUsage.settled_micros), 0),
+            func.coalesce(func.sum(ApiUsage.upstream_cost_micros), 0),
+        )
+        .where(ApiUsage.user_id == user.id)
+    ).one()
+    now = datetime.now(timezone.utc)
+    active_sessions = db.scalar(
+        select(func.count()).select_from(LoginSession)
+        .where(LoginSession.user_id == user.id, LoginSession.expires_at > now)
+    ) or 0
+    latest_session_at = db.scalar(
+        select(func.max(LoginSession.created_at)).where(LoginSession.user_id == user.id)
+    )
+    ledger = db.scalars(
+        select(CreditLedgerEntry)
+        .where(CreditLedgerEntry.user_id == user.id)
+        .order_by(CreditLedgerEntry.created_at.desc())
+        .limit(30)
+    ).all()
+    recent_usage = db.scalars(
+        select(ApiUsage)
+        .where(ApiUsage.user_id == user.id)
+        .order_by(ApiUsage.created_at.desc())
+        .limit(30)
+    ).all()
+    audits = db.scalars(
+        select(UserAdminAudit)
+        .where(UserAdminAudit.target_user_id == user.id)
+        .order_by(UserAdminAudit.created_at.desc())
+        .limit(50)
+    ).all()
+    actor_ids = {audit.actor_id for audit in audits}
+    actors = {
+        actor.id: actor for actor in db.scalars(select(User).where(User.id.in_(actor_ids))).all()
+    } if actor_ids else {}
+    return {
+        "user": _managed_user_response(user, {
+            "calls": usage_summary[0],
+            "used_micros": usage_summary[1],
+            "cost_micros": usage_summary[2],
+        }),
+        "resources": {
+            "liveRooms": db.scalar(select(func.count()).select_from(LiveRoom).where(LiveRoom.owner_id == user.id)) or 0,
+            "products": db.scalar(select(func.count()).select_from(Product).where(Product.owner_id == user.id)) or 0,
+            "platformConnections": db.scalar(
+                select(func.count()).select_from(PlatformConnection).where(PlatformConnection.owner_id == user.id)
+            ) or 0,
+            "activeSessions": active_sessions,
+        },
+        "lastSessionAt": latest_session_at.isoformat() if latest_session_at else None,
+        "ledger": [{
+            "id": entry.id,
+            "kind": entry.kind,
+            "amount": entry.amount,
+            "balanceAfter": entry.balance_after,
+            "amountMicros": entry.amount_micros,
+            "balanceAfterMicros": entry.balance_after_micros,
+            "description": entry.description,
+            "createdAt": entry.created_at.isoformat(),
+        } for entry in ledger],
+        "usage": [{
+            "id": item.id,
+            "operation": item.operation,
+            "status": item.status,
+            "credits": item.credits,
+            "chargedMicros": item.settled_micros,
+            "upstreamCostMicros": item.upstream_cost_micros,
+            "reservedMicros": item.reserved_micros,
+            "provider": item.provider,
+            "model": item.model,
+            "pricingVersion": item.pricing_version,
+            "pricingTimeBand": item.pricing_time_band,
+            "createdAt": item.created_at.isoformat(),
+        } for item in recent_usage],
+        "audit": [{
+            "id": audit.id,
+            "action": audit.action,
+            "detail": audit.detail,
+            "actor": actors[audit.actor_id].username or actors[audit.actor_id].email
+            if audit.actor_id in actors else "未知管理员",
+            "createdAt": audit.created_at.isoformat(),
+        } for audit in audits],
+    }
 
 
 @router.post("/credits/recharge")
@@ -103,7 +246,44 @@ def recharge(
     db: Session = Depends(get_db),
 ) -> dict:
     balance = recharge_admin(db, admin, payload.amount, payload.payment_reference)
-    return {"balance": balance, "amount": payload.amount}
+    return {"balance": balance, "availableCredits": balance, "amount": payload.amount}
+
+
+@router.get("/billing-status")
+def billing_status(db: Session = Depends(get_db)) -> dict:
+    # The admin page only needs the platform funding pool. Keep any existing
+    # provider snapshot for diagnostics without triggering a paid provider API
+    # request every time the page loads.
+    snapshot = latest_provider_snapshot(db)
+    return {
+        "funding": funding_summary(db),
+        "providerBalance": snapshot_response(snapshot),
+        "creditsPerRmb": 100,
+        "deepseekBalance": {
+            "status": "unavailable",
+            "message": "当前 LiteLLM 网关未提供余额接口，按返回 Token 用量记录成本",
+        },
+    }
+
+
+@router.post("/provider-balances/aliyun/refresh")
+def refresh_provider_balance(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    snapshot = refresh_aliyun_balance(db, force=True)
+    if snapshot.status == "ok" and snapshot.available_micros is not None:
+        sync_funding_from_provider_balance(
+            db,
+            admin,
+            snapshot.available_micros,
+            snapshot.id,
+        )
+    return {
+        "funding": funding_summary(db),
+        "providerBalance": snapshot_response(snapshot),
+        "creditsPerRmb": 100,
+    }
 
 
 @router.post("/users/{user_id}/allocate")
@@ -113,8 +293,73 @@ def allocate(
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict:
-    admin_balance, user_balance = allocate_credits(db, admin, user_id, payload.amount)
-    return {"adminBalance": admin_balance, "userBalance": user_balance, "amount": payload.amount}
+    pool_balance, user_balance = allocate_credits(db, admin, user_id, payload.amount)
+    return {
+        "adminBalance": pool_balance,
+        "poolBalance": pool_balance,
+        "userBalance": user_balance,
+        "amount": payload.amount,
+    }
+
+
+@router.post("/users/{user_id}/credits/adjust")
+def adjust_user_credits(
+    user_id: str,
+    payload: CreditAdjustment,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    target = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if target is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.role != "user" or target.status not in {"approved", "suspended"}:
+        raise HTTPException(status_code=422, detail="只能调整已审核普通用户的积分")
+    if payload.mode in {"add", "subtract"} and payload.amount < 1:
+        raise HTTPException(status_code=422, detail="增加或扣减积分必须大于 0")
+    reason = payload.reason.strip()
+    balance_after, delta = adjust_user_wallet(
+        db, admin, target, payload.mode, payload.amount, reason,
+    )
+    return {"creditBalance": balance_after, "delta": delta}
+
+
+@router.put("/users/{user_id}/status")
+def update_user_status(
+    user_id: str,
+    payload: UserStatusUpdate,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    target = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if target is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.role != "user":
+        raise HTTPException(status_code=422, detail="不能修改管理员账户状态")
+    if target.status not in {"approved", "suspended"}:
+        raise HTTPException(status_code=409, detail="待审核或已拒绝账户不能执行该操作")
+    if target.status == payload.status:
+        return {"status": target.status, "sessionsRevoked": 0}
+    status_before = target.status
+    target.status = payload.status
+    sessions_revoked = 0
+    if payload.status == "suspended":
+        result = db.execute(delete(LoginSession).where(LoginSession.user_id == target.id))
+        sessions_revoked = result.rowcount or 0
+    reason = payload.reason.strip()
+    record_user_admin_audit(
+        db,
+        actor=admin,
+        target=target,
+        action="account_suspended" if payload.status == "suspended" else "account_restored",
+        detail={
+            "statusBefore": status_before,
+            "statusAfter": payload.status,
+            "reason": reason,
+            "sessionsRevoked": sessions_revoked,
+        },
+    )
+    db.commit()
+    return {"status": target.status, "sessionsRevoked": sessions_revoked}
 
 
 @router.get("/settings")
@@ -215,9 +460,6 @@ def update_setting(name: str, payload: SettingUpdate, admin: User = Depends(requ
     value = payload.value.strip()
     if not value or any(ord(character) < 32 for character in value):
         raise HTTPException(status_code=422, detail="配置值不能为空或包含控制字符")
-    if name in {"llm_credit_cost", "storyboard_video_credit_cost"}:
-        if not value.isdigit() or not 1 <= int(value) <= 1_000_000:
-            raise HTTPException(status_code=422, detail="单次调用额度必须是 1 到 1000000 的整数")
     if name.endswith("_url") or name == "database_url":
         parsed = urlparse(value)
         if not parsed.scheme or not parsed.hostname:

@@ -8,7 +8,7 @@ import styles from './service-center.module.css';
 const resources = [
   { href: '/updates', label: '版本更新', description: '版本检测与自动升级状态', icon: Rocket },
   { href: '/help', label: '操作手册', description: '各功能模块的图文操作说明', icon: BookOpenText },
-  { href: '/reports', label: '运行报告', description: '直播 API 用量与额度记录', icon: BarChart3 },
+  { href: '/reports', label: '运行报告', description: '直播 API 用量与积分记录', icon: BarChart3 },
 ];
 
 export function ServiceCenter({ open, onClose }: { open: boolean; onClose: () => void }) {

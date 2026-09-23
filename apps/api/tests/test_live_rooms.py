@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -27,7 +28,7 @@ from app.models.live_library import LiveRoomProduct, LiveRoomProductSelection, L
 from app.models.live_run import LiveRun, LiveRunTarget
 from app.models.platform_connection import PlatformConnection
 from app.models.platform_event import PlatformLiveEvent
-from app.models.account import ApiUsage, CreditLedgerEntry, LoginSession, User
+from app.models.account import ApiUsage, CreditLedgerEntry, LoginSession, PlatformFundingEntry, User, UserAdminAudit
 from app.security.accounts import COOKIE_NAME, create_session, hash_password
 from app.bootstrap_admin import main as bootstrap_admin, write_generated_credentials
 from app.security.platform_secrets import decrypt_secret
@@ -39,6 +40,7 @@ from app.services.llm.config import (
 from app.services.live_runs import preflight as live_run_preflight
 from app.services.live_runs import media_supervisor
 from app.services.live_runs.supervisor import _output_dimensions, _source_command
+from app.services.cost_pricing import deepseek_time_band, quote_llm_actual
 from app.services.platforms import (
     LocalRtmpSelfTestError,
     LocalRtmpSelfTestResult,
@@ -239,7 +241,7 @@ class LiveRoomApiTest(unittest.TestCase):
 
             allocation = self.client.post(f"/api/v1/admin/users/{target['id']}/allocate", json={"amount": 12})
             self.assertEqual(allocation.status_code, 200, allocation.text)
-            self.assertEqual(allocation.json()["adminBalance"], 13)
+            self.assertEqual(allocation.json()["poolBalance"], 13)
             self.assertEqual(allocation.json()["userBalance"], 12)
 
             login = user_client.post("/api/v1/auth/login", json=registration)
@@ -259,6 +261,15 @@ class LiveRoomApiTest(unittest.TestCase):
                 "operation": "storyboard_video", "reference": "unit:video:0002",
             })
             self.assertEqual(insufficient.status_code, 402, insufficient.text)
+            self.assertEqual(user_client.put(
+                f"/api/v1/billing/usages/{llm_charge.json()['usageId']}/status",
+                json={"status": "succeeded"},
+            ).status_code, 200)
+            settled_video = user_client.post(
+                f"/api/v1/billing/usages/{video_charge.json()['usageId']}/settle-video",
+                json={"duration_seconds": 0.2},
+            )
+            self.assertEqual(settled_video.status_code, 200, settled_video.text)
 
             report = user_client.get("/api/v1/resources/report")
             self.assertEqual(report.status_code, 200, report.text)
@@ -267,6 +278,56 @@ class LiveRoomApiTest(unittest.TestCase):
             self.assertEqual(report.json()["chargedCredits"], 11)
             self.assertEqual(report.json()["operationCounts"]["llm_chat"], 1)
             self.assertEqual(report.json()["operationCounts"]["storyboard_video"], 1)
+
+    def test_aliyun_balance_refresh_reconciles_allocatable_points(self) -> None:
+        with SessionLocal() as db:
+            user = User(
+                email="provider-funded@example.com",
+                password_hash=hash_password("test-password-1234"),
+                role="user",
+                status="approved",
+                credit_balance=100,
+                credit_balance_micros=1_000_000,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            user_id = user.id
+
+        first_snapshot = SimpleNamespace(
+            id="aliyun-snapshot-1",
+            provider="aliyun",
+            currency="CNY",
+            available_micros=857_600_000,
+            status="ok",
+            error="",
+            detail={},
+            fetched_at=datetime.now(timezone.utc),
+        )
+        with patch("app.api.v1.admin.refresh_aliyun_balance", return_value=first_snapshot):
+            refreshed = self.client.post("/api/v1/admin/provider-balances/aliyun/refresh")
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        self.assertEqual(refreshed.json()["providerBalance"]["availableCredits"], 85_760)
+        self.assertEqual(refreshed.json()["funding"]["userWalletCredits"], 100)
+        self.assertEqual(refreshed.json()["funding"]["availableCredits"], 85_660)
+
+        allocated = self.client.post(f"/api/v1/admin/users/{user_id}/allocate", json={"amount": 60})
+        self.assertEqual(allocated.status_code, 200, allocated.text)
+        self.assertEqual(allocated.json()["poolBalance"], 85_600)
+
+        second_snapshot = SimpleNamespace(**{
+            **first_snapshot.__dict__,
+            "id": "aliyun-snapshot-2",
+            "available_micros": 858_600_000,
+        })
+        with patch("app.api.v1.admin.refresh_aliyun_balance", return_value=second_snapshot):
+            refreshed_again = self.client.post("/api/v1/admin/provider-balances/aliyun/refresh")
+        self.assertEqual(refreshed_again.status_code, 200, refreshed_again.text)
+        self.assertEqual(refreshed_again.json()["providerBalance"]["availableCredits"], 85_860)
+        self.assertEqual(refreshed_again.json()["funding"]["userWalletCredits"], 160)
+        self.assertEqual(refreshed_again.json()["funding"]["availableCredits"], 85_700)
+        with SessionLocal() as db:
+            self.assertEqual(db.query(PlatformFundingEntry).filter_by(kind="provider_sync").count(), 2)
 
     def test_admin_api_calls_are_unlimited_without_spending_user_allocation_credits(self) -> None:
         balance = self.client.get("/api/v1/billing/balance")
@@ -301,14 +362,166 @@ class LiveRoomApiTest(unittest.TestCase):
             user_id = next(user["id"] for user in self.client.get("/api/v1/admin/users").json()
                            if user["email"] == registration["email"])
             self.assertEqual(self.client.post(f"/api/v1/auth/pending/{user_id}/approve").status_code, 200)
-            self.assertEqual(self.client.post(f"/api/v1/admin/users/{user_id}/allocate", json={"amount": 1}).status_code, 409)
+            funded = self.client.post("/api/v1/admin/credits/recharge", json={
+                "amount": 1, "payment_reference": "PAYMENT-ADMIN-UNLIMITED-0001",
+            })
+            self.assertEqual(funded.status_code, 200, funded.text)
+            allocation = self.client.post(f"/api/v1/admin/users/{user_id}/allocate", json={"amount": 1})
+            self.assertEqual(allocation.status_code, 200, allocation.text)
+            self.assertEqual(allocation.json()["adminBalance"], 0)
+            self.assertEqual(allocation.json()["userBalance"], 1)
             login = user_client.post("/api/v1/auth/login", json=registration)
             self.assertEqual(login.status_code, 200)
             user_client.cookies.set(COOKIE_NAME, login.cookies[COOKIE_NAME])
             self.assertFalse(user_client.get("/api/v1/billing/balance").json()["unlimited"])
-            self.assertEqual(user_client.post("/api/v1/billing/charge", json={
+            charged = user_client.post("/api/v1/billing/charge", json={
                 "operation": "llm_chat", "reference": "limited:llm:1",
-            }).status_code, 402)
+            })
+            self.assertEqual(charged.status_code, 200, charged.text)
+            self.assertEqual(charged.json()["balance"], 0)
+
+    def test_reservations_refund_and_settlement_are_idempotent(self) -> None:
+        registration = {"email": "settlement@example.com", "password": "long-password-1234"}
+        with TestClient(app) as user_client:
+            self.assertEqual(user_client.post("/api/v1/auth/register", json=registration).status_code, 201)
+            user_id = next(user["id"] for user in self.client.get("/api/v1/admin/users").json()
+                           if user["email"] == registration["email"])
+            self.assertEqual(self.client.post(f"/api/v1/auth/pending/{user_id}/approve").status_code, 200)
+            self.assertEqual(self.client.post("/api/v1/admin/credits/recharge", json={
+                "amount": 100, "payment_reference": "PAYMENT-SETTLEMENT-0001",
+            }).status_code, 200)
+            self.assertEqual(self.client.post(
+                f"/api/v1/admin/users/{user_id}/allocate", json={"amount": 100},
+            ).status_code, 200)
+            login = user_client.post("/api/v1/auth/login", json=registration)
+            user_client.cookies.set(COOKIE_NAME, login.cookies[COOKIE_NAME])
+
+            refundable = user_client.post("/api/v1/billing/charge", json={
+                "operation": "storyboard_video", "reference": "settlement:refund:1",
+            }).json()
+            self.assertEqual(user_client.get("/api/v1/billing/balance").json()["balance"], 90)
+            for _ in range(2):
+                self.assertEqual(user_client.put(
+                    f"/api/v1/billing/usages/{refundable['usageId']}/status",
+                    json={"status": "failed", "reason": "upstream rejected"},
+                ).status_code, 200)
+            refunded_balance = user_client.get("/api/v1/billing/balance").json()
+            self.assertEqual(refunded_balance["balance"], 100)
+            self.assertEqual(refunded_balance["reservedMicros"], 0)
+
+            billable = user_client.post("/api/v1/billing/charge", json={
+                "operation": "storyboard_video", "reference": "settlement:video:1",
+            }).json()
+            for _ in range(2):
+                settled = user_client.post(
+                    f"/api/v1/billing/usages/{billable['usageId']}/settle-video",
+                    json={"duration_seconds": 2.2},
+                )
+                self.assertEqual(settled.status_code, 200, settled.text)
+                self.assertEqual(settled.json()["chargedMicros"], 300_000)
+            self.assertEqual(user_client.get("/api/v1/billing/balance").json()["balance"], 70)
+            with SessionLocal() as db:
+                usage = db.get(ApiUsage, billable["usageId"])
+                self.assertEqual(usage.upstream_cost_micros, 300_000)
+                self.assertEqual(usage.settled_micros, 300_000)
+                self.assertEqual(db.query(CreditLedgerEntry).filter_by(usage_id=usage.id).count(), 1)
+
+    def test_deepseek_peak_and_token_categories_use_versioned_prices(self) -> None:
+        peak = datetime(2026, 9, 23, 2, 0, tzinfo=timezone.utc)  # 10:00 Beijing, Wednesday
+        off_peak = datetime(2026, 9, 23, 5, 0, tzinfo=timezone.utc)  # 13:00 Beijing
+        self.assertEqual(deepseek_time_band(peak), "peak")
+        self.assertEqual(deepseek_time_band(off_peak), "off_peak")
+        national_day = datetime(2026, 10, 1, 2, 0, tzinfo=timezone.utc)
+        self.assertEqual(deepseek_time_band(national_day), "off_peak")
+        quote = quote_llm_actual(
+            "deepseek-v4-flash",
+            cache_hit_tokens=1_000_000,
+            cache_miss_tokens=1_000_000,
+            output_tokens=1_000_000,
+            at=peak,
+        )
+        self.assertEqual(quote.amount_micros, 10_040_000)
+        self.assertEqual(quote.pricing_version, "deepseek-cn-2026-09-23")
+        self.assertEqual(quote.time_band, "peak")
+
+    def test_admin_can_adjust_suspend_restore_and_audit_user(self) -> None:
+        registration = {"email": "managed@example.com", "password": "long-password-1234"}
+        with TestClient(app) as user_client:
+            self.assertEqual(user_client.post("/api/v1/auth/register", json=registration).status_code, 201)
+            target = next(
+                user for user in self.client.get("/api/v1/admin/users").json()
+                if user["email"] == registration["email"]
+            )
+            user_id = target["id"]
+            self.assertEqual(self.client.post(f"/api/v1/auth/pending/{user_id}/approve").status_code, 200)
+            funded = self.client.post("/api/v1/admin/credits/recharge", json={
+                "amount": 20, "payment_reference": "PAYMENT-ADJUSTMENT-0001",
+            })
+            self.assertEqual(funded.status_code, 200, funded.text)
+
+            initial_detail = self.client.get(f"/api/v1/admin/users/{user_id}")
+            self.assertEqual(initial_detail.status_code, 200, initial_detail.text)
+            self.assertEqual(initial_detail.json()["resources"], {
+                "liveRooms": 0,
+                "products": 0,
+                "platformConnections": 0,
+                "activeSessions": 0,
+            })
+            self.assertEqual(initial_detail.json()["audit"][0]["action"], "account_approved")
+
+            login = user_client.post("/api/v1/auth/login", json=registration)
+            self.assertEqual(login.status_code, 200, login.text)
+            adjustments = [
+                ({"mode": "add", "amount": 20, "reason": "首次配置额度"}, 20),
+                ({"mode": "subtract", "amount": 3, "reason": "修正分配数量"}, 17),
+                ({"mode": "set", "amount": 8, "reason": "设定最终额度"}, 8),
+            ]
+            for payload, expected_balance in adjustments:
+                response = self.client.post(
+                    f"/api/v1/admin/users/{user_id}/credits/adjust", json=payload,
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["creditBalance"], expected_balance)
+            excessive = self.client.post(
+                f"/api/v1/admin/users/{user_id}/credits/adjust",
+                json={"mode": "subtract", "amount": 9, "reason": "不能低于零"},
+            )
+            self.assertEqual(excessive.status_code, 409, excessive.text)
+
+            suspended = self.client.put(
+                f"/api/v1/admin/users/{user_id}/status",
+                json={"status": "suspended", "reason": "测试停用账户"},
+            )
+            self.assertEqual(suspended.status_code, 200, suspended.text)
+            self.assertEqual(suspended.json()["status"], "suspended")
+            self.assertEqual(suspended.json()["sessionsRevoked"], 1)
+            self.assertEqual(user_client.get("/api/v1/auth/me").status_code, 401)
+            self.assertEqual(user_client.post("/api/v1/auth/login", json=registration).status_code, 403)
+
+            detail = self.client.get(f"/api/v1/admin/users/{user_id}").json()
+            self.assertEqual(detail["user"]["status"], "suspended")
+            self.assertEqual(detail["user"]["creditBalance"], 8)
+            self.assertEqual(detail["resources"]["activeSessions"], 0)
+            self.assertEqual(len([entry for entry in detail["ledger"] if entry["kind"] == "admin_adjustment"]), 3)
+            actions = [entry["action"] for entry in detail["audit"]]
+            self.assertIn("account_suspended", actions)
+            self.assertEqual(actions.count("credit_adjusted"), 3)
+
+            restored = self.client.put(
+                f"/api/v1/admin/users/{user_id}/status",
+                json={"status": "approved", "reason": "测试恢复账户"},
+            )
+            self.assertEqual(restored.status_code, 200, restored.text)
+            self.assertEqual(user_client.post("/api/v1/auth/login", json=registration).status_code, 200)
+
+        admin_id = self.client.get("/api/v1/auth/me").json()["id"]
+        protected = self.client.put(
+            f"/api/v1/admin/users/{admin_id}/status",
+            json={"status": "suspended", "reason": "禁止停用管理员"},
+        )
+        self.assertEqual(protected.status_code, 422, protected.text)
+        with SessionLocal() as db:
+            self.assertGreaterEqual(db.query(UserAdminAudit).filter_by(target_user_id=user_id).count(), 6)
 
     def test_existing_password_can_be_rehashed_without_weakening_creation_policy(self) -> None:
         with self.assertRaises(ValueError):
