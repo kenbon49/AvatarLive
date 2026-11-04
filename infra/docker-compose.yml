@@ -79,6 +79,7 @@ services:
       ALIYUN_LINGMOU_REGION_ID: ${ALIYUN_LINGMOU_REGION_ID:-cn-beijing}
       ALIYUN_LINGMOU_ENDPOINT: ${ALIYUN_LINGMOU_ENDPOINT:-lingmou.cn-beijing.aliyuncs.com}
       ALIYUN_LINGMOU_TEXT_VARIABLE_NAME: ${ALIYUN_LINGMOU_TEXT_VARIABLE_NAME:-text}
+      BAILIAN_TTS_API_KEY: ${BAILIAN_TTS_API_KEY:-}
       SEO_VOICE_API_BASE_URL: ${SEO_VOICE_API_BASE_URL:-http://host.docker.internal:8086}
       SEO_VOICE_API_KEY: ${SEO_VOICE_API_KEY:-}
       # Node 22 通过环境代理访问公网 API；未配置代理时保持直连。

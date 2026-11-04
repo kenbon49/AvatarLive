@@ -48,6 +48,23 @@ DeepSeek 的 URL、Key 和模型在管理员系统设置中配置；阿里云凭
 详细前置条件、更新、停止和故障排查见
 [`docs/cross-platform-deployment.md`](docs/cross-platform-deployment.md)。
 
+## 百炼语音配置
+
+在 **AvatarLive 项目根目录** `.env` 中填写百炼北京地域的官方 API Key：
+
+```env
+BAILIAN_TTS_API_KEY=你的百炼官方API_Key
+```
+
+“试听脚本”和“声音设计”由本项目服务端直接调用百炼 DashScope，无需部署外部语音代理。
+Docker 部署修改后运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`）；源码运行则重启前端进程。
+Key 为空时基础服务仍可启动，使用语音功能时会提示配置。
+
+官方公共音色首次用于脚本试听时，会在百炼注册对应的克隆音色。注册记录和试听音频保存在
+`runtime/bailian-tts/`（Docker 使用 `web_runtime` volume），后续复用音色；更换 Key 后会重新注册。
+脚本试听使用百炼克隆音色，数字人成片使用灵眸原生音色，两者听感可能有差异。
+音色卡片上的官方样例试听读取项目自带音频。
+
 ## 源码开发
 
 如果你的终端没有 `pnpm`，直接使用 npm 即可：

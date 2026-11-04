@@ -98,7 +98,18 @@ docker compose -f infra/docker-compose.yml exec -T api \
 
 - `ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET`
 - `ALIYUN_LINGMOU_TEMPLATE_ID` / `ALIYUN_LINGMOU_REGION_ID`
-- `SEO_VOICE_API_BASE_URL` / `SEO_VOICE_API_KEY`
+- `BAILIAN_TTS_API_KEY`：百炼北京地域官方 Key，本项目直接用于脚本试听及声音设计。
+- `SEO_VOICE_API_BASE_URL` / `SEO_VOICE_API_KEY`：可选的素材解析及 Fish Audio 参考声音服务。
+
+百炼语音配置示例（写入本项目根目录 `.env`）：
+
+```env
+BAILIAN_TTS_API_KEY=你的百炼官方API_Key
+```
+
+填写后重新运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`）；源码运行则重启前端进程。
+无需在其他项目中配置百炼 Key，也无需为“试听脚本”部署外部语音代理。
+音色注册记录与试听音频保存在 Web 服务的 `runtime/bailian-tts/`，随 `web_runtime` volume 持久化。
 
 阿里云设置在后台保存后仍需应用到 `.env` 并重新部署；后台保存不会更新 Web 容器的环境变量。
 

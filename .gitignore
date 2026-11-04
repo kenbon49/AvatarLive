@@ -25,6 +25,7 @@ runtime/avatar-assets/
 .deploy-data/
 runtime/avatar-base-videos/
 runtime/aliyun-avatar-videos/
+runtime/bailian-tts/
 secrets/
 
 # 本地缓存 / 训练产物，不入库
