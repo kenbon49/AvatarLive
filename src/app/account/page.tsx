@@ -5,7 +5,9 @@ import { ArrowLeft, Cpu, LogOut, Mail, Pencil, RefreshCw, Save, Settings2, Shiel
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { API_BASE } from '@/lib/api';
+import { UserManagementPanel } from '../admin/user-management-panel';
 import './account.css';
+import '../admin/admin.css';
 
 type Account = {
   id: string;
@@ -31,7 +33,7 @@ type LlmConfiguration = {
   defaultModel: string;
   models: { id: string; ownedBy: string }[];
 };
-type AccountTab = 'profile' | 'settings';
+type AccountTab = 'profile' | 'users' | 'settings';
 
 const CREDENTIAL_KEYS = new Set(['aliyun_access_key_id', 'aliyun_access_key_secret']);
 
@@ -60,6 +62,11 @@ export default function AccountPage() {
   const [activeTab, setActiveTab] = useState<AccountTab>('profile');
 
   useEffect(() => {
+    const requestedTab = new URLSearchParams(window.location.search).get('tab');
+    if (requestedTab === 'users' || requestedTab === 'settings') setActiveTab(requestedTab);
+  }, []);
+
+  useEffect(() => {
     const controller = new AbortController();
     void fetch(`${API_BASE}/api/v1/auth/me`, { cache: 'no-store', credentials: 'same-origin', signal: controller.signal }).then(async (accountResponse) => {
       if (accountResponse.status === 401) {
@@ -69,6 +76,7 @@ export default function AccountPage() {
       if (!accountResponse.ok) throw new Error('无法读取账号信息');
       const currentAccount = await accountResponse.json() as Account;
       setAccount(currentAccount);
+      if (currentAccount.role !== 'admin') setActiveTab('profile');
     }).catch((cause: unknown) => {
       if (cause instanceof DOMException && cause.name === 'AbortError') return;
       setError(cause instanceof Error ? cause.message : '无法读取账号信息');
@@ -217,6 +225,10 @@ export default function AccountPage() {
   const llmBaseUrl = drafts.llm_base_url ?? llmBaseSetting?.value ?? llmConfiguration?.baseUrl ?? '';
   const llmApiKey = drafts.llm_api_key ?? '';
   const canSaveLlm = Boolean(llmBaseUrl.trim() && (llmApiKey.trim() || llmKeySetting?.configured || llmConfiguration?.keyConfigured));
+  function selectTab(tab: AccountTab) {
+    setActiveTab(tab);
+    window.history.replaceState(null, '', tab === 'profile' ? '/account' : `/account?tab=${tab}`);
+  }
   return <main className="accountPage">
     <header className="accountHeader">
       <Link href="/"><ArrowLeft size={16} />返回控制台</Link>
@@ -231,18 +243,27 @@ export default function AccountPage() {
         aria-pressed={activeTab === 'profile'}
         aria-controls="account-panel-profile"
         className={activeTab === 'profile' ? 'active' : ''}
-        onClick={() => setActiveTab('profile')}
+        onClick={() => selectTab('profile')}
       >
         <UserRound size={16} />账号资料
       </button>
-      <Link href="/admin"><UsersRound size={16} />用户管理</Link>
+      <button
+        id="account-tab-users"
+        type="button"
+        aria-pressed={activeTab === 'users'}
+        aria-controls="account-panel-users"
+        className={activeTab === 'users' ? 'active' : ''}
+        onClick={() => selectTab('users')}
+      >
+        <UsersRound size={16} />用户管理
+      </button>
       <button
         id="account-tab-settings"
         type="button"
         aria-pressed={activeTab === 'settings'}
         aria-controls="account-panel-settings"
         className={activeTab === 'settings' ? 'active' : ''}
-        onClick={() => setActiveTab('settings')}
+        onClick={() => selectTab('settings')}
       >
         <Settings2 size={16} />系统设置
       </button>
@@ -267,6 +288,10 @@ export default function AccountPage() {
           <button type="button" disabled={signingOut} onClick={() => void logout()}><LogOut size={17} />{signingOut ? '正在退出' : '退出登录'}</button>
         </div>
       </section>}
+
+    {account?.role === 'admin' && activeTab === 'users' && <section className="accountPanel accountUserPanel" id="account-panel-users" aria-labelledby="account-tab-users">
+      <UserManagementPanel />
+    </section>}
 
     {account?.role === 'admin' && activeTab === 'settings' && <section className="accountPanel accountAdmin" id="account-panel-settings" aria-labelledby="account-tab-settings">
       <header className="accountAdminHeader">

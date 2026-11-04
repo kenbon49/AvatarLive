@@ -12,11 +12,14 @@ export default async function LivePage({ searchParams }: LivePageProps) {
   const params = await searchParams;
   const requestedDialog = firstValue(params.dialog);
   const dialog = requestedDialog === 'settings' || requestedDialog === 'voice' ? requestedDialog : undefined;
-  const entered = firstValue(params.studio) === '1' || firstValue(params.demo) === '1' || Boolean(dialog);
+  const roomId = firstValue(params.room);
+  const entered = firstValue(params.studio) === '1' || firstValue(params.demo) === '1' || Boolean(dialog) || Boolean(roomId);
   return (
     <LiveStudio
       dialog={dialog}
       entered={entered}
+      requestedRoomId={roomId}
+      createOnLanding={!entered && firstValue(params.create) === '1'}
     />
   );
 }

@@ -1,20 +1,16 @@
 [CmdletBinding()]
 param(
-    [switch]$Gpu,
-    [switch]$Tunnel,
-    [string]$BackendDir = "",
     [string]$EnvFile = "",
     [switch]$NoBuild,
-    [switch]$NoModelDownload,
     [switch]$InitOnly,
     [switch]$Check,
-    [switch]$Install
+    [switch]$Install,
+    [switch]$WithPostgres
 )
 
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path $PSScriptRoot).Path
 if (-not $EnvFile) { $EnvFile = Join-Path $Root ".env" }
-if (-not $BackendDir) { $BackendDir = Join-Path (Split-Path $Root -Parent) "AvatarLive-backend" }
 
 function Invoke-Docker {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
@@ -61,7 +57,6 @@ function Install-OptionalDependencies {
 }
 
 function Test-DeploymentEnvironment {
-    param([switch]$RequireGpu)
     $issues = [System.Collections.Generic.List[string]]::new()
 
     if (-not (Test-CommandAvailable "git")) {
@@ -78,31 +73,12 @@ function Test-DeploymentEnvironment {
         if ($LASTEXITCODE -ne 0) { $issues.Add("Docker Desktop is not running. Start it and wait for the engine to become ready.") }
     }
 
-    if ($RequireGpu) {
-        if (-not (Test-CommandAvailable "wsl")) {
-            $issues.Add("WSL2 is required for the optional -Gpu mode. Install it with 'wsl --install' and restart Windows.")
-        }
-        else {
-            & wsl --status *> $null
-            if ($LASTEXITCODE -ne 0) { $issues.Add("WSL2 is not initialized. Run 'wsl --install' and restart Windows.") }
-        }
-        if (-not (Test-CommandAvailable "nvidia-smi")) {
-            $issues.Add("nvidia-smi is missing. Install a current NVIDIA driver before using -Gpu.")
-        }
-        if ($dockerAvailable) {
-            $probeImage = if ($env:CUDA_PROBE_IMAGE) { $env:CUDA_PROBE_IMAGE } else { "nvidia/cuda:12.8.0-base-ubuntu22.04" }
-            & docker run --rm --gpus all --entrypoint nvidia-smi $probeImage *> $null
-            if ($LASTEXITCODE -ne 0) { $issues.Add("Docker cannot access the NVIDIA GPU. Enable Docker Desktop WSL2 GPU support and verify the NVIDIA driver.") }
-        }
-    }
-
     if ($issues.Count -gt 0) {
         Write-Host "Environment check found $($issues.Count) issue(s):" -ForegroundColor Yellow
         $issues | ForEach-Object { Write-Host " - $_" -ForegroundColor Yellow }
         return $false
     }
     Write-Host "Environment check passed: Git, Docker Compose, and Docker daemon are ready." -ForegroundColor Green
-    if ($RequireGpu) { Write-Host "GPU check passed: WSL2 and NVIDIA Docker runtime are available." -ForegroundColor Green }
     return $true
 }
 
@@ -142,24 +118,23 @@ if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
     Copy-Item -LiteralPath (Join-Path $Root ".env.example") -Destination $EnvFile
     Write-Host "Created $EnvFile from .env.example."
 }
+$EnvFile = (Resolve-Path -LiteralPath $EnvFile).Path
 
 $postgresPassword = Get-EnvValue "POSTGRES_PASSWORD"
+$postgresUser = Get-EnvValue "POSTGRES_USER"
+if (-not $postgresUser) { $postgresUser = "synlive" }
+$postgresDatabase = Get-EnvValue "POSTGRES_DB"
+if (-not $postgresDatabase) { $postgresDatabase = "synlive" }
+$postgresPort = Get-EnvValue "POSTGRES_PORT"
+if (-not $postgresPort) { $postgresPort = "5432" }
 if (-not $postgresPassword) {
     $postgresPassword = New-UrlSafeSecret 24
     Set-EnvValue "POSTGRES_PASSWORD" $postgresPassword
 }
 if (-not (Get-EnvValue "DATABASE_URL")) {
-    Set-EnvValue "DATABASE_URL" "postgresql+psycopg://synlive:$postgresPassword@localhost:5432/synlive"
+    Set-EnvValue "DATABASE_URL" "postgresql+psycopg://$postgresUser`:$postgresPassword@localhost`:$postgresPort/$postgresDatabase"
 }
-if (-not (Get-EnvValue "MINIO_SECRET_KEY")) { Set-EnvValue "MINIO_SECRET_KEY" (New-UrlSafeSecret 24) }
 if (-not (Get-EnvValue "PLATFORM_ENCRYPTION_KEY")) { Set-EnvValue "PLATFORM_ENCRYPTION_KEY" (New-UrlSafeSecret 32) }
-
-New-Item -ItemType Directory -Force -Path (Join-Path $Root "runtime\avatar-assets") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $Root ".deploy-data\avatar-base-videos") | Out-Null
-$secretsDir = Join-Path $Root "secrets"
-New-Item -ItemType Directory -Force -Path $secretsDir | Out-Null
-$tunnelToken = Join-Path $secretsDir "cloudflare-tunnel-token"
-if (-not (Test-Path -LiteralPath $tunnelToken)) { New-Item -ItemType File -Path $tunnelToken | Out-Null }
 
 if ($InitOnly) {
     Write-Host "AvatarLive environment initialized at $EnvFile" -ForegroundColor Green
@@ -169,41 +144,27 @@ if ($InitOnly) {
 if ($Install) { Install-OptionalDependencies }
 
 if ($Check) {
-    if (-not (Test-DeploymentEnvironment -RequireGpu:$Gpu)) { exit 1 }
+    if (-not (Test-DeploymentEnvironment)) { exit 1 }
     return
 }
 
-if ($Tunnel -and (-not (Test-Path -LiteralPath $tunnelToken -PathType Leaf) -or (Get-Item -LiteralPath $tunnelToken).Length -eq 0)) {
-    throw "Cloudflare Tunnel requires a nonempty secrets/cloudflare-tunnel-token file."
-}
-
-if (-not (Test-DeploymentEnvironment -RequireGpu:$Gpu)) {
+if (-not (Test-DeploymentEnvironment)) {
     throw "Environment is not ready. Fix the reported issues, or run .\deploy.ps1 -Check for a diagnostic-only check."
 }
 
-if ($Gpu) {
-    $backendScript = Join-Path $BackendDir "deploy.ps1"
-    if (-not (Test-Path -LiteralPath $backendScript -PathType Leaf)) {
-        throw "AvatarLive-backend was not found at $BackendDir. Clone it beside AvatarLive or pass -BackendDir."
-    }
-    $backendParams = @{
-        EnvFile = $EnvFile
-        AvatarAssetDir = (Join-Path $Root "runtime\avatar-assets")
-        NoBuild = $NoBuild
-        NoModelDownload = $NoModelDownload
-    }
-    & $backendScript @backendParams
-    if ($LASTEXITCODE -ne 0) { throw "AvatarLive-backend deployment failed." }
-    if ((Get-EnvValue "AVATAR_BASE_VIDEO_HOST_DIR") -eq "../.deploy-data/avatar-base-videos") {
-        $env:AVATAR_BASE_VIDEO_HOST_DIR = Join-Path $BackendDir "data\public"
-    }
+if ($WithPostgres -or $Install) {
+    & (Join-Path $Root "deploy-postgres.ps1") -EnvFile $EnvFile
+}
+
+$databaseCompose = @("compose", "-f", (Join-Path $Root "infra\docker-compose.postgres.yml"), "--env-file", $EnvFile)
+$databaseCheck = $databaseCompose + @("exec", "-T", "postgres", "pg_isready", "-U", $postgresUser, "-d", $postgresDatabase)
+& docker @databaseCheck *> $null
+if ($LASTEXITCODE -ne 0) {
+    throw "PostgreSQL is not ready. Run .\deploy.ps1 -WithPostgres or deploy it first with .\deploy-postgres.ps1."
 }
 
 $env:AVATAR_ENV_FILE = $EnvFile
 $compose = @("compose", "-f", (Join-Path $Root "infra\docker-compose.yml"), "--env-file", $EnvFile, "--profile", "media")
-if ($Tunnel) {
-    $compose += @("--profile", "tunnel")
-}
 $up = $compose + @("up", "-d")
 if (-not $NoBuild) { $up += "--build" }
 Write-Host "Starting AvatarLive core services..." -ForegroundColor Cyan
@@ -212,14 +173,17 @@ Invoke-Docker -Arguments $up
 $accessPort = Get-EnvValue "ACCESS_PORT"
 if (-not $accessPort) { $accessPort = "8018" }
 $readyUrl = "http://127.0.0.1:$accessPort/health/ready"
-Write-Host "Waiting for $readyUrl ..."
+$loginUrl = "http://127.0.0.1:$accessPort/login"
+Write-Host "Waiting for the API and login page at http://127.0.0.1:$accessPort ..."
 $ready = $false
 for ($attempt = 0; $attempt -lt 120; $attempt++) {
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $readyUrl -TimeoutSec 3
-        if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) { $ready = $true; break }
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $readyUrl -TimeoutSec 5 -MaximumRedirection 0
+        $page = Invoke-WebRequest -UseBasicParsing -Uri $loginUrl -TimeoutSec 5 -MaximumRedirection 0
+        if ($response.StatusCode -eq 200 -and $page.StatusCode -eq 200) { $ready = $true; break }
     }
-    catch { Start-Sleep -Seconds 2 }
+    catch { }
+    Start-Sleep -Seconds 2
 }
 if (-not $ready) {
     $logArguments = $compose + @("logs", "--tail", "80", "api", "web", "proxy")
@@ -238,7 +202,4 @@ if ($credentials) {
     Write-Host "`nInitial administrator credentials (store them securely):" -ForegroundColor Yellow
     $credentials | ForEach-Object { Write-Host $_ }
 }
-if (-not $Gpu) {
-    Write-Host "`nCloud/Core mode is active. No local MuseTalk, MeloTTS, server-total, GPU, or model download was used." -ForegroundColor Yellow
-    Write-Host "Configure the cloud API credentials in .env; use -Gpu only for the optional local inference stack."
-}
+Write-Host "`nCloud services are configured through $EnvFile." -ForegroundColor Yellow

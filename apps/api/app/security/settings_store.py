@@ -20,28 +20,15 @@ from .platform_secrets import SecretConfigurationError, decrypt_secret, encrypt_
 
 # A fixed allowlist prevents a web form from modifying arbitrary process environment.
 SETTING_FIELDS = {
-    "azure_service_key": ("Azure TTS Key", True, "api"),
-    "azure_service_region": ("Azure 区域", False, "api"),
     "llm_api_key": ("LLM API Key", True, "api"),
     "llm_base_url": ("LLM 服务地址", False, "api"),
     "llm_default_model_id": ("LLM 默认模型", False, "api"),
-    "seo_image_api_key": ("SEO 图片服务 Key", True, "deployment"),
-    "seo_image_api_base_url": ("SEO 图片服务地址", False, "deployment"),
     "seo_voice_api_key": ("SEO 声音服务 Key", True, "deployment"),
     "seo_voice_api_base_url": ("SEO 声音服务地址", False, "deployment"),
-    "seo_video_api_key": ("SEO 视频服务 Key", True, "deployment"),
-    "seo_video_api_base_url": ("SEO 视频服务地址", False, "deployment"),
-    "avatar_registry_key": ("形象注册服务 Key", True, "deployment"),
     "aliyun_access_key_id": ("阿里云 Access Key ID", True, "deployment"),
     "aliyun_access_key_secret": ("阿里云 Access Key Secret", True, "deployment"),
-    "livetalking_url": ("LiveTalking 地址", False, "deployment"),
     "srs_internal_api_url": ("媒体网关 API 地址", False, "deployment"),
     "srs_internal_rtmp_url": ("媒体网关 RTMP 地址", False, "deployment"),
-    "redis_url": ("Redis 地址", False, "deployment"),
-    "qdrant_url": ("Qdrant 地址", False, "deployment"),
-    "minio_endpoint": ("MinIO 地址", False, "deployment"),
-    "minio_access_key": ("MinIO Access Key", True, "deployment"),
-    "minio_secret_key": ("MinIO Secret Key", True, "deployment"),
     "database_url": ("数据库连接地址", True, "deployment"),
     "platform_master_key": ("平台凭据加密主密钥", True, "rotation"),
 }

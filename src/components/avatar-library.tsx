@@ -7,37 +7,9 @@ import {
   ALIYUN_PUBLIC_AVATARS,
   type LiveAvatarCatalogItem,
 } from '@/lib/live-avatar-catalog';
-
-type GenderFilter = '全部' | LiveAvatarCatalogItem['gender'];
-type TypeFilter = '全部类型' | '2D' | '3D / UE';
-type SceneFilter = '全部场景' | '播报' | '对话' | '直播';
+import { matchesAvatar, type AvatarGenderFilter, type AvatarTypeFilter, type AvatarSceneFilter } from '@/lib/avatar-catalog-filters';
 
 const OFFICIAL_GUIDE_URL = 'https://help.aliyun.com/zh/avatar/avatar-application/user-guide/avatar-video-operation-guide';
-
-function matchesAvatar(
-  avatar: LiveAvatarCatalogItem,
-  query: string,
-  gender: GenderFilter,
-  type: TypeFilter,
-  scene: SceneFilter,
-) {
-  const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
-  const matchesQuery = !normalizedQuery
-    || `${avatar.name}${avatar.role}${avatar.providerName}${avatar.capability}${avatar.officialId ?? ''}`
-      .toLocaleLowerCase('zh-CN')
-      .includes(normalizedQuery);
-  const matchesGender = gender === '全部' || avatar.gender === gender;
-  const isThreeDimensional = avatar.sourceType === 'AVATAR_3D_TRADITIONAL'
-    || avatar.sourceType === 'AVATAR_UE_APPEARANCE';
-  const matchesType = type === '全部类型'
-    || (type === '2D' && !isThreeDimensional)
-    || (type === '3D / UE' && isThreeDimensional);
-  const matchesScene = scene === '全部场景'
-    || (scene === '播报' && (avatar.businessType === 'BROADCAST' || avatar.businessType === 'BROADCAST_CHAT'))
-    || (scene === '对话' && (avatar.businessType === 'CHAT' || avatar.businessType === 'BROADCAST_CHAT'))
-    || (scene === '直播' && avatar.businessType === 'LIVE');
-  return matchesQuery && matchesGender && matchesType && matchesScene;
-}
 
 function AvatarPreviewDialog({
   avatar,
@@ -97,9 +69,9 @@ function AvatarPreviewDialog({
 
 export function AvatarLibrary() {
   const [query, setQuery] = useState('');
-  const [gender, setGender] = useState<GenderFilter>('全部');
-  const [type, setType] = useState<TypeFilter>('全部类型');
-  const [scene, setScene] = useState<SceneFilter>('全部场景');
+  const [gender, setGender] = useState<AvatarGenderFilter>('全部');
+  const [type, setType] = useState<AvatarTypeFilter>('全部类型');
+  const [scene, setScene] = useState<AvatarSceneFilter>('全部场景');
   const [selectedAvatar, setSelectedAvatar] = useState<LiveAvatarCatalogItem | null>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -141,7 +113,7 @@ export function AvatarLibrary() {
             ))}
           </div>
           <label className="avatarLibrarySelect">
-            <select aria-label="形象类型" value={type} onChange={(event) => setType(event.target.value as TypeFilter)}>
+            <select aria-label="形象类型" value={type} onChange={(event) => setType(event.target.value as AvatarTypeFilter)}>
               <option>全部类型</option>
               <option>2D</option>
               <option>3D / UE</option>
@@ -149,7 +121,7 @@ export function AvatarLibrary() {
             <ChevronDown size={14} />
           </label>
           <label className="avatarLibrarySelect">
-            <select aria-label="使用场景" value={scene} onChange={(event) => setScene(event.target.value as SceneFilter)}>
+            <select aria-label="使用场景" value={scene} onChange={(event) => setScene(event.target.value as AvatarSceneFilter)}>
               <option>全部场景</option>
               <option>播报</option>
               <option>对话</option>

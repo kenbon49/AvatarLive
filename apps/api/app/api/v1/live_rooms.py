@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import Response as MediaResponse
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...db.session import get_db
@@ -16,11 +18,16 @@ from ...schemas.live_room import (
     LiveRoomLayerItem,
     LiveRoomPatch,
     LiveRoomResponse,
+    LiveRoomScene,
     LiveRoomSaveResponse,
+    LiveRoomSummary,
     LiveRoomUpdate,
 )
 from ...models.account import User
+from ...models.live_room import LiveRoomMedia, LiveRoomPlaybackSession, utc_now
+from ...models.live_run import LiveRun
 from ...security.accounts import owns, require_user
+from ...services.live_room_media import externalize_room_media, materialize_existing_room
 
 router = APIRouter(prefix="/live-rooms", tags=["live rooms"])
 
@@ -133,6 +140,75 @@ def list_rooms(
     return repository.list_live_rooms(db, owner_id=user.id, offset=offset, limit=limit)
 
 
+@router.get("/summaries", response_model=list[LiveRoomSummary])
+def list_room_summaries(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+) -> list[dict]:
+    return repository.list_live_room_summaries(db, owner_id=user.id, offset=offset, limit=limit)
+
+
+def require_playback_session(db: Session, session_id: str, user: User) -> LiveRoomPlaybackSession:
+    session = db.scalar(select(LiveRoomPlaybackSession).where(LiveRoomPlaybackSession.id == session_id).with_for_update())
+    if session is None:
+        raise HTTPException(status_code=404, detail="playback session not found")
+    require_room(db, session.live_room_id, user)
+    return session
+
+
+def update_playback_session(db: Session, session: LiveRoomPlaybackSession, *, stop: bool = False) -> None:
+    if session.stopped_at is not None:
+        return
+    now = utc_now()
+    last_seen = session.last_seen_at
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=now.tzinfo)
+    session.duration_ms += min(max(int((now - last_seen).total_seconds() * 1000), 0), 30_000)
+    session.last_seen_at = now
+    if stop:
+        session.stopped_at = now
+    db.commit()
+
+
+@router.post("/{room_id}/playback-sessions", status_code=status.HTTP_201_CREATED)
+def start_room_playback(room_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)) -> dict[str, str]:
+    require_room(db, room_id, user)
+    now = utc_now()
+    session = LiveRoomPlaybackSession(live_room_id=room_id, started_at=now, last_seen_at=now)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return {"id": session.id}
+
+
+@router.post("/playback-sessions/{session_id}/heartbeat")
+def heartbeat_room_playback(session_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)) -> dict[str, str]:
+    session = require_playback_session(db, session_id, user)
+    update_playback_session(db, session)
+    return {"id": session.id}
+
+
+@router.post("/playback-sessions/{session_id}/stop")
+def stop_room_playback(session_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)) -> dict[str, str]:
+    session = require_playback_session(db, session_id, user)
+    update_playback_session(db, session, stop=True)
+    return {"id": session.id}
+
+
+@router.get("/media/{media_id}")
+def get_room_media(media_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)) -> MediaResponse:
+    media = db.get(LiveRoomMedia, media_id)
+    if media is None or not owns(media.owner_id, user):
+        raise HTTPException(status_code=404, detail="live room media not found")
+    return MediaResponse(
+        content=media.data,
+        media_type=media.content_type,
+        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.post(
     "",
     response_model=LiveRoomResponse,
@@ -140,28 +216,48 @@ def list_rooms(
     status_code=status.HTTP_201_CREATED,
 )
 def create_room(payload: LiveRoomCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    config, _ = externalize_room_media(db, user.id, payload.config.model_dump(mode="json", by_alias=True))
     return repository.create_live_room(
         db,
         name=payload.name,
-        config=payload.config.model_dump(mode="json", by_alias=True),
+        config=config,
         owner_id=user.id,
     )
 
 
 @router.get("/{room_id}", response_model=LiveRoomResponse, response_model_exclude_none=True)
 def get_room(room_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    return require_room(db, room_id, user)
+    room = require_room(db, room_id, user)
+    if materialize_existing_room(db, room):
+        db.commit()
+        db.refresh(room)
+    return room
+
+
+@router.get("/{room_id}/scene", response_model=LiveRoomScene, response_model_exclude_none=True)
+def get_room_scene(room_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    room = require_room(db, room_id, user)
+    if materialize_existing_room(db, room):
+        db.commit()
+        db.refresh(room)
+    return {
+        "avatar_id": room.config["avatarId"],
+        "selected_template_id": room.config["selectedTemplateId"],
+        "selected_template_page": room.config.get("selectedTemplatePage", 0),
+        "layers": room.config.get("layers", []),
+    }
 
 
 @router.put("/{room_id}", response_model=LiveRoomResponse, response_model_exclude_none=True)
 def update_room(room_id: str, payload: LiveRoomUpdate, db: Session = Depends(get_db), user: User = Depends(require_user)):
     room = require_room(db, room_id, user)
+    config, _ = externalize_room_media(db, room.owner_id, payload.config.model_dump(mode="json", by_alias=True))
     try:
         return repository.update_live_room(
             db,
             room,
             name=payload.name,
-            config=payload.config.model_dump(mode="json", by_alias=True),
+            config=config,
             expected_version=payload.expected_version,
         )
     except repository.LiveRoomVersionConflict as exc:
@@ -174,7 +270,7 @@ def update_room(room_id: str, payload: LiveRoomUpdate, db: Session = Depends(get
 @router.patch("/{room_id}", response_model=LiveRoomSaveResponse)
 def patch_room(room_id: str, payload: LiveRoomPatch, db: Session = Depends(get_db), user: User = Depends(require_user)):
     room = require_room(db, room_id, user)
-    config = merge_config_changes(room.config, payload)
+    config, _ = externalize_room_media(db, room.owner_id, merge_config_changes(room.config, payload))
     try:
         return repository.update_live_room(
             db,
@@ -197,7 +293,9 @@ def patch_room(room_id: str, payload: LiveRoomPatch, db: Session = Depends(get_d
     status_code=status.HTTP_201_CREATED,
 )
 def copy_room(room_id: str, payload: LiveRoomCopy, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    return repository.copy_live_room(db, require_room(db, room_id, user), name=payload.name)
+    room = require_room(db, room_id, user)
+    materialize_existing_room(db, room)
+    return repository.copy_live_room(db, room, name=payload.name)
 
 
 @router.post("/{room_id}/publish", response_model=LiveRoomResponse, response_model_exclude_none=True)
@@ -207,5 +305,9 @@ def publish_room(room_id: str, db: Session = Depends(get_db), user: User = Depen
 
 @router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def delete_room(room_id: str, db: Session = Depends(get_db), user: User = Depends(require_user)) -> Response:
-    repository.delete_live_room(db, require_room(db, room_id, user))
+    room = require_room(db, room_id, user)
+    has_run_history = db.scalar(select(LiveRun.id).where(LiveRun.live_room_id == room.id).limit(1))
+    if has_run_history:
+        raise HTTPException(status_code=409, detail="该直播间已有推流记录，暂不能删除")
+    repository.delete_live_room(db, room)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

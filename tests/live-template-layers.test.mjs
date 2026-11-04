@@ -264,7 +264,4 @@ test('new live rooms start without a template or decorative layers', () => {
   assert.match(defaultConfig[0], /layers: \[createDefaultHostLayer<LayerItem>\(selectedAvatar\.name\)\]/);
   assert.doesNotMatch(defaultConfig[0], /layers: createTemplateLayers/);
   assert.match(source, /const INITIAL_LAYERS: LayerItem\[\] = \[createDefaultHostLayer<LayerItem>\('灵婉'\)\]/);
-  assert.match(source, /const existingRooms = await listLiveRooms\(\);\s+setRooms\(existingRooms\);/);
-  assert.doesNotMatch(source, /const activeRoomId = window\.localStorage\.getItem\(ACTIVE_LIVE_ROOM_STORAGE_KEY\)/);
-  assert.doesNotMatch(source, /existingRooms\[0\] \?\? await createLiveRoom/);
 });

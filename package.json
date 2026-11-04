@@ -39,6 +39,7 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "tesseract.js": "7.0.0",
     "three": "0.185.1"
   },
   "devDependencies": {

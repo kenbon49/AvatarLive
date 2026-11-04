@@ -6,6 +6,7 @@ from datetime import datetime
 import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from pydantic import Field, field_validator
 from sqlalchemy.orm import Session
 
 from ...core.config import settings
@@ -19,6 +20,7 @@ from ...schemas.platform_event import (
     PlatformEventResponse,
     PlatformEventType,
 )
+from ...schemas.live_room import CamelModel
 from ...services.platforms import (
     WebhookConfigurationError,
     WebhookSignatureError,
@@ -33,11 +35,53 @@ router = APIRouter(tags=["platform events"])
 PLATFORM_SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,49}$")
 
 
+class OcrCommentCreate(CamelModel):
+    external_event_id: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("content")
+    @classmethod
+    def nonempty_content(cls, value: str) -> str:
+        content = value.strip()
+        if not content:
+            raise ValueError("comment content is required")
+        return content
+
+
 def require_room(db: Session, room_id: str):
     room = get_live_room(db, room_id)
     if room is None:
         raise HTTPException(status_code=404, detail="live room not found")
     return room
+
+
+@router.post(
+    "/live-rooms/{room_id}/ocr-comments",
+    response_model=PlatformEventIngestResponse,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def ingest_ocr_comment(
+    room_id: str,
+    payload: OcrCommentCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    room = require_room(db, room_id)
+    if not owns(room.owner_id, user):
+        raise HTTPException(status_code=404, detail="live room not found")
+    event, duplicate = repository.create_event(
+        db,
+        platform="screen_ocr",
+        payload=PlatformEventCreate(
+            external_event_id=payload.external_event_id,
+            event_type="comment",
+            live_room_id=room_id,
+            content=payload.content,
+            data={"source": "screen_ocr"},
+        ),
+    )
+    return PlatformEventIngestResponse(duplicate=duplicate, event=event)
 
 
 @router.post(

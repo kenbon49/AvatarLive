@@ -89,7 +89,7 @@ def get_litellm_config() -> tuple[str, str, int]:
 
 def get_litellm_default_model_id() -> str:
     from ...security.settings_store import effective_api_value
-    return effective_api_value("llm_default_model_id").strip() or "llm-gpt"
+    return effective_api_value("llm_default_model_id").strip() or "deepseek-flash"
 
 
 def resolve_litellm_model(model_id: str) -> dict:

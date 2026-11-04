@@ -10,6 +10,7 @@
 .accountTabs button.active { border-color: #146d68; color: #146d68; font-weight: 700; }
 .accountTabs button:focus-visible, .accountTabs a:focus-visible { outline: 2px solid #5a9490; outline-offset: -3px; }
 .accountPanel { padding-top: 26px; }
+.accountPage > .accountUserPanel { width: min(100%, 1120px); }
 .accountIdentity { min-height: 64px; display: flex; align-items: center; gap: 14px; }
 .accountPageAvatar { width: 52px; height: 52px; flex: 0 0 auto; border-radius: 50%; display: grid; place-items: center; background: #111a37; color: #fff; font-size: 14px; font-weight: 700; }
 .accountIdentity > div { min-width: 0; display: grid; gap: 4px; }

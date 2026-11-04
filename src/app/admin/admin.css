@@ -102,6 +102,6 @@
 .adminAuditTimeline > div > span { color: #146d68; }
 .adminDrawer button:focus-visible, .adminDrawer input:focus-visible { outline: 2px solid #146d68; outline-offset: 2px; }
 @media(max-width: 900px) { .adminBillingBar { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media(max-width: 760px) { .adminUserRow { grid-template-columns: 1fr; gap: 12px; } .adminUserActions, .adminAllocate { justify-content: flex-start; } }
+@media(max-width: 820px) { .adminUserRow { grid-template-columns: 1fr; gap: 12px; } .adminUserActions, .adminAllocate { justify-content: flex-start; } }
 @media(max-width: 600px) { .adminDrawerBackdrop { align-items: flex-end; } .adminDrawer { width: 100%; height: min(100dvh, 820px); border-radius: 8px 8px 0 0; } .adminDetailSummary, .adminResourceMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .adminAdjustmentControl, .adminStatusControl { grid-template-columns: 1fr; } .adminAdjustmentControl button, .adminStatusControl button { width: 100%; } }
 @media(max-width: 520px) { .adminPage { padding: 18px 16px; } .adminRow { align-items: start; flex-direction: column; padding: 10px 0; } .adminTabs { gap: 12px; } .adminBillingBar { grid-template-columns: 1fr; } .adminUserMetrics { width: 100%; } .adminDrawerContent { padding-inline: 16px; } .adminDetailFacts { grid-template-columns: 1fr; } }

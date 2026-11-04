@@ -3,7 +3,6 @@ import 'server-only';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { writeJsonAtomic } from '@/lib/avatar-video-server';
-import { aliyunAvatarVideoConfiguration } from '@/lib/server/aliyun-avatar-video';
 
 function ownerFile(taskId: string) {
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(taskId)) throw new Error('任务不存在');
@@ -17,7 +16,6 @@ export async function recordAliyunVideoOwner(taskId: string, ownerId: string, us
 }
 
 export async function assertAliyunVideoOwner(taskId: string, user: { id: string; role: string }) {
-  if (taskId === aliyunAvatarVideoConfiguration().featuredVideoId) return {} as AliyunVideoOwnership;
   try {
     const owner = JSON.parse(await readFile(/*turbopackIgnore: true*/ ownerFile(taskId), 'utf8')) as AliyunVideoOwnership;
     if (owner.ownerId === user.id || user.role === 'admin') return owner;

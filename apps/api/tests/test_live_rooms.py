@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -23,7 +23,7 @@ from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.core.config import settings
 from app.main import app
-from app.models.live_room import LiveRoom
+from app.models.live_room import LiveRoom, LiveRoomMedia, LiveRoomPlaybackSession, utc_now
 from app.models.live_library import LiveRoomProduct, LiveRoomProductSelection, LiveRoomScriptLibrary
 from app.models.live_run import LiveRun, LiveRunTarget
 from app.models.platform_connection import PlatformConnection
@@ -247,8 +247,9 @@ class LiveRoomApiTest(unittest.TestCase):
             login = user_client.post("/api/v1/auth/login", json=registration)
             self.assertEqual(login.status_code, 200, login.text)
             user_client.cookies.set(COOKIE_NAME, login.cookies[COOKIE_NAME])
+            # Keep wallet arithmetic independent of the default model and peak/off-peak pricing.
             llm_charge = user_client.post("/api/v1/billing/charge", json={
-                "operation": "llm_chat", "reference": "unit:llm:0001", "detail": {"test": True},
+                "operation": "llm_chat", "reference": "unit:llm:0001", "detail": {"test": True, "model": "llm-gpt"},
             })
             self.assertEqual(llm_charge.status_code, 200, llm_charge.text)
             self.assertEqual(llm_charge.json()["credits"], 1)
@@ -375,7 +376,7 @@ class LiveRoomApiTest(unittest.TestCase):
             user_client.cookies.set(COOKIE_NAME, login.cookies[COOKIE_NAME])
             self.assertFalse(user_client.get("/api/v1/billing/balance").json()["unlimited"])
             charged = user_client.post("/api/v1/billing/charge", json={
-                "operation": "llm_chat", "reference": "limited:llm:1",
+                "operation": "llm_chat", "reference": "limited:llm:1", "detail": {"model": "llm-gpt"},
             })
             self.assertEqual(charged.status_code, 200, charged.text)
             self.assertEqual(charged.json()["balance"], 0)
@@ -583,7 +584,7 @@ class LiveRoomApiTest(unittest.TestCase):
         status = self.client.get("/api/v1/admin/settings")
         self.assertNotIn("newpass", status.text)
         self.assertTrue(next(item for item in status.json()["settings"] if item["key"] == "database_url")["saved"])
-        self.assertTrue(any(item["key"] == "minio_secret_key" for item in status.json()["settings"]))
+        self.assertFalse(any(item["key"] == "minio_secret_key" for item in status.json()["settings"]))
 
     def test_master_key_rotation_rejects_active_runs_without_changing_credentials(self) -> None:
         connection = self.client.post("/api/v1/platform-connections", json={
@@ -606,7 +607,7 @@ class LiveRoomApiTest(unittest.TestCase):
 
     def test_admin_setting_address_validation(self) -> None:
         for name, value in (
-            ("seo_video_api_base_url", "file://example.com/media"),
+            ("seo_voice_api_base_url", "file://example.com/media"),
             ("llm_base_url", "http://example.com/v1"),
             ("database_url", "sqlite:///tmp/new.sqlite3"),
         ):
@@ -898,6 +899,131 @@ class LiveRoomApiTest(unittest.TestCase):
         self.assertEqual(len(self.client.get("/api/v1/live-rooms").json()), 1)
         self.assertEqual(self.client.delete(f"/api/v1/live-rooms/{copied_room_id}").status_code, 404)
 
+    def test_room_summaries_and_media_migration(self) -> None:
+        image_bytes = b"\x89PNG\r\n\x1a\nroom-preview"
+        data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
+        config = room_config()
+        config["assets"]["image"] = [{"id": "asset-1", "kind": "image", "name": "素材", "preview": data_url}]
+        created = self.client.post("/api/v1/live-rooms", json={"name": "媒体直播间", "config": config}).json()
+        media_url = created["config"]["assets"]["image"][0]["preview"]
+        self.assertTrue(media_url.startswith("/api/v1/live-rooms/media/"))
+        self.assertEqual(self.client.get(media_url).content, image_bytes)
+
+        summaries = self.client.get("/api/v1/live-rooms/summaries")
+        self.assertEqual(summaries.status_code, 200, summaries.text)
+        self.assertEqual(len(summaries.json()), 1)
+        self.assertEqual(summaries.json()[0]["id"], created["id"])
+        self.assertNotIn("config", summaries.json()[0])
+        self.assertNotIn("data:image", summaries.text)
+
+        with SessionLocal() as db:
+            room = db.get(LiveRoom, created["id"])
+            legacy_config = dict(room.config)
+            legacy_config["importedMaterialImages"] = [{"name": "旧图片", "dataUrl": data_url}]
+            legacy_config["layers"] = [dict(legacy_config["layers"][0], preview=data_url)]
+            room.config = legacy_config
+            db.commit()
+        scene_response = self.client.get(f"/api/v1/live-rooms/{created['id']}/scene")
+        self.assertEqual(scene_response.status_code, 200, scene_response.text)
+        self.assertEqual(scene_response.json()["layers"][0]["preview"], media_url)
+        self.assertNotIn("scripts", scene_response.json())
+        self.assertNotIn("data:image", scene_response.text)
+        loaded = self.client.get(f"/api/v1/live-rooms/{created['id']}").json()
+        self.assertEqual(loaded["config"]["importedMaterialImages"][0]["dataUrl"], media_url)
+        with SessionLocal() as db:
+            self.assertEqual(len(db.query(LiveRoomMedia).all()), 1)
+            self.assertNotIn("data:image", str(db.get(LiveRoom, created["id"]).config))
+
+        copied = self.client.post(f"/api/v1/live-rooms/{created['id']}/copy", json={}).json()
+        self.assertEqual(copied["config"]["assets"]["image"][0]["preview"], media_url)
+        self.assertEqual(self.client.delete(f"/api/v1/live-rooms/{created['id']}").status_code, 204)
+        self.assertEqual(self.client.get(media_url).content, image_bytes)
+
+        with SessionLocal() as db:
+            other = User(email="media-viewer@example.com", password_hash=hash_password("test-password-1234"), status="approved")
+            db.add(other)
+            db.commit()
+            other_token = create_session(db, other)
+        with TestClient(app) as other_client:
+            other_client.cookies.set(COOKIE_NAME, other_token)
+            self.assertEqual(other_client.get(media_url).status_code, 404)
+            self.assertEqual(other_client.get("/api/v1/live-rooms/summaries").json(), [])
+
+    def test_room_card_summary_and_playback_duration(self) -> None:
+        image_bytes = b"\x89PNG\r\n\x1a\ncover-preview"
+        data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
+        config = room_config()
+        config["layers"].append({
+            "id": "background", "kind": "image", "value": "直播间封面", "sceneKey": "templateBackground",
+            "preview": data_url, "x": 50, "y": 50, "width": 100, "height": 100,
+            "rotation": 0, "opacity": 100,
+        })
+        created = self.client.post("/api/v1/live-rooms", json={"name": "卡片测试", "config": config}).json()
+        room_id = created["id"]
+        summary = self.client.get("/api/v1/live-rooms/summaries").json()[0]
+        self.assertEqual(summary["name"], "卡片测试")
+        self.assertEqual(summary["avatarId"], "chinese")
+        self.assertEqual(summary["scriptTitle"], "测试开场")
+        self.assertEqual(summary["scriptPreview"], "欢迎进入测试直播间。")
+        self.assertEqual(summary["scriptCount"], 1)
+        self.assertEqual(summary["totalPlaybackSeconds"], 0)
+        self.assertEqual(summary["coverUrl"], created["config"]["layers"][1]["preview"])
+        self.assertNotIn("data:image", str(summary))
+        scene = self.client.get(f"/api/v1/live-rooms/{room_id}/scene").json()
+        self.assertEqual(scene["avatarId"], "chinese")
+        self.assertEqual(scene["selectedTemplateId"], "food")
+        self.assertEqual(scene["layers"][1]["preview"], summary["coverUrl"])
+        self.assertNotIn("scripts", scene)
+
+        started = self.client.post(f"/api/v1/live-rooms/{room_id}/playback-sessions")
+        self.assertEqual(started.status_code, 201, started.text)
+        session_id = started.json()["id"]
+        with SessionLocal() as db:
+            session = db.get(LiveRoomPlaybackSession, session_id)
+            session.last_seen_at = utc_now() - timedelta(seconds=12)
+            db.commit()
+        self.assertEqual(self.client.post(f"/api/v1/live-rooms/playback-sessions/{session_id}/heartbeat").status_code, 200)
+        with SessionLocal() as db:
+            session = db.get(LiveRoomPlaybackSession, session_id)
+            session.last_seen_at = utc_now() - timedelta(seconds=120)
+            db.commit()
+        self.assertEqual(self.client.post(f"/api/v1/live-rooms/playback-sessions/{session_id}/stop").status_code, 200)
+        with SessionLocal() as db:
+            session = db.get(LiveRoomPlaybackSession, session_id)
+            saved_duration = session.duration_ms
+            self.assertGreaterEqual(saved_duration, 41_000)
+            self.assertLessEqual(saved_duration, 43_000)
+        self.assertEqual(self.client.post(f"/api/v1/live-rooms/playback-sessions/{session_id}/stop").status_code, 200)
+        with SessionLocal() as db:
+            self.assertEqual(db.get(LiveRoomPlaybackSession, session_id).duration_ms, saved_duration)
+            now = utc_now()
+            db.add(LiveRun(
+                request_id="room-card-run", live_room_id=room_id, status="stopped",
+                room_version=created["version"], config_snapshot=created["config"],
+                media_source_kind="browser_ingest", legal_source_confirmed=True,
+                started_at=now - timedelta(seconds=90), stopped_at=now,
+            ))
+            db.commit()
+        summary = self.client.get("/api/v1/live-rooms/summaries").json()[0]
+        self.assertGreaterEqual(summary["totalPlaybackSeconds"], 131)
+        self.assertLessEqual(summary["totalPlaybackSeconds"], 133)
+        delete_response = self.client.delete(f"/api/v1/live-rooms/{room_id}")
+        self.assertEqual(delete_response.status_code, 409, delete_response.text)
+        self.assertEqual(delete_response.json()["detail"], "该直播间已有推流记录，暂不能删除")
+        self.assertEqual(self.client.get(f"/api/v1/live-rooms/{room_id}").status_code, 200)
+
+        with SessionLocal() as db:
+            other = User(email="card-viewer@example.com", password_hash=hash_password("test-password-1234"), status="approved")
+            db.add(other)
+            db.commit()
+            other_token = create_session(db, other)
+        with TestClient(app) as other_client:
+            other_client.cookies.set(COOKIE_NAME, other_token)
+            self.assertEqual(other_client.get("/api/v1/live-rooms/summaries").json(), [])
+            self.assertEqual(other_client.get(f"/api/v1/live-rooms/{room_id}/scene").status_code, 404)
+            self.assertEqual(other_client.post(f"/api/v1/live-rooms/{room_id}/playback-sessions").status_code, 404)
+            self.assertEqual(other_client.post(f"/api/v1/live-rooms/playback-sessions/{session_id}/heartbeat").status_code, 404)
+
     def test_editor_draft_survives_updates_without_becoming_a_storyboard(self) -> None:
         config = room_config()
         config["editorDraft"] = "尚未加入分镜的编辑内容"
@@ -966,9 +1092,11 @@ class LiveRoomApiTest(unittest.TestCase):
         self.assertEqual(persisted["scripts"][0]["text"], "只修改这一段口播。")
         self.assertEqual(persisted["layers"][0]["x"], 42)
         self.assertEqual(persisted["layers"][0]["y"], 61)
-        self.assertEqual(persisted["layers"][0]["preview"], preview)
-        self.assertEqual(persisted["assets"]["image"][0]["preview"], preview)
-        self.assertEqual(persisted["importedMaterialImages"][0]["dataUrl"], preview)
+        media_url = persisted["layers"][0]["preview"]
+        self.assertTrue(media_url.startswith("/api/v1/live-rooms/media/"))
+        self.assertEqual(persisted["assets"]["image"][0]["preview"], media_url)
+        self.assertEqual(persisted["importedMaterialImages"][0]["dataUrl"], media_url)
+        self.assertEqual(self.client.get(media_url).content, base64.b64decode(preview.partition(",")[2]))
 
         title_layer = {
             "id": "title",
@@ -1168,6 +1296,38 @@ class LiveRoomApiTest(unittest.TestCase):
         self.assertEqual(len(list_response.json()), 1)
         with SessionLocal() as db:
             self.assertEqual(db.query(PlatformLiveEvent).count(), 1)
+
+    def test_authenticated_ocr_comments_are_room_scoped_and_deduplicated(self) -> None:
+        room = self.client.post(
+            "/api/v1/live-rooms", json={"name": "OCR 评论", "config": room_config()}
+        ).json()
+        path = f"/api/v1/live-rooms/{room['id']}/ocr-comments"
+        payload = {"externalEventId": "ocr-frame-1", "content": "这个商品多少钱？"}
+
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.post(path, json=payload).status_code, 401)
+        with SessionLocal() as db:
+            outsider = User(email="ocr-outsider@example.com", password_hash=hash_password("test-password-1234"), role="user", status="approved")
+            db.add(outsider)
+            db.commit()
+            db.refresh(outsider)
+            outsider_cookie = create_session(db, outsider)
+        with TestClient(app) as outsider_client:
+            outsider_client.cookies.set(COOKIE_NAME, outsider_cookie)
+            self.assertEqual(outsider_client.post(path, json=payload).status_code, 404)
+        first = self.client.post(path, json=payload)
+        self.assertEqual(first.status_code, 202, first.text)
+        self.assertFalse(first.json()["duplicate"])
+        self.assertEqual(first.json()["event"]["platform"], "screen_ocr")
+        self.assertEqual(first.json()["event"]["data"], {"source": "screen_ocr"})
+        duplicate = self.client.post(path, json=payload)
+        self.assertEqual(duplicate.status_code, 202, duplicate.text)
+        self.assertTrue(duplicate.json()["duplicate"])
+        self.assertEqual(self.client.post(path, json={**payload, "content": "  "}).status_code, 422)
+        self.assertEqual(self.client.post("/api/v1/live-rooms/missing/ocr-comments", json=payload).status_code, 404)
+        listed = self.client.get(f"/api/v1/live-rooms/{room['id']}/platform-events").json()
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["content"], payload["content"])
 
     def test_platform_event_webhook_rejects_bad_signature_and_limits_bursts(self) -> None:
         room_response = self.client.post(

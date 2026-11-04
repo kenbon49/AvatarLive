@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, PointerEvent as ReactPointerEvent, type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   AlignCenter,
   AlignLeft,
@@ -21,6 +22,7 @@ import {
   FileUp,
   HelpCircle,
   GripVertical,
+  History,
   Eye,
   EyeOff,
   Image as ImageIcon,
@@ -40,12 +42,14 @@ import {
   RefreshCw,
   Save,
   Search,
+  ScanText,
   Server,
   Settings2,
   Shapes,
   ShieldCheck,
   ShoppingBag,
   SkipForward,
+  SlidersHorizontal,
   Shuffle,
   Sparkles,
   Trash2,
@@ -87,13 +91,17 @@ import {
 } from '@/lib/window-capture-session';
 import { StoryboardVideoPlaylist, type StoryboardVideoItem } from '@/lib/storyboard-video-playlist';
 import { ProductShell } from '@/components/product-shell';
+import { BarrageOcrPanel } from '@/components/barrage-ocr-panel';
 import { PersonSegmentedImagePreview, type PersonImageSegmentationState } from '@/components/person-segmented-image-preview';
 import { API_BASE } from '@/lib/api';
 import {
   copyLiveRoom,
   createLiveRoom,
   deleteLiveRoom,
-  listLiveRooms,
+  getLiveRoom,
+  heartbeatLiveRoomPlayback,
+  listLiveRoomSummaries,
+  liveRoomSummary,
   listProductScripts,
   createLiveRoomScript,
   listLiveRoomProducts,
@@ -105,7 +113,10 @@ import {
   detachLiveRoomProduct,
   publishLiveRoom,
   patchLiveRoom,
+  startLiveRoomPlayback,
+  stopLiveRoomPlayback,
   type LiveRoom,
+  type LiveRoomSummary,
   type LiveRoomConfig,
   type LiveRoomGoodsItem,
   type LiveRoomProduct,
@@ -147,6 +158,7 @@ import {
 } from '@/lib/live-product-ai';
 import { layerZIndex } from '@/lib/live-layer-order';
 import { ALIYUN_PUBLIC_AVATARS, LIVE_AVATARS as AVATARS, aliyunAvatarForCloudVideo } from '@/lib/live-avatar-catalog';
+import { matchesAvatar, type AvatarGenderFilter, type AvatarSceneFilter, type AvatarTypeFilter } from '@/lib/avatar-catalog-filters';
 import { readStudioSetting, writeStudioSetting } from '@/lib/browser-studio-storage';
 import { scriptAvatarVideoInputSignature, scriptAvatarVideoIsBusy } from '@/lib/script-avatar-video';
 import { StoryboardScenePreview } from '@/components/storyboard-scene-preview';
@@ -450,6 +462,8 @@ function selectedProductToGoods(product: LiveRoomProduct): LiveRoomGoodsItem {
 export type LiveStudioInitialState = {
   dialog?: Extract<DialogName, 'settings' | 'voice'> | null;
   entered?: boolean;
+  requestedRoomId?: string;
+  createOnLanding?: boolean;
 };
 
 const STUDIO_WORKSPACES = [
@@ -1276,6 +1290,8 @@ const ACTIVE_LIVE_RUN_STORAGE_KEY = 'synlive.activeLiveRunId';
 export function LiveStudio({
   dialog: initialDialog = null,
   entered: initialEntered = false,
+  requestedRoomId,
+  createOnLanding = false,
 }: LiveStudioInitialState = {}) {
   const [entered, setEntered] = useState(initialEntered);
   const [landingSceneIndex, setLandingSceneIndex] = useState(0);
@@ -1296,6 +1312,9 @@ export function LiveStudio({
   const browserPublisherRef = useRef<BrowserLivePublisher | null>(null);
   const captureCompositorRef = useRef<SceneCompositor | null>(null);
   const windowCaptureSessionRef = useRef<WindowCaptureSession | PictureInPictureCaptureSession | null>(null);
+  const roomPlaybackSessionRef = useRef<string | null>(null);
+  const roomPlaybackTimerRef = useRef<number | null>(null);
+  const roomPlaybackGenerationRef = useRef(0);
   const storyboardPlaylistRef = useRef<StoryboardVideoPlaylist | null>(null);
   const captureSilentAudioRef = useRef<{ context: AudioContext; track: MediaStreamTrack } | null>(null);
   const capturePopupRef = useRef<Window | null>(null);
@@ -1319,6 +1338,8 @@ export function LiveStudio({
   useEffect(() => setPictureInPictureSupported(supportsPictureInPictureOutput()), []);
   const [windowCaptureState, setWindowCaptureState] = useState<WindowCaptureState>('stopped');
   const [windowCaptureMessage, setWindowCaptureMessage] = useState('');
+  const [ocrPanelOpen, setOcrPanelOpen] = useState(false);
+  const [ocrRunning, setOcrRunning] = useState(false);
   const [programStoryboard, setProgramStoryboard] = useState<{ title: string; status: 'playing' | 'paused' | 'finished' } | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -1339,16 +1360,19 @@ export function LiveStudio({
   const [roomSaving, setRoomSaving] = useState(false);
   const [roomError, setRoomError] = useState('');
   const [savedAt, setSavedAt] = useState('');
-  const [rooms, setRooms] = useState<LiveRoom[]>([]);
+  const [rooms, setRooms] = useState<LiveRoomSummary[]>([]);
   const [roomMenuOpen, setRoomMenuOpen] = useState(false);
   const roomMenuRef = useRef<HTMLDivElement>(null);
   const roomSavePromiseRef = useRef<Promise<boolean> | null>(null);
   const [roomActionBusy, setRoomActionBusy] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
-  const [landingCreateOpen, setLandingCreateOpen] = useState(false);
+  const [landingCreateOpen, setLandingCreateOpen] = useState(createOnLanding);
   const [landingRoomName, setLandingRoomName] = useState('');
   const [landingAvatarId, setLandingAvatarId] = useState(FEATURED_LIVE_AVATAR_ID);
   const [landingAvatarQuery, setLandingAvatarQuery] = useState('');
+  const [landingAvatarGender, setLandingAvatarGender] = useState<AvatarGenderFilter>('全部');
+  const [landingAvatarType, setLandingAvatarType] = useState<AvatarTypeFilter>('全部类型');
+  const [landingAvatarScene, setLandingAvatarScene] = useState<AvatarSceneFilter>('全部场景');
   const [landingRoomCreating, setLandingRoomCreating] = useState(false);
   const [landingRoomError, setLandingRoomError] = useState('');
   const [renameRoomName, setRenameRoomName] = useState('');
@@ -1671,10 +1695,15 @@ export function LiveStudio({
   ].join(':')).join('|'), [scriptVideoInputSignatureFor, scripts]);
   const landingAvatar = ALIYUN_PUBLIC_AVATARS.find((item) => item.id === landingAvatarId)
     ?? ALIYUN_PUBLIC_AVATARS[0];
-  const landingAvatars = useMemo(() => {
-    const query = landingAvatarQuery.trim().toLowerCase();
-    return ALIYUN_PUBLIC_AVATARS.filter((item) => !query || `${item.name}${item.role}`.toLowerCase().includes(query));
-  }, [landingAvatarQuery]);
+  const landingAvatars = useMemo(() => ALIYUN_PUBLIC_AVATARS.filter((item) => matchesAvatar(
+    item, landingAvatarQuery, landingAvatarGender, landingAvatarType, landingAvatarScene,
+  )), [landingAvatarGender, landingAvatarQuery, landingAvatarScene, landingAvatarType]);
+  const resetLandingAvatarFilters = () => {
+    setLandingAvatarQuery('');
+    setLandingAvatarGender('全部');
+    setLandingAvatarType('全部类型');
+    setLandingAvatarScene('全部场景');
+  };
   const filteredVoices = useMemo(() => voices.filter((item) => (
     item.scope === voiceTab
     && (voiceGender === '全部性别' || item.gender === voiceGender)
@@ -1960,7 +1989,22 @@ export function LiveStudio({
     setBrowserPublisherMessage('');
   }, []);
 
+  const finishRoomPlayback = useCallback(() => {
+    roomPlaybackGenerationRef.current += 1;
+    if (roomPlaybackTimerRef.current !== null) window.clearInterval(roomPlaybackTimerRef.current);
+    roomPlaybackTimerRef.current = null;
+    const sessionId = roomPlaybackSessionRef.current;
+    roomPlaybackSessionRef.current = null;
+    if (sessionId) void stopLiveRoomPlayback(sessionId, true).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('pagehide', finishRoomPlayback);
+    return () => window.removeEventListener('pagehide', finishRoomPlayback);
+  }, [finishRoomPlayback]);
+
   const stopWindowCapture = useCallback(() => {
+    finishRoomPlayback();
     streamRef.current?.setMonitorMuted(false);
     const programPreview = programOutputPreviewRef.current;
     if (programPreview) {
@@ -1981,7 +2025,7 @@ export function LiveStudio({
     capturePopupRef.current = null;
     setWindowCaptureState('stopped');
     setWindowCaptureMessage('');
-  }, []);
+  }, [finishRoomPlayback]);
 
   const startWindowCapture = useCallback(async () => {
     if (windowCaptureSessionRef.current) return;
@@ -2066,6 +2110,19 @@ export function LiveStudio({
         await session.start(mediaStream);
         if (useStoryboards && !storyboardPlaylistRef.current && !captureSilentAudioRef.current) throw new Error('节目画面输出已停止');
         avatarStream?.setMonitorMuted(true);
+        if (room?.id) {
+          const generation = ++roomPlaybackGenerationRef.current;
+          void startLiveRoomPlayback(room.id).then(({ id }) => {
+            if (generation !== roomPlaybackGenerationRef.current || !windowCaptureSessionRef.current) {
+              void stopLiveRoomPlayback(id, true).catch(() => undefined);
+              return;
+            }
+            roomPlaybackSessionRef.current = id;
+            roomPlaybackTimerRef.current = window.setInterval(() => {
+              void heartbeatLiveRoomPlayback(id).catch(() => undefined);
+            }, 15_000);
+          }).catch(() => setNotice('节目输出正常，但累计播放时长暂不可记录'));
+        }
       } catch (caught) {
         avatarStream?.setMonitorMuted(false);
         session.stop();
@@ -2097,7 +2154,7 @@ export function LiveStudio({
       setWindowCaptureState('failed');
       throw caught;
     }
-  }, [avatar.rendererProfile, captureOrientation, captureWindowStyle, outputConfig.frameRate, outputConfig.resolution, programPlaybackLoop, programVideos, stopWindowCapture]);
+  }, [avatar.rendererProfile, captureOrientation, captureWindowStyle, outputConfig.frameRate, outputConfig.resolution, programPlaybackLoop, programVideos, room?.id, stopWindowCapture]);
 
   const startBrowserPublisher = useCallback(async (run: LiveRun) => {
     if (browserPublisherRef.current) return;
@@ -2320,12 +2377,19 @@ export function LiveStudio({
     setRoomError('');
     const initializeRoom = async () => {
       try {
-        const existingRooms = await listLiveRooms();
-        setRooms(existingRooms);
-        const activeRoomId = window.localStorage.getItem(ACTIVE_LIVE_ROOM_STORAGE_KEY);
-        const lastRoom = existingRooms.find((item) => item.id === activeRoomId);
-        if (lastRoom) applyRoom(lastRoom);
-        else if (activeRoomId) window.localStorage.removeItem(ACTIVE_LIVE_ROOM_STORAGE_KEY);
+        const existingRooms = await listLiveRoomSummaries();
+        if (requestedRoomId) {
+          const selectedRoom = await getLiveRoom(requestedRoomId);
+          setRooms(existingRooms.some((item) => item.id === selectedRoom.id)
+            ? existingRooms : [...existingRooms, liveRoomSummary(selectedRoom)]);
+          applyRoom(selectedRoom);
+        } else {
+          setRooms(existingRooms);
+          const activeRoomId = window.localStorage.getItem(ACTIVE_LIVE_ROOM_STORAGE_KEY);
+          const lastRoom = existingRooms.find((item) => item.id === activeRoomId);
+          if (lastRoom) applyRoom(await getLiveRoom(lastRoom.id));
+          else if (activeRoomId) window.localStorage.removeItem(ACTIVE_LIVE_ROOM_STORAGE_KEY);
+        }
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : '未知错误';
         setRoomError(message);
@@ -2336,7 +2400,7 @@ export function LiveStudio({
       }
     };
     void initializeRoom();
-  }, [entered, room, applyRoom]);
+  }, [entered, room, applyRoom, requestedRoomId]);
 
   useEffect(() => {
     if (!liveRun || !['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) return;
@@ -2904,7 +2968,7 @@ export function LiveStudio({
             activeRoom = savedRoom;
             setRoom(savedRoom);
             latestRoomSaveRef.current.room = savedRoom;
-            setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
+            setRooms((items) => items.map((item) => item.id === savedRoom.id ? liveRoomSummary(savedRoom) : item));
             savedConfigRef.current = config;
             savedSignatureRef.current = JSON.stringify(config);
             setSavedConfigSignature(savedSignatureRef.current);
@@ -3991,8 +4055,8 @@ export function LiveStudio({
           latestRoomSaveRef.current.room = savedRoom;
           setRoom(savedRoom);
           setRooms((items) => items.some((item) => item.id === savedRoom.id)
-            ? items.map((item) => item.id === savedRoom.id ? savedRoom : item)
-            : [...items, savedRoom]);
+            ? items.map((item) => item.id === savedRoom.id ? liveRoomSummary(savedRoom) : item)
+            : [...items, liveRoomSummary(savedRoom)]);
           setRenameRoomName(savedRoom.name);
           savedConfigRef.current = config;
           savedSignatureRef.current = signature;
@@ -4058,7 +4122,7 @@ export function LiveStudio({
     }
   };
 
-  const selectLiveRoom = async (nextRoom: LiveRoom) => {
+  const selectLiveRoom = async (nextRoom: LiveRoomSummary) => {
     if (nextRoom.id === room?.id) {
       setRoomMenuOpen(false);
       return;
@@ -4076,11 +4140,19 @@ export function LiveStudio({
       setNotice('当前直播间未能保存，已取消切换，请检查保存错误');
       return;
     }
-    stopVoicePreview();
-    applyRoom(nextRoom);
-    setRoomMenuOpen(false);
-    setEditingRoomName(false);
-    setNotice(`已切换到“${nextRoom.name}”`);
+    setRoomLoading(true);
+    try {
+      const loadedRoom = await getLiveRoom(nextRoom.id);
+      stopVoicePreview();
+      applyRoom(loadedRoom);
+      setRoomMenuOpen(false);
+      setEditingRoomName(false);
+      setNotice(`已切换到“${loadedRoom.name}”`);
+    } catch (caught) {
+      setNotice(`切换直播间失败：${caught instanceof Error ? caught.message : '未知错误'}`);
+    } finally {
+      setRoomLoading(false);
+    }
   };
 
   const createNewLiveRoom = async (event: FormEvent) => {
@@ -4098,7 +4170,7 @@ export function LiveStudio({
     setRoomActionBusy(true);
     try {
       const createdRoom = await createLiveRoom(name, createDefaultRoomConfig(avatarId));
-      setRooms((items) => [...items, createdRoom]);
+      setRooms((items) => [...items, liveRoomSummary(createdRoom)]);
       applyRoom(createdRoom);
       setNewRoomName('');
       setRoomMenuOpen(false);
@@ -4118,13 +4190,13 @@ export function LiveStudio({
     setLandingRoomError('');
     try {
       const createdRoom = await createLiveRoom(name, createDefaultRoomConfig(landingAvatar.id));
-      let existingRooms: LiveRoom[] = [];
+      let existingRooms: LiveRoomSummary[] = [];
       try {
-        existingRooms = await listLiveRooms();
+        existingRooms = await listLiveRoomSummaries();
       } catch {
         // The newly created room is still usable when refreshing the list fails.
       }
-      setRooms([...existingRooms.filter((item) => item.id !== createdRoom.id), createdRoom]);
+      setRooms([...existingRooms.filter((item) => item.id !== createdRoom.id), liveRoomSummary(createdRoom)]);
       applyRoom(createdRoom);
       roomInitializationRef.current = true;
       setLandingCreateOpen(false);
@@ -4152,7 +4224,7 @@ export function LiveStudio({
     setRoomActionBusy(true);
     try {
       const copiedRoom = await copyLiveRoom(room);
-      setRooms((items) => [...items, copiedRoom]);
+      setRooms((items) => [...items, liveRoomSummary(copiedRoom)]);
       applyRoom(copiedRoom);
       setRoomMenuOpen(false);
       setNotice(`已复制为“${copiedRoom.name}”`);
@@ -4173,11 +4245,13 @@ export function LiveStudio({
     try {
       await deleteLiveRoom(room.id);
       const remainingRooms = rooms.filter((item) => item.id !== room.id);
-      const nextRoom = remainingRooms[0] ?? await createLiveRoom(
-        `直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
-        createDefaultRoomConfig(),
-      );
-      const nextRooms = remainingRooms.length ? remainingRooms : [nextRoom];
+      const nextRoom = remainingRooms.length
+        ? await getLiveRoom(remainingRooms[0].id)
+        : await createLiveRoom(
+          `直播间 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+          createDefaultRoomConfig(),
+        );
+      const nextRooms = remainingRooms.length ? remainingRooms : [liveRoomSummary(nextRoom)];
       setRooms(nextRooms);
       stopVoicePreview();
       applyRoom(nextRoom);
@@ -4208,7 +4282,7 @@ export function LiveStudio({
       const config = buildRoomConfig();
       const activeRoom = latestRoomSaveRef.current.room ?? room;
       const renamedRoom = await saveExistingRoomConfig(activeRoom, config, name);
-      setRooms((items) => items.map((item) => item.id === renamedRoom.id ? renamedRoom : item));
+      setRooms((items) => items.map((item) => item.id === renamedRoom.id ? liveRoomSummary(renamedRoom) : item));
       setRoom(renamedRoom);
       latestRoomSaveRef.current.room = renamedRoom;
       savedConfigRef.current = config;
@@ -4237,7 +4311,7 @@ export function LiveStudio({
     setRoomActionBusy(true);
     try {
       const publishedRoom = await publishLiveRoom(room);
-      setRooms((items) => items.map((item) => item.id === publishedRoom.id ? publishedRoom : item));
+      setRooms((items) => items.map((item) => item.id === publishedRoom.id ? liveRoomSummary(publishedRoom) : item));
       applyRoom(publishedRoom);
       setRoomMenuOpen(false);
       setNotice(`“${publishedRoom.name}”已发布（版本 ${publishedRoom.version}）`);
@@ -4537,7 +4611,7 @@ export function LiveStudio({
       const savedRoom = await saveExistingRoomConfig(latestRoomSaveRef.current.room ?? room, nextConfig);
       setRoom(savedRoom);
       latestRoomSaveRef.current.room = savedRoom;
-      setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
+      setRooms((items) => items.map((item) => item.id === savedRoom.id ? liveRoomSummary(savedRoom) : item));
       savedConfigRef.current = nextConfig;
       savedSignatureRef.current = JSON.stringify(nextConfig);
       setSavedConfigSignature(savedSignatureRef.current);
@@ -4583,7 +4657,7 @@ export function LiveStudio({
         const savedRoom = await saveExistingRoomConfig(latestRoomSaveRef.current.room ?? room, nextConfig);
         setRoom(savedRoom);
         latestRoomSaveRef.current.room = savedRoom;
-        setRooms((items) => items.map((item) => item.id === savedRoom.id ? savedRoom : item));
+        setRooms((items) => items.map((item) => item.id === savedRoom.id ? liveRoomSummary(savedRoom) : item));
         savedConfigRef.current = nextConfig;
         savedSignatureRef.current = JSON.stringify(nextConfig);
         setSavedConfigSignature(savedSignatureRef.current);
@@ -5469,7 +5543,8 @@ export function LiveStudio({
             <p>选择数字人主播、编排直播话术并配置推流目标，在原有工作台中完成直播准备与实时驱动预览。</p>
             <div className="liveLandingActions">
               <button className="primaryAction" type="button" onClick={() => { setLandingCreateOpen(false); setEntered(true); }}><Sparkles size={17} />进入直播控制台</button>
-              <button className="secondaryAction" type="button" onClick={() => { setLandingCreateOpen(true); setLandingRoomError(''); setLandingAvatarQuery(''); }}><FileText size={17} />新建直播间<ArrowRight size={16} /></button>
+              <Link className="secondaryAction" href="/live/rooms"><History size={17} />数字人直播列表</Link>
+              <button className="secondaryAction" type="button" onClick={() => { setLandingCreateOpen(true); setLandingRoomError(''); resetLandingAvatarFilters(); }}><FileText size={17} />新建直播间<ArrowRight size={16} /></button>
             </div>
             <div className="liveLandingMeta"><span><strong>{ALIYUN_PUBLIC_AVATARS.length}</strong> 个公共形象</span><i /><span><strong>实时</strong> 话术播报</span><i /><span><strong>RTMP</strong> 输出预设</span></div>
           </section>
@@ -5508,14 +5583,24 @@ export function LiveStudio({
                 <div><span className="liveCreateStep">1</span><span><strong id="live-create-title">选择数字人</strong><small>新直播间将使用所选公共形象</small></span></div>
                 <button type="button" aria-label="关闭创建直播间" disabled={landingRoomCreating} onClick={() => setLandingCreateOpen(false)}><X size={18} /></button>
               </header>
-              <label className="liveCreateSearch"><Search size={16} /><input value={landingAvatarQuery} onChange={(event) => setLandingAvatarQuery(event.target.value)} placeholder="搜索数字人名称" autoFocus /></label>
+              <div className="liveCreateFilters" aria-label="形象筛选">
+                <label className="liveCreateSearch"><Search size={16} /><input value={landingAvatarQuery} onChange={(event) => setLandingAvatarQuery(event.target.value)} placeholder="搜索形象名称或特征" aria-label="搜索数字人形象" autoFocus />{landingAvatarQuery && <button type="button" aria-label="清空搜索" onClick={() => setLandingAvatarQuery('')}><X size={14} /></button>}</label>
+                <div className="liveCreateGender" role="group" aria-label="按性别筛选">
+                  <span><SlidersHorizontal size={14} />性别</span>
+                  {(['全部', '女', '男'] as const).map((value) => <button type="button" className={landingAvatarGender === value ? 'active' : ''} aria-pressed={landingAvatarGender === value} onClick={() => setLandingAvatarGender(value)} key={value}>{value}</button>)}
+                </div>
+                <label className="liveCreateSelect"><select aria-label="形象类型" value={landingAvatarType} onChange={(event) => setLandingAvatarType(event.target.value as AvatarTypeFilter)}><option>全部类型</option><option>2D</option><option>3D / UE</option></select><ChevronDown size={14} /></label>
+                <label className="liveCreateSelect"><select aria-label="使用场景" value={landingAvatarScene} onChange={(event) => setLandingAvatarScene(event.target.value as AvatarSceneFilter)}><option>全部场景</option><option>播报</option><option>对话</option><option>直播</option></select><ChevronDown size={14} /></label>
+                <span className="liveCreateResultCount">{landingAvatars.length} 个结果 · 已选 {landingAvatar.name}</span>
+              </div>
               <div className="liveCreateAvatarGrid" role="radiogroup" aria-label="选择公共数字人">
                 {landingAvatars.map((item) => <button className={item.id === landingAvatar.id ? 'selected' : ''} type="button" role="radio" aria-checked={item.id === landingAvatar.id} key={item.id} onClick={() => setLandingAvatarId(item.id)}>
-                  <span><img src={item.image} alt="" /></span>
+                  <span><img src={item.image} alt="" loading="lazy" decoding="async" /></span>
                   <strong>{item.name}</strong>
+                  <small>{item.role}</small>
                   {item.id === landingAvatar.id && <i><Check size={13} /></i>}
                 </button>)}
-                {!landingAvatars.length && <div className="liveCreateNoResult">没有找到匹配的数字人</div>}
+                {!landingAvatars.length && <div className="liveCreateNoResult"><span>没有找到匹配的数字人</span><button type="button" onClick={resetLandingAvatarFilters}>清除筛选</button></div>}
               </div>
               <footer>
                 <div className="liveCreateSelected"><img src={landingAvatar.image} alt="" /><span><small>已选数字人</small><strong>{landingAvatar.name}</strong></span></div>
@@ -5614,6 +5699,7 @@ export function LiveStudio({
           </div>
         </div>
         <div className="xlTopActions">
+          <button type="button" className={`xlDarkButton ${ocrRunning ? 'xlOcrActive' : ''}`} title={ocrRunning ? '弹幕识别进行中' : '识别直播伴侣弹幕'} aria-label={ocrRunning ? '弹幕识别进行中' : '识别直播伴侣弹幕'} disabled={!room?.id} onClick={() => setOcrPanelOpen(true)}><ScanText size={15} />{ocrRunning ? '识别中' : '弹幕 OCR'}</button>
           <button type="button" className="xlDarkButton" title="保存直播间设置、全部分镜及数字人成片关联" aria-label="保存直播间" disabled={roomLoading || roomSaving || scriptVideoBatchBusy} onClick={() => void saveLiveRoom()}>{roomSaving || roomLoading ? <LoaderCircle className="xlVoiceSpinner" size={15} /> : <Save size={15} />}{roomSaving ? '正在保存' : roomLoading ? '正在加载' : '保存直播间'}</button>
           <button type="button" className="xlDarkButton" onClick={() => setDialog('settings')}><Settings2 size={15} />直播设置</button>
           {onAir || (liveRun && ['preparing', 'ready', 'starting', 'live', 'stopping'].includes(liveRun.status)) ? (
@@ -6199,6 +6285,8 @@ export function LiveStudio({
           </div>
         </section>
       </div>}
+
+      {room?.id && <BarrageOcrPanel key={room.id} open={ocrPanelOpen} roomId={room.id} onClose={() => setOcrPanelOpen(false)} onRunningChange={setOcrRunning} />}
 
       {dialog === 'livePlatform' && <div className="xlModalBackdrop" onMouseDown={() => setDialog(null)}>
         <section className={`xlModal xlLivePlatformModal ${windowCaptureMode ? 'windowMode' : 'rtmpMode'}`} role="dialog" aria-modal="true" aria-label="开播编排" onMouseDown={(event) => event.stopPropagation()}>

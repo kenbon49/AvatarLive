@@ -68,11 +68,6 @@ function assertTaskId(taskId: string) {
   return taskId;
 }
 
-function featuredVideoId() {
-  const value = env('ALIYUN_LINGMOU_FEATURED_VIDEO_ID');
-  return value && TASK_ID_PATTERN.test(value) ? value : '';
-}
-
 export function aliyunAvatarVideoConfiguration() {
   const required = [...credentialNames, ...lingMouSettingNames];
   const missing = required.filter((name) => !env(name));
@@ -85,7 +80,6 @@ export function aliyunAvatarVideoConfiguration() {
     regionId: env('ALIYUN_LINGMOU_REGION_ID') || 'cn-beijing',
     endpoint: env('ALIYUN_LINGMOU_ENDPOINT') || 'lingmou.cn-beijing.aliyuncs.com',
     templateConfigured: Boolean(env('ALIYUN_LINGMOU_TEMPLATE_ID')),
-    featuredVideoId: featuredVideoId(),
   };
 }
 

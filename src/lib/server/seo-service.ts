@@ -1,8 +1,8 @@
 import 'server-only';
 
 export function seoServiceConfig() {
-  const configured = (process.env.SEO_VOICE_API_BASE_URL || process.env.SEO_IMAGE_API_BASE_URL || '').replace(/\/$/, '');
-  const apiKey = process.env.SEO_VOICE_API_KEY || process.env.SEO_IMAGE_API_KEY || '';
+  const configured = (process.env.SEO_VOICE_API_BASE_URL || '').replace(/\/$/, '');
+  const apiKey = process.env.SEO_VOICE_API_KEY || '';
   const upstreams = [configured];
   if (configured.includes('host.docker.internal')) {
     upstreams.push(configured.replace('host.docker.internal', '127.0.0.1'));

@@ -4,49 +4,48 @@ AI 数字人直播中控平台原型。
 
 ## 一键部署（Windows / Linux / macOS）
 
-前端、控制 API、PostgreSQL、Redis、Qdrant、MinIO、SRS 和统一入口都由
-Docker Compose 管理。默认是云端 API/Core 模式：首次执行会创建 `.env`、生成本地安全密钥、
-执行数据库迁移并创建初始管理员，不会下载 MuseTalk、MeloTTS 或 server-total 模型。
+PostgreSQL 使用独立 Compose 生命周期；前端、控制 API、SRS 和统一入口由 Core Compose 管理。
+当前部署只使用阿里云数字人、DeepSeek 和百炼语音等云端能力，不部署 Cloudflare
+Tunnel、Azure TTS、LiveTalking 或本地 GPU 推理服务。
 
-Linux / macOS：
+前置条件：Linux 安装并启动 Docker Engine 与 Compose v2，同时安装 `curl`；macOS 安装并启动
+Docker Desktop。脚本不会自动安装 Linux/macOS 的 Docker。
 
-```bash
-./deploy.sh
-```
-
-Windows PowerShell（首次部署可自动安装 Git 和 Docker Desktop）：
-
-```powershell
-.\deploy.ps1
-```
-
-首次部署且尚未安装依赖时使用：
-
-```powershell
-.\deploy.ps1 -Install
-```
-
-只检查环境而不启动服务：
-
-```powershell
-.\deploy.ps1 -Check
-```
-
-Windows 也可以双击 `deploy.cmd`。启动完成后访问 `http://localhost:8018/live`。
-
-本地 MuseTalk/MeloTTS/server-total 是可选的 GPU 兼容模式。只有确实需要本地推理时，才将
-`AvatarLive-backend` 克隆在本仓库旁边，并在支持 NVIDIA 容器的 Linux 或 Windows/WSL2 主机执行：
+Linux / macOS 首次部署（在仓库根目录运行）：
 
 ```bash
-./deploy.sh --gpu
+./deploy.sh --with-postgres
 ```
+
+Windows 已安装并启动 Docker Desktop 时：
 
 ```powershell
-.\deploy.ps1 -Gpu
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -WithPostgres
 ```
 
-macOS 可以完整运行控制面，但 Apple Silicon/Intel Mac 不能运行本项目的 CUDA 推理栈；
-可在 `.env` 中配置远程 GPU 服务。详细前置条件、更新、停止和故障排查见
+Windows 首次部署且尚未安装依赖时使用（需要 `winget`）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Install
+```
+
+`-Install` 会安装缺少的 Git/Docker Desktop，启动 PostgreSQL，再部署应用；如果安装要求重启，
+重启并等待 Docker Desktop 就绪后重跑该命令。只检查环境而不启动服务：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Check
+```
+
+Windows 也可以先双击 `deploy-postgres.cmd`，再双击 `deploy.cmd`。
+首次部署无需准备 `.env`：脚本会自动生成基础配置，初始化数据库并显示管理员 `admin` 的随机密码。
+脚本确认后端和登录页都就绪后才提示成功；访问 `http://localhost:8018/live`。
+DeepSeek 的 URL、Key 和模型在管理员系统设置中配置；阿里云凭据、模板和语音服务配置写入
+`.env` 后重新部署。未配置云服务时仍可启动基础服务。
+
+日常更新运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`），不会启动或重建独立数据库。
+也可以继续分两步运行 `deploy-postgres` 和 `deploy` 脚本。
+
+详细前置条件、更新、停止和故障排查见
 [`docs/cross-platform-deployment.md`](docs/cross-platform-deployment.md)。
 
 ## 源码开发
@@ -55,6 +54,7 @@ macOS 可以完整运行控制面，但 Apple Silicon/Intel Mac 不能运行本�
 
 ```bash
 cd AvatarLive
+npm install
 npm run dev
 ```
 
@@ -63,6 +63,9 @@ npm run dev
 ```text
 http://localhost:3000
 ```
+
+`3000` 是源码开发时的前端端口；Docker 一键部署的统一入口默认是 `8018`。
+`npm run dev` 只启动前端，完整功能还需按 [`apps/api/README.md`](apps/api/README.md) 启动后端和数据库。
 
 如果 3000 端口被占用，可以换端口：
 
@@ -98,10 +101,11 @@ pnpm dev
 
 ## 页面入口
 
+以下以源码前端端口 `3000` 为例；Docker 部署使用统一入口端口 `8018`。
+
 - 实时互动首页：http://localhost:3000/
 - 直播中控：http://localhost:3000/live
 - 直播节目输出窗口：http://localhost:3000/live/program（由直播控制台带会话参数打开）
-- 数字人定制：http://localhost:3000/design
 - 文档入口：http://localhost:3000/docs
 
 `/app/*` 是旧版工作台路径，当前父布局会将其兼容重定向到首页；新的直播推流链路请使用 `/live`。
@@ -151,12 +155,13 @@ python3 scripts/generate_marketing_assets.py
 
 ## 后端与兼容入口
 
-后端代码与文档在 `apps/api/`（FastAPI，已接入 Azure TTS + LiteLLM/GPT + LiveTalking 客户端）。基础设施编排、数字人渲染部署在 `infra/`。
+后端代码与文档在 `apps/api/`（FastAPI + LiteLLM/DeepSeek）。基础设施编排在 `infra/`。
 
 旧的 `scripts/start.sh`、`scripts/deploy-full.sh` 和 `scripts/stop.sh` 仍可使用，
 它们现在转发到根目录的跨平台部署入口。新部署建议直接使用：
 
 ```bash
+./deploy-postgres.sh
 ./deploy.sh
 ./stop.sh
 ```
@@ -169,4 +174,4 @@ python3 scripts/generate_marketing_assets.py
 
 节目窗口支持 `9:16` 竖屏手机比例和 `16:9` 横屏 PC 比例。窗口采集只适用于节目窗口与平台客户端运行在同一台电脑的场景；平台客户端的实际开播状态不会回传给 AvatarLive。手工 RTMP 模式仍然保留，适用于账号后台明确提供合法 RTMP/RTMPS 地址和推流密钥的情况。
 
-更多见 `apps/api/README.md` 与 `infra/livetalking/README.md`。
+更多见 `apps/api/README.md` 与 `docs/cross-platform-deployment.md`。

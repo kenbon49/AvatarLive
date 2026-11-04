@@ -179,6 +179,22 @@ export type LiveRoom = {
   updatedAt: string;
 };
 
+export type LiveRoomSummary = Omit<LiveRoom, 'config'> & {
+  coverUrl?: string | null;
+  avatarId?: string | null;
+  scriptTitle?: string | null;
+  scriptPreview?: string | null;
+  scriptCount?: number;
+  totalPlaybackSeconds?: number;
+};
+
+export type LiveRoomScene = Pick<LiveRoomConfig, 'avatarId' | 'selectedTemplateId' | 'selectedTemplatePage' | 'layers'>;
+
+export function liveRoomSummary(room: LiveRoom): LiveRoomSummary {
+  const { id, slug, name, status, version, createdAt, updatedAt } = room;
+  return { id, slug, name, status, version, createdAt, updatedAt };
+}
+
 export type LiveRoomLayerFieldPatch = {
   id: string;
   changes: Partial<{
@@ -227,10 +243,18 @@ function responseErrorDetail(body: { detail?: unknown }, fallback: string): stri
 }
 
 async function roomFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+    });
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === 'TimeoutError') {
+      throw new Error('直播间读取超时，请检查网络后重试');
+    }
+    throw cause;
+  }
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
     try {
@@ -246,6 +270,39 @@ async function roomFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function listLiveRooms(limit = 50): Promise<LiveRoom[]> {
   return roomFetch(`/api/v1/live-rooms?limit=${limit}`, { cache: 'no-store' });
+}
+
+export function listLiveRoomSummaries(limit = 50, offset = 0): Promise<LiveRoomSummary[]> {
+  return roomFetch(`/api/v1/live-rooms/summaries?limit=${limit}&offset=${offset}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15000),
+  });
+}
+
+export function getLiveRoom(roomId: string): Promise<LiveRoom> {
+  return roomFetch(`/api/v1/live-rooms/${encodeURIComponent(roomId)}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15000),
+  });
+}
+
+export function getLiveRoomScene(roomId: string): Promise<LiveRoomScene> {
+  return roomFetch(`/api/v1/live-rooms/${encodeURIComponent(roomId)}/scene`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15000),
+  });
+}
+
+export function startLiveRoomPlayback(roomId: string): Promise<{ id: string }> {
+  return roomFetch(`/api/v1/live-rooms/${encodeURIComponent(roomId)}/playback-sessions`, { method: 'POST' });
+}
+
+export function heartbeatLiveRoomPlayback(sessionId: string): Promise<{ id: string }> {
+  return roomFetch(`/api/v1/live-rooms/playback-sessions/${encodeURIComponent(sessionId)}/heartbeat`, { method: 'POST' });
+}
+
+export function stopLiveRoomPlayback(sessionId: string, keepalive = false): Promise<{ id: string }> {
+  return roomFetch(`/api/v1/live-rooms/playback-sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST', keepalive });
 }
 
 export function createLiveRoom(name: string, config: LiveRoomConfig): Promise<LiveRoom> {

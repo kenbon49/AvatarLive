@@ -10,6 +10,7 @@ import {
   LIVE_AVATARS,
   aliyunAvatarForCloudVideo,
 } from '../src/lib/live-avatar-catalog.ts';
+import { matchesAvatar } from '../src/lib/avatar-catalog-filters.ts';
 
 function customAvatar(mode) {
   return {
@@ -85,6 +86,18 @@ test('exposes the complete synchronized Alibaba Cloud public avatar catalog', ()
     && avatar.rendererProfile === undefined
   )));
   assert.equal(new Set(ALIYUN_PUBLIC_AVATARS.map((avatar) => avatar.officialId)).size, 182);
+});
+
+test('filters the shared avatar catalog by search, gender, type, and scene', () => {
+  const liveFemale = ALIYUN_PUBLIC_AVATARS.find((avatar) => avatar.gender === '女' && avatar.businessType === 'LIVE');
+  const threeDimensional = ALIYUN_PUBLIC_AVATARS.find((avatar) => avatar.sourceType === 'AVATAR_3D_TRADITIONAL');
+  assert.ok(liveFemale);
+  assert.ok(threeDimensional);
+  assert.equal(matchesAvatar(liveFemale, liveFemale.name, '女', '全部类型', '直播'), true);
+  assert.equal(matchesAvatar(liveFemale, liveFemale.officialId, '男', '全部类型', '直播'), false);
+  assert.equal(matchesAvatar(liveFemale, 'no-such-avatar', '全部', '全部类型', '全部场景'), false);
+  assert.equal(matchesAvatar(threeDimensional, '', '全部', '3D / UE', '全部场景'), true);
+  assert.equal(matchesAvatar(threeDimensional, '', '全部', '2D', '全部场景'), false);
 });
 
 test('uses the Alibaba Cloud catalog as the only live avatar source', () => {

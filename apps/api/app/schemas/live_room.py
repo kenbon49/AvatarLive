@@ -238,7 +238,7 @@ class LiveRoomCopy(CamelModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
 
 
-class LiveRoomResponse(CamelModel):
+class LiveRoomSummary(CamelModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
@@ -251,9 +251,25 @@ class LiveRoomResponse(CamelModel):
     name: str
     status: Literal["draft", "published"]
     version: int
-    config: LiveRoomConfig
     created_at: datetime
     updated_at: datetime
+    cover_url: str | None = None
+    avatar_id: str | None = None
+    script_title: str | None = None
+    script_preview: str | None = None
+    script_count: int = 0
+    total_playback_seconds: int = 0
+
+
+class LiveRoomResponse(LiveRoomSummary):
+    config: LiveRoomConfig
+
+
+class LiveRoomScene(CamelModel):
+    avatar_id: str
+    selected_template_id: str
+    selected_template_page: int = 0
+    layers: list[LiveRoomLayerItem]
 
 
 class LiveRoomSaveResponse(CamelModel):

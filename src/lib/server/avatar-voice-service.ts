@@ -77,8 +77,8 @@ let fishCache: { expiresAt: number; presets: ResolvedFishPreset[] } | null = nul
 
 export function voiceServiceConfig() {
   return {
-    upstream: (process.env.SEO_VOICE_API_BASE_URL || process.env.SEO_IMAGE_API_BASE_URL || '').replace(/\/$/, ''),
-    apiKey: process.env.SEO_VOICE_API_KEY || process.env.SEO_IMAGE_API_KEY || '',
+    upstream: (process.env.SEO_VOICE_API_BASE_URL || '').replace(/\/$/, ''),
+    apiKey: process.env.SEO_VOICE_API_KEY || '',
   };
 }
 
