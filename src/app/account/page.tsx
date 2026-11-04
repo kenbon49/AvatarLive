@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowLeft, Cpu, LogOut, Mail, Pencil, RefreshCw, Save, Settings2, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
+import { ArrowLeft, Cpu, FileText, LogOut, Mail, Pencil, RefreshCw, Save, Settings2, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import { UserManagementPanel } from '../admin/user-management-panel';
+import { ExternalApiLogPanel } from './external-api-log-panel';
 import './account.css';
 import '../admin/admin.css';
 
@@ -33,9 +34,9 @@ type LlmConfiguration = {
   defaultModel: string;
   models: { id: string; ownedBy: string }[];
 };
-type AccountTab = 'profile' | 'users' | 'settings';
+type AccountTab = 'profile' | 'users' | 'settings' | 'logs';
 
-const CREDENTIAL_KEYS = new Set(['bailian_tts_api_key', 'aliyun_access_key_id', 'aliyun_access_key_secret']);
+const CREDENTIAL_KEYS = new Set(['bailian_tts_api_key', 'bailian_tts_base_url', 'aliyun_access_key_id', 'aliyun_access_key_secret']);
 
 async function responseError(response: Response, fallback: string) {
   try {
@@ -63,7 +64,7 @@ export default function AccountPage() {
 
   useEffect(() => {
     const requestedTab = new URLSearchParams(window.location.search).get('tab');
-    if (requestedTab === 'users' || requestedTab === 'settings') setActiveTab(requestedTab);
+    if (requestedTab === 'users' || requestedTab === 'settings' || requestedTab === 'logs') setActiveTab(requestedTab);
   }, []);
 
   useEffect(() => {
@@ -267,6 +268,10 @@ export default function AccountPage() {
       >
         <Settings2 size={16} />系统设置
       </button>
+      <button id="account-tab-logs" type="button" aria-pressed={activeTab === 'logs'} aria-controls="account-panel-logs"
+        className={activeTab === 'logs' ? 'active' : ''} onClick={() => selectTab('logs')}>
+        <FileText size={16} />日志查看
+      </button>
     </nav>}
 
     {error && <p className="accountError" role="alert">{error}</p>}
@@ -291,6 +296,10 @@ export default function AccountPage() {
 
     {account?.role === 'admin' && activeTab === 'users' && <section className="accountPanel accountUserPanel" id="account-panel-users" aria-labelledby="account-tab-users">
       <UserManagementPanel />
+    </section>}
+
+    {account?.role === 'admin' && activeTab === 'logs' && <section className="accountPanel accountLogPanel" id="account-panel-logs" aria-labelledby="account-tab-logs">
+      <ExternalApiLogPanel />
     </section>}
 
     {account?.role === 'admin' && activeTab === 'settings' && <section className="accountPanel accountAdmin" id="account-panel-settings" aria-labelledby="account-tab-settings">
@@ -320,10 +329,10 @@ export default function AccountPage() {
       {credentialSettings.length > 0 && <div className="accountSettingGroup">
         <h3>接口密钥</h3>
         {credentialSettings.map((setting) => <div className="accountSetting" key={setting.key}>
-          <div><strong>{setting.label}</strong>{setting.key === 'bailian_tts_api_key' && <small>百炼北京地域 · 脚本试听与声音设计 · 保存后立即生效</small>}</div>
+          <div><strong>{setting.label}</strong>{setting.key === 'bailian_tts_api_key' && <small>脚本试听与声音设计 · 保存后立即生效</small>}{setting.key === 'bailian_tts_base_url' && <small>{setting.value || 'https://dashscope.aliyuncs.com/api/v1'}</small>}</div>
           <span className={setting.configured ? 'configured' : 'missing'}>{setting.saved ? '已保存' : setting.configured ? '已通过环境配置' : '未配置'}{setting.mode === 'deployment' && setting.saved && <small>部署后生效</small>}</span>
           <details className="accountSettingEdit"><summary><Pencil size={13} />{setting.configured ? '更换' : '配置'}</summary>
-            <div><input type="password" aria-label={`替换${setting.label}`} autoComplete="off" placeholder="输入新密钥" value={drafts[setting.key] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))} />
+            <div><input type={setting.secret ? 'password' : 'url'} aria-label={`替换${setting.label}`} autoComplete="off" placeholder={setting.secret ? '输入新密钥' : 'https://dashscope.aliyuncs.com/api/v1'} value={drafts[setting.key] ?? (setting.secret ? '' : setting.value || '')} onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))} />
               <button type="button" disabled={!drafts[setting.key]?.trim() || Boolean(savingSetting)} onClick={() => void saveSetting(setting)}><Save size={14} />保存</button></div></details>
         </div>)}
       </div>}

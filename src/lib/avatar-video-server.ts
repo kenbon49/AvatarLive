@@ -1,3 +1,4 @@
+import { externalApi } from '@/lib/server/external-api-logging';
 import 'server-only';
 
 import { execFile } from 'node:child_process';
@@ -210,7 +211,7 @@ async function prepareMuseTalkProfile(profileId: string) {
   const museTalkUpstream = (process.env.MUSETALK_ADMIN_UPSTREAM || process.env.MUSETALK_UPSTREAM || '').replace(/\/$/, '');
   const registryKey = process.env.AVATAR_REGISTRY_KEY || '';
   if (!museTalkUpstream || !registryKey) throw new Error('MuseTalk 动态注册服务尚未配置');
-  const response = await fetch(`${museTalkUpstream}/v1/avatars/prepare`, {
+  const response = await externalApi.fetch('musetalk', '预处理数字人', `${museTalkUpstream}/v1/avatars/prepare`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -234,7 +235,7 @@ export async function finalizeAvatarVideoJob(job: AvatarVideoJob) {
     throw new Error('动态形象服务尚未完整配置');
   }
 
-  const statusResponse = await fetch(`${seoUpstream}/api/ai/video-status/${encodeURIComponent(job.seoTaskId)}`, {
+  const statusResponse = await externalApi.fetch('content', '查询视频生成结果', `${seoUpstream}/api/ai/video-status/${encodeURIComponent(job.seoTaskId)}`, {
     headers: { 'X-API-Key': seoApiKey },
     cache: 'no-store',
     signal: AbortSignal.timeout(30_000),
@@ -267,7 +268,7 @@ export async function finalizeAvatarVideoJob(job: AvatarVideoJob) {
   const talkVideo = path.join(directory, 'talk.mp4');
   const idleVideo = path.join(directory, 'idle.mp4');
   const artifactLocation = resolveSeoVideoArtifact(status.video_url, seoUpstream);
-  const artifact = await fetch(artifactLocation.url, {
+  const artifact = await externalApi.fetch('content', '下载生成视频', artifactLocation.url, {
     headers: artifactLocation.sendApiKey ? { 'X-API-Key': seoApiKey } : undefined,
     cache: 'no-store',
     signal: AbortSignal.timeout(180_000),

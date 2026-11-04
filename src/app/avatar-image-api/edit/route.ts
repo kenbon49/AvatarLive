@@ -1,3 +1,4 @@
+import { externalApi } from '@/lib/server/external-api-logging';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
     body.append('reference_images', image, image.name || 'avatar-reference.jpg');
     if (garmentReference) body.append('reference_images', garmentReference, garmentReference.name || 'garment-reference.jpg');
 
-    const generated = await fetch(`${upstream}/api/ai/generate-image`, {
+    const generated = await externalApi.fetch('content', '生成形象图片', `${upstream}/api/ai/generate-image`, {
       method: 'POST',
       headers: { 'X-API-Key': apiKey },
       body,
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
       return errorResponse('AI 形象编辑服务没有返回可用图片', 502);
     }
 
-    const artifact = await fetch(new URL(imageUrl, `${upstream}/`), {
+    const artifact = await externalApi.fetch('content', '下载形象图片', new URL(imageUrl, `${upstream}/`), {
       headers: { 'X-API-Key': apiKey },
       cache: 'no-store',
       signal: AbortSignal.timeout(60_000),

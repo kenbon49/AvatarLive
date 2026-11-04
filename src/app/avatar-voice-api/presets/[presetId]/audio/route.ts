@@ -1,3 +1,4 @@
+import { externalApi } from '@/lib/server/external-api-logging';
 import { getFishPreset, isAllowedFishAudioUrl } from '@/lib/server/avatar-voice-service';
 
 export const runtime = 'nodejs';
@@ -34,7 +35,7 @@ export async function GET(_request: Request, context: { params: Promise<{ preset
     if (!preset) return Response.json({ message: '推荐音色不存在或暂无试听' }, { status: 404 });
     if (!isAllowedFishAudioUrl(preset.sampleUrl)) return Response.json({ message: '推荐音色地址无效' }, { status: 502 });
 
-    const upstream = await fetch(preset.sampleUrl, {
+    const upstream = await externalApi.fetch('fish', '下载参考声音', preset.sampleUrl, {
       cache: 'no-store',
       redirect: 'manual',
       signal: AbortSignal.timeout(60_000),

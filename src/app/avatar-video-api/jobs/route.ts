@@ -1,3 +1,4 @@
+import { externalApi } from '@/lib/server/external-api-logging';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -143,7 +144,7 @@ export async function POST(request: Request) {
     const sourceUploadPath = model === HAPPYHORSE_VIDEO_MODEL
       ? '/api/ai/bailian/edit-video'
       : '/api/ai/seedance/reference-video';
-    const uploadResponse = await fetch(`${seoUpstream}${sourceUploadPath}`, {
+    const uploadResponse = await externalApi.fetch('content', '上传动作参考视频', `${seoUpstream}${sourceUploadPath}`, {
       method: 'POST',
       headers: { 'X-API-Key': seoApiKey },
       body: sourceUpload,
@@ -174,7 +175,7 @@ export async function POST(request: Request) {
       imageUpload.append('file', new Blob([imageBytes], { type: imageType.mime }), imageFile);
       imageUpload.append('model', model);
       imageUpload.append('media_type', 'image');
-      const imageUploadResponse = await fetch(`${seoUpstream}/api/ai/seedance/reference-media`, {
+      const imageUploadResponse = await externalApi.fetch('content', '上传形象参考图', `${seoUpstream}/api/ai/seedance/reference-media`, {
         method: 'POST',
         headers: { 'X-API-Key': seoApiKey },
         body: imageUpload,
@@ -210,7 +211,7 @@ export async function POST(request: Request) {
       ? '正在提交 HappyHorse 视频编辑任务'
       : '正在提交 Seedance 2.5 视频编辑任务';
     await writeAvatarVideoJob(job);
-    const generationResponse = await fetch(`${seoUpstream}${generationPath}`, {
+    const generationResponse = await externalApi.fetch('content', '提交动态形象视频', `${seoUpstream}${generationPath}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

@@ -1,3 +1,4 @@
+import { externalApi } from '@/lib/server/external-api-logging';
 import 'server-only';
 
 const FISH_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -106,7 +107,7 @@ async function queryFishPreset(
     language: 'zh',
     sort_by: 'task_count',
   });
-  const response = await fetch(`${upstream}/api/fish-audio/models?${query}`, {
+  const response = await externalApi.fetch('fish', '查询参考音色', `${upstream}/api/fish-audio/models?${query}`, {
     headers: { 'X-API-Key': apiKey },
     cache: 'no-store',
     signal: AbortSignal.timeout(30_000),

@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { ALIYUN_PUBLIC_VOICES } from '@/lib/aliyun-voice-catalog';
 import { BailianTtsError, createBailianTtsClient, type BailianProviderOutput } from './bailian-tts-client';
+import { externalApi } from './external-api-logging';
 
 export { BailianTtsError } from './bailian-tts-client';
 
@@ -13,6 +14,7 @@ const storage = {
   runtimeDirectory: path.join(/*turbopackIgnore: true*/ process.cwd(), 'runtime', 'bailian-tts'),
   publicDirectory: path.join(/*turbopackIgnore: true*/ process.cwd(), 'public'),
   voices: ALIYUN_PUBLIC_VOICES,
+  fetcher: ((input, init) => externalApi.fetch('bailian', '下载试听音频', input instanceof Request ? input.url : input, init)) as typeof fetch,
 };
 
 // Reading existing audio does not require a configured provider or API connection.

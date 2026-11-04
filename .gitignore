@@ -26,6 +26,7 @@ runtime/avatar-assets/
 runtime/avatar-base-videos/
 runtime/aliyun-avatar-videos/
 runtime/bailian-tts/
+**/runtime/external-api-logs/
 secrets/
 
 # 本地缓存 / 训练产物，不入库

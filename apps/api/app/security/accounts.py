@@ -74,6 +74,8 @@ def require_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise HTTPException(status_code=401, detail="请先登录")
     if user.status != "approved":
         raise HTTPException(status_code=403, detail="账号尚未通过审核")
+    from ..services.external_api_logs import log_context
+    log_context.get()["userId"] = user.id
     return user
 
 

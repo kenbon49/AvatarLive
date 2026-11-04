@@ -9,6 +9,7 @@ import json
 from typing import Generator
 
 import litellm
+from ..external_api_logs import external_api_call
 from loguru import logger
 
 from .config import (
@@ -105,31 +106,33 @@ def complete_litellm_chat(
     if safe_temperature is not None:
         params["temperature"] = safe_temperature
 
-    try:
-        response = litellm.completion(**params)
-    except Exception as exc:
-        logger.error(f"[LLM] completion failed: model={model_id} err={exc}")
-        raise RuntimeError(_format_litellm_error(exc)) from exc
+    with external_api_call("llm", "对话生成", f"{api_base.rstrip('/')}/chat/completions", request=params, secrets=[api_key]) as log:
+        try:
+            response = litellm.completion(**params)
+            log.response(response.model_dump() if hasattr(response, "model_dump") else {"model": model_id})
+        except Exception as exc:
+            logger.error(f"[LLM] completion failed: model={model_id} err={exc}")
+            raise RuntimeError(_format_litellm_error(exc)) from exc
 
-    content = ""
-    if getattr(response, "choices", None):
-        message = getattr(response.choices[0], "message", None)
-        if isinstance(message, dict):
-            content = message.get("content") or ""
-        else:
-            content = getattr(message, "content", "") or ""
+        content = ""
+        if getattr(response, "choices", None):
+            message = getattr(response.choices[0], "message", None)
+            if isinstance(message, dict):
+                content = message.get("content") or ""
+            else:
+                content = getattr(message, "content", "") or ""
 
-    logger.info(
-        f"[LLM] completion ok: model={model_id} in_msgs={len(clean_messages)} "
-        f"out_len={len(content)}"
-    )
-    return {
-        "content": content.strip(),
-        "model_id": model_config["id"],
-        "model": model_config["display_model"],
-        "provider": model_config["provider"],
-        "_usage": _extract_usage(response),
-    }
+        logger.info(
+            f"[LLM] completion ok: model={model_id} in_msgs={len(clean_messages)} "
+            f"out_len={len(content)}"
+        )
+        return {
+            "content": content.strip(),
+            "model_id": model_config["id"],
+            "model": model_config["display_model"],
+            "provider": model_config["provider"],
+            "_usage": _extract_usage(response),
+        }
 
 
 def stream_litellm_chat(
@@ -190,30 +193,37 @@ def stream_litellm_chat(
     if safe_temperature is not None:
         params["temperature"] = safe_temperature
 
-    try:
-        yield sse_event(
-            "meta",
-            {
-                "model_id": model_config["id"],
-                "model": model_config["display_model"],
-                "provider": model_config["provider"],
-            },
-        )
+    with external_api_call("llm", "流式对话生成", f"{api_base.rstrip('/')}/chat/completions", request=params, secrets=[api_key]) as log:
+        try:
+            yield sse_event(
+                "meta",
+                {
+                    "model_id": model_config["id"],
+                    "model": model_config["display_model"],
+                    "provider": model_config["provider"],
+                },
+            )
 
-        response = litellm.completion(**params)
-        for chunk in response:
-            provider_usage = _extract_usage(chunk)
-            if provider_usage is not None and usage_sink is not None:
-                usage_sink.clear()
-                usage_sink.update(provider_usage)
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            content = getattr(delta, "content", None)
-            if content:
-                yield sse_event("content", {"text": content})
+            preview = ""
+            characters = 0
+            response = litellm.completion(**params)
+            for chunk in response:
+                provider_usage = _extract_usage(chunk)
+                if provider_usage is not None and usage_sink is not None:
+                    usage_sink.clear()
+                    usage_sink.update(provider_usage)
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                content = getattr(delta, "content", None)
+                if content:
+                    characters += len(content)
+                    preview = (preview + content)[:4000]
+                    yield sse_event("content", {"text": content})
 
-        yield sse_event("done", {"model_id": model_config["id"]})
-    except Exception as exc:
-        logger.error(f"[LLM] stream failed: model={model_id} err={exc}")
-        yield sse_event("error", {"message": _format_litellm_error(exc)})
+            log.response({"model": model_id, "preview": preview, "characters": characters, "usage": usage_sink})
+            yield sse_event("done", {"model_id": model_config["id"]})
+        except Exception as exc:
+            log.failure(exc)
+            logger.error(f"[LLM] stream failed: model={model_id} err={exc}")
+            yield sse_event("error", {"message": _format_litellm_error(exc)})

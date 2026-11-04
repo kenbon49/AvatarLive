@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     aliyun_access_key_id: str = ""
     aliyun_access_key_secret: str = ""
     bailian_tts_api_key: str = ""
+    bailian_tts_base_url: str = "https://dashscope.aliyuncs.com/api/v1"
 
     # --- 持久化与基础设施 ---
     database_url: str = "postgresql+psycopg://synlive:synlive@localhost:5432/synlive"

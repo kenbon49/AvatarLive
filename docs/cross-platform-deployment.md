@@ -97,6 +97,8 @@ docker compose -f infra/docker-compose.yml exec -T api \
 百炼语音在 **账号 → 系统设置 → 接口密钥 → 百炼语音 API Key** 中填写北京地域的
 官方 Key。保存后立即用于脚本试听和声音设计，无需重启；密钥加密存入本项目数据库，
 不会回显。后台保存的值优先于根目录 `.env` 的 `BAILIAN_TTS_API_KEY`。
+同一区域可设置 **百炼服务地址**，北京地域默认 `https://dashscope.aliyuncs.com/api/v1`，
+无需另填完整合成接口路径；保存后立即生效。其他地域须使用对应 Key，并确认模型可用。
 
 以下服务配置需编辑根目录 `.env`，然后重新运行应用部署命令：
 
@@ -108,12 +110,18 @@ docker compose -f infra/docker-compose.yml exec -T api \
 
 ```env
 BAILIAN_TTS_API_KEY=你的百炼官方API_Key
+BAILIAN_TTS_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 ```
 
 通过 `.env` 修改后重新运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`）；源码运行则重启后端 API。
 无需在其他项目中配置百炼 Key，也无需为“试听脚本”部署外部语音代理。
 音色注册记录与试听音频保存在 Web 服务的 `runtime/bailian-tts/`，随 `web_runtime` volume 持久化；
-更换 Key 后会重新注册对应账号的音色。
+更换 Key 或服务地址后会重新注册对应账号的音色。
+
+管理员可在 **账号 → 日志查看** 查看更新后产生的外部接口调用、返回和报错详情，
+支持筛选、翻页和自动刷新。日志不包含密钥和文件内容，并会截断较长内容。
+前后端的 `runtime/external-api-logs/` 各自最多滚动保留约 10 MiB，页面展示其中最近 7 天的记录；
+Docker 使用现有的 `web_runtime` / `api_runtime` volume，无需额外服务或日志配置。
 
 阿里云设置在后台保存后仍需应用到 `.env` 并重新部署；后台保存不会更新 Web 容器的环境变量。
 

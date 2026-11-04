@@ -10,6 +10,7 @@ import re
 from urllib.parse import urlparse
 
 import httpx
+from ..external_api_logs import external_api_call
 
 from ...core.config import settings
 
@@ -132,50 +133,52 @@ async def discover_litellm_models(*, api_key: str | None = None, api_base: str |
     base = validate_litellm_base_url(api_base if api_base is not None else configured_base)
     if not key:
         raise LlmModelDiscoveryError("LLM API Key 尚未配置")
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(20.0, connect=8.0),
-            follow_redirects=False,
-        ) as client:
-            response = await client.get(
-                f"{base}/models",
-                headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
-            )
-    except httpx.TimeoutException as exc:
-        raise LlmModelDiscoveryError("读取模型列表超时") from exc
-    except httpx.HTTPError as exc:
-        raise LlmModelDiscoveryError("无法连接 LLM 服务") from exc
-    if response.status_code in {401, 403}:
-        raise LlmModelDiscoveryError("LLM API Key 无效或无权读取模型列表")
-    if not response.is_success:
-        raise LlmModelDiscoveryError(f"LLM 模型接口返回 HTTP {response.status_code}")
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise LlmModelDiscoveryError("LLM 模型接口没有返回有效 JSON") from exc
-    candidates = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(candidates, list) and isinstance(payload, dict):
-        candidates = payload.get("models")
-    if not isinstance(candidates, list):
-        raise LlmModelDiscoveryError("LLM 模型接口返回格式不兼容")
-    discovered: dict[str, dict] = {}
-    for item in candidates[:2000]:
-        if isinstance(item, str):
-            model_id, owner = item.strip(), ""
-        elif isinstance(item, dict):
-            raw_id = item.get("id") or item.get("model") or item.get("name")
-            model_id = raw_id.strip() if isinstance(raw_id, str) else ""
-            raw_owner = item.get("owned_by") or item.get("provider") or ""
-            owner = raw_owner.strip()[:80] if isinstance(raw_owner, str) else ""
-        else:
-            continue
-        if MODEL_ID_PATTERN.fullmatch(model_id):
-            discovered[model_id] = {"id": model_id, "ownedBy": owner}
-        if len(discovered) >= 500:
-            break
-    if not discovered:
-        raise LlmModelDiscoveryError("LLM 服务没有返回可用模型")
-    return [discovered[key] for key in sorted(discovered, key=str.casefold)]
+    with external_api_call("llm", "读取模型列表", f"{base}/models", method="GET", secrets=[key]) as log:
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(20.0, connect=8.0),
+                follow_redirects=False,
+            ) as client:
+                response = await client.get(
+                    f"{base}/models",
+                    headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+                )
+        except httpx.TimeoutException as exc:
+            raise LlmModelDiscoveryError("读取模型列表超时") from exc
+        except httpx.HTTPError as exc:
+            raise LlmModelDiscoveryError("无法连接 LLM 服务") from exc
+        log.http_response(response)
+        if response.status_code in {401, 403}:
+            raise LlmModelDiscoveryError("LLM API Key 无效或无权读取模型列表")
+        if not response.is_success:
+            raise LlmModelDiscoveryError(f"LLM 模型接口返回 HTTP {response.status_code}")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise LlmModelDiscoveryError("LLM 模型接口没有返回有效 JSON") from exc
+        candidates = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(candidates, list) and isinstance(payload, dict):
+            candidates = payload.get("models")
+        if not isinstance(candidates, list):
+            raise LlmModelDiscoveryError("LLM 模型接口返回格式不兼容")
+        discovered: dict[str, dict] = {}
+        for item in candidates[:2000]:
+            if isinstance(item, str):
+                model_id, owner = item.strip(), ""
+            elif isinstance(item, dict):
+                raw_id = item.get("id") or item.get("model") or item.get("name")
+                model_id = raw_id.strip() if isinstance(raw_id, str) else ""
+                raw_owner = item.get("owned_by") or item.get("provider") or ""
+                owner = raw_owner.strip()[:80] if isinstance(raw_owner, str) else ""
+            else:
+                continue
+            if MODEL_ID_PATTERN.fullmatch(model_id):
+                discovered[model_id] = {"id": model_id, "ownedBy": owner}
+            if len(discovered) >= 500:
+                break
+        if not discovered:
+            raise LlmModelDiscoveryError("LLM 服务没有返回可用模型")
+        return [discovered[key] for key in sorted(discovered, key=str.casefold)]
 
 
 def list_litellm_models() -> list[dict]:

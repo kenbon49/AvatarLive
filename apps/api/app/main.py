@@ -11,13 +11,14 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from .api.v1 import admin, auth, bailian_tts, billing, health, live_library, live_rooms, live_runs, llm, platform_connections, platform_events, resources
+from .api.v1 import admin, auth, bailian_tts, billing, external_api_logs, health, live_library, live_rooms, live_runs, llm, platform_connections, platform_events, resources
 from .core.config import settings
 from .core.logging import setup_logging
 from .services.live_runs import media_supervisor
 from .security.accounts import require_user
 from .db.session import SessionLocal
 from .security.settings_store import apply_api_settings
+from .services.external_api_logs import log_context
 
 
 @asynccontextmanager
@@ -79,11 +80,16 @@ async def check_mutating_origin(request: Request, call_next):
         permitted = {item.strip() for item in settings.cors_origins.split(",")}
         if origin and origin not in same_origin | permitted:
             return JSONResponse({"detail": "跨站请求已拒绝"}, status_code=403)
-    return await call_next(request)
+    token = log_context.set({"route": request.url.path, "method": request.method})
+    try:
+        return await call_next(request)
+    finally:
+        log_context.reset(token)
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
+app.include_router(external_api_logs.router, prefix=settings.api_prefix)
 app.include_router(billing.router, prefix=settings.api_prefix)
 for protected_router in (llm.router, bailian_tts.router, live_rooms.router, live_library.router,
                          platform_connections.router, live_runs.router, resources.router):

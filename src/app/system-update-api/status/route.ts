@@ -1,3 +1,4 @@
+import { externalApi } from '@/lib/server/external-api-logging';
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
       git('branch', '--show-current'),
     ]);
     const updateBranch = process.env.UPDATE_BRANCH || branch || 'feat/avatar-design';
-    const response = await fetch(`https://api.github.com/repos/${REPOSITORY}/commits/${encodeURIComponent(updateBranch)}`, {
+    const response = await externalApi.fetch('github', '检查最新提交', `https://api.github.com/repos/${REPOSITORY}/commits/${encodeURIComponent(updateBranch)}`, {
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'AvatarLive-Updater' },
       cache: 'no-store',
       signal: AbortSignal.timeout(8000),
@@ -49,7 +50,7 @@ export async function GET(request: Request) {
     const currentVersion = packageInfo.version || '0.0.0';
     let latestVersion = currentVersion;
     try {
-      const packageResponse = await fetch(
+      const packageResponse = await externalApi.fetch('github', '读取版本信息',
         `https://raw.githubusercontent.com/${REPOSITORY}/${latest.sha}/package.json`,
         { cache: 'no-store', signal: AbortSignal.timeout(5000) },
       );

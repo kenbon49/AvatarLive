@@ -12,6 +12,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
+from .external_api_logs import external_api_call
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -56,31 +57,34 @@ def fetch_aliyun_balance() -> tuple[int, str, dict]:
         "Version": "2017-12-14",
     }
     params["Signature"] = _signature(params, settings.aliyun_access_key_secret)
-    try:
-        # RPC parameters are sent in the form body so access-key identifiers
-        # and signatures never appear in proxy/access-log URLs.
-        response = httpx.post(ALIYUN_BSS_ENDPOINT, data=params, timeout=8)
-    except httpx.HTTPError as exc:
-        raise RuntimeError(f"阿里云余额查询连接失败：{type(exc).__name__}") from exc
-    try:
-        payload = response.json()
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"阿里云余额查询失败：HTTP {response.status_code}，响应不是 JSON") from exc
-    if response.status_code >= 400:
-        code = str(payload.get("Code") or "UnknownError") if isinstance(payload, dict) else "UnknownError"
-        message = str(payload.get("Message") or "请求被拒绝") if isinstance(payload, dict) else "请求被拒绝"
-        raise RuntimeError(f"阿里云余额查询失败：HTTP {response.status_code}，{code}：{message[:160]}")
-    data = payload.get("Data") if isinstance(payload, dict) else None
-    if not isinstance(data, dict) or data.get("AvailableAmount") is None:
-        message = payload.get("Message") if isinstance(payload, dict) else None
-        raise RuntimeError(str(message or "阿里云没有返回可用余额"))
-    currency = str(data.get("Currency") or "CNY")
-    safe_detail = {
-        key: data.get(key)
-        for key in ("AvailableAmount", "AvailableCashAmount", "AvailableCredit", "CreditAmount")
-        if data.get(key) is not None
-    }
-    return _amount_micros(data["AvailableAmount"]), currency, safe_detail
+    with external_api_call("aliyun-billing", "查询账户余额", ALIYUN_BSS_ENDPOINT, request=params,
+                           secrets=[settings.aliyun_access_key_id, settings.aliyun_access_key_secret, params["Signature"]]) as log:
+        try:
+            # RPC parameters are sent in the form body so access-key identifiers
+            # and signatures never appear in proxy/access-log URLs.
+            response = httpx.post(ALIYUN_BSS_ENDPOINT, data=params, timeout=8)
+            log.http_response(response)
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"阿里云余额查询连接失败：{type(exc).__name__}") from exc
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"阿里云余额查询失败：HTTP {response.status_code}，响应不是 JSON") from exc
+        if response.status_code >= 400:
+            code = str(payload.get("Code") or "UnknownError") if isinstance(payload, dict) else "UnknownError"
+            message = str(payload.get("Message") or "请求被拒绝") if isinstance(payload, dict) else "请求被拒绝"
+            raise RuntimeError(f"阿里云余额查询失败：HTTP {response.status_code}，{code}：{message[:160]}")
+        data = payload.get("Data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict) or data.get("AvailableAmount") is None:
+            message = payload.get("Message") if isinstance(payload, dict) else None
+            raise RuntimeError(str(message or "阿里云没有返回可用余额"))
+        currency = str(data.get("Currency") or "CNY")
+        safe_detail = {
+            key: data.get(key)
+            for key in ("AvailableAmount", "AvailableCashAmount", "AvailableCredit", "CreditAmount")
+            if data.get(key) is not None
+        }
+        return _amount_micros(data["AvailableAmount"]), currency, safe_detail
 
 
 def latest_provider_snapshot(db: Session, provider: str = "aliyun") -> ProviderBalanceSnapshot | None:

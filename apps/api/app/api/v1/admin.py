@@ -42,6 +42,7 @@ from ...services.llm import (
     resolve_litellm_model,
     validate_litellm_base_url,
 )
+from ...services.bailian_config import validate_bailian_base_url
 from ...services.billing import (
     adjust_user_credits as adjust_user_wallet,
     allocate_credits,
@@ -378,7 +379,7 @@ def list_settings(db: Session = Depends(get_db)) -> dict:
             "mode": mode, "saved": saved is not None,
             "updatedAt": saved.updated_at.isoformat() if saved else None,
         }
-        if key in {"llm_base_url", "llm_default_model_id"}:
+        if key in {"llm_base_url", "llm_default_model_id", "bailian_tts_base_url"}:
             row["value"] = effective_api_value(key)
         rows.append(row)
     try:
@@ -460,6 +461,11 @@ def update_setting(name: str, payload: SettingUpdate, admin: User = Depends(requ
     value = payload.value.strip()
     if not value or any(ord(character) < 32 for character in value):
         raise HTTPException(status_code=422, detail="配置值不能为空或包含控制字符")
+    if name == "bailian_tts_base_url":
+        try:
+            value = validate_bailian_base_url(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if name.endswith("_url") or name == "database_url":
         parsed = urlparse(value)
         if not parsed.scheme or not parsed.hostname:

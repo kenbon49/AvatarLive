@@ -11,6 +11,47 @@
 .accountTabs button:focus-visible, .accountTabs a:focus-visible { outline: 2px solid #5a9490; outline-offset: -3px; }
 .accountPanel { padding-top: 26px; }
 .accountPage > .accountUserPanel { width: min(100%, 1120px); }
+.accountPage > .accountLogPanel { width: min(100%, 1120px); }
+.apiLogNote { margin: 16px 0 22px; color: #68777c; font-size: 12px; line-height: 1.7; }
+.apiLogFilters { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+.apiLogFilters label { display: grid; gap: 6px; font-size: 12px; color: #627076; }
+.apiLogFilters input:not([type=checkbox]), .apiLogFilters select { min-height: 38px; padding: 0 10px; border: 1px solid #cbd5d5; border-radius: 4px; background: #fff; font: inherit; color: #233039; }
+.apiLogSearch { flex: 1; min-width: 200px; }
+.apiLogFilters .apiLogAutomatic { min-height: 38px; display: flex; align-items: center; gap: 5px; }
+.apiLogRefresh, .apiLogFilters button, .apiLogPagination button { min-height: 38px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid #bccdcb; border-radius: 4px; background: #fff; color: #146d68; font: inherit; font-size: 12px; cursor: pointer; }
+.apiLogFilters button { background: #146d68; color: #fff; border-color: #146d68; }
+.accountLogPanel button:disabled { opacity: .5; cursor: not-allowed; }
+.apiLogWarning { padding: 10px 12px; background: #fff6e8; color: #8b5921; font-size: 12px; line-height: 1.7; }
+.apiLogList { margin-top: 20px; border-top: 1px solid #d9e1e0; }
+.apiLogEmpty { padding: 48px 12px; text-align: center; color: #68777c; font-size: 13px; }
+.apiLogEntry { border-bottom: 1px solid #d9e1e0; }
+.apiLogEntry summary { display: grid; grid-template-columns: 48px 160px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px 8px; cursor: pointer; list-style: none; font-size: 12px; }
+.apiLogEntry summary::-webkit-details-marker { display: none; }
+.apiLogEntry summary:hover { background: #eef4f2; }
+.apiLogEntry summary:focus-visible { outline: 2px solid #146d68; outline-offset: -2px; }
+.apiLogEntry time, .apiLogTiming { color: #68777c; font-size: 11px; }
+.apiLogEntry strong { display: grid; gap: 4px; font-size: 12px; overflow-wrap: anywhere; }
+.apiLogEntry strong small { color: #7a878b; font-weight: 400; }
+.apiLogStatus { width: fit-content; padding: 4px 7px; border-radius: 4px; font-size: 11px; }
+.apiLogStatus.success { background: #e4f2ed; color: #18705b; }
+.apiLogStatus.error { background: #fcebe7; color: #ac3c32; }
+.apiLogDetail { padding: 4px 16px 18px; background: #fff; }
+.apiLogDetail dl { padding-top: 12px; margin: 0; display: grid; gap: 10px; }
+.apiLogDetail dl > div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 10px; font-size: 12px; }
+.apiLogDetail dt { color: #68777c; }
+.apiLogDetail dd { margin: 0; overflow-wrap: anywhere; }
+.apiLogDetail h3 { margin: 18px 0 8px; font-size: 12px; }
+.apiLogDetail pre { max-height: 360px; overflow: auto; padding: 13px; border-radius: 4px; background: #f3f6f6; color: #34464c; font-size: 11px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.apiLogPagination { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.apiLogPagination > span { margin-right: auto; font-size: 12px; color: #68777c; }
+@media (max-width: 700px) {
+  .apiLogEntry summary { grid-template-columns: 40px minmax(0, 1fr); gap: 8px 12px; }
+  .apiLogEntry time { text-align: right; }
+  .apiLogEntry strong { grid-column: 1 / -1; }
+  .apiLogTiming { grid-column: 1 / -1; }
+  .apiLogDetail { padding-inline: 10px; }
+  .apiLogDetail dl > div { grid-template-columns: 75px minmax(0, 1fr); }
+}
 .accountIdentity { min-height: 64px; display: flex; align-items: center; gap: 14px; }
 .accountPageAvatar { width: 52px; height: 52px; flex: 0 0 auto; border-radius: 50%; display: grid; place-items: center; background: #111a37; color: #fff; font-size: 14px; font-weight: 700; }
 .accountIdentity > div { min-width: 0; display: grid; gap: 4px; }

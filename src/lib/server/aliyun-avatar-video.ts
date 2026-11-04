@@ -19,6 +19,8 @@ import {
   validateLingMouTemplateVariables,
 } from '@/lib/aliyun-avatar-video-config';
 import { cacheAliyunWebm } from '@/lib/server/aliyun-avatar-video-cache';
+import { externalApi } from '@/lib/server/external-api-logging';
+import { providerFailed } from '@/lib/server/external-api-log';
 
 const TASK_ID_PATTERN = /^[A-Za-z0-9_-]{8,100}$/;
 const credentialNames = ['ALIYUN_ACCESS_KEY_ID', 'ALIYUN_ACCESS_KEY_SECRET'] as const;
@@ -96,6 +98,13 @@ function client() {
   }));
 }
 
+function logCloudCall<T>(operation: string, request: object, invoke: () => Promise<T>) {
+  return externalApi.call('aliyun-avatar', operation, `https://${aliyunAvatarVideoConfiguration().endpoint}/`, 'POST', request, invoke, value => {
+    const response = value as { statusCode?: number; headers?: Record<string, string>; body?: { requestId?: string } };
+    return { httpStatus: response.statusCode, response: response.body, requestId: response.body?.requestId || response.headers?.['x-acs-request-id'], failed: providerFailed(response.body) };
+  }, credentialNames.map(name => env(name)));
+}
+
 function videoDirectory() {
   return path.join(/*turbopackIgnore: true*/ process.cwd(), 'runtime', 'aliyun-avatar-videos');
 }
@@ -131,6 +140,7 @@ function startVideoDownload(taskId: string, remoteUrl: string, retry: boolean) {
     url: remoteUrl,
     destination: videoFile(taskId),
     maxBytes: maxVideoBytes(),
+    fetcher: ((input, init) => externalApi.fetch('aliyun-avatar', '下载数字人视频', input instanceof Request ? input.url : input, init)) as typeof fetch,
     onProgress(received, total) {
       state.downloadedBytes = received;
       state.totalBytes = total;
@@ -178,7 +188,8 @@ export async function createAliyunAvatarVideo(input: CreateAliyunAvatarVideoInpu
   };
   const lingMouClient = client();
   const templateId = env('ALIYUN_LINGMOU_TEMPLATE_ID');
-  const templateResponse = await lingMouClient.getBroadcastTemplate(new GetBroadcastTemplateRequest({ templateId }));
+  const templateRequest = new GetBroadcastTemplateRequest({ templateId });
+  const templateResponse = await logCloudCall('读取口播模板', templateRequest, () => lingMouClient.getBroadcastTemplate(templateRequest));
   assertSuccess(templateResponse.body, '灵眸模板配置读取失败');
   validateLingMouTemplateVariables(templateResponse.body?.data?.variables, names);
   const variables = createLingMouVariables({
@@ -187,7 +198,7 @@ export async function createAliyunAvatarVideo(input: CreateAliyunAvatarVideoInpu
     avatarOfficialId: input.avatarOfficialId,
     names,
   }).map((item) => new TemplateVariable(item));
-  const response = await lingMouClient.createBroadcastVideoFromTemplate(new CreateBroadcastVideoFromTemplateRequest({
+  const videoRequest = new CreateBroadcastVideoFromTemplateRequest({
     name: input.name.slice(0, 64),
     templateId,
     variables,
@@ -198,7 +209,8 @@ export async function createAliyunAvatarVideo(input: CreateAliyunAvatarVideoInpu
       watermark: false,
       languageHints: ['zh'],
     }),
-  }));
+  });
+  const response = await logCloudCall('创建数字人口播视频', videoRequest, () => lingMouClient.createBroadcastVideoFromTemplate(videoRequest));
   assertSuccess(response.body, '灵眸透明数字人口播提交失败');
   const result = cloudVideo(response.body?.data);
   if (!result) throw new Error('阿里云没有返回数字人口播任务 ID');
@@ -222,7 +234,8 @@ export async function getAliyunAvatarVideo(taskId: string, { retryDownload = fal
     };
   }
 
-  const response = await client().listBroadcastVideosById(new ListBroadcastVideosByIdRequest({ videoIds: [id] }));
+  const statusRequest = new ListBroadcastVideosByIdRequest({ videoIds: [id] });
+  const response = await logCloudCall('查询数字人视频状态', statusRequest, () => client().listBroadcastVideosById(statusRequest));
   assertSuccess(response.body, '灵眸数字人口播状态查询失败');
   const result = cloudVideo(response.body?.data?.find((item) => item.id === id), id);
   if (!result || !response.body?.data?.some((item) => item.id === id)) {

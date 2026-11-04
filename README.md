@@ -39,7 +39,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Check
 Windows 也可以先双击 `deploy-postgres.cmd`，再双击 `deploy.cmd`。
 首次部署无需准备 `.env`：脚本会自动生成基础配置，初始化数据库并显示管理员 `admin` 的随机密码。
 脚本确认后端和登录页都就绪后才提示成功；访问 `http://localhost:8018/live`。
-DeepSeek 的 URL、Key、模型及百炼语音 Key 可在管理员系统设置中配置；阿里云数字人凭据和
+DeepSeek 的 URL、Key、模型及百炼语音 Key、服务地址可在管理员系统设置中配置；阿里云数字人凭据和
 模板配置写入 `.env` 后重新部署。未配置云服务时仍可启动基础服务。
 
 日常更新运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`），不会启动或重建独立数据库。
@@ -54,10 +54,15 @@ DeepSeek 的 URL、Key、模型及百炼语音 Key 可在管理员系统设置�
 填入百炼北京地域的官方 API Key 并保存。Key 加密保存在本项目数据库中，不回显；
 保存或更换后立即生效，无需重启，也无需在外部项目配置。
 
+同一区域的 **百炼服务地址** 默认是 `https://dashscope.aliyuncs.com/api/v1`，
+使用北京地域时保持默认即可。填写服务根地址后，项目会自动补全合成和音色注册的接口路径。
+选择其他官方地域时，应同时使用该地域的 Key，并确认该地域支持当前语音模型。
+
 也可在 **AvatarLive 项目根目录** `.env` 中提供默认值；后台保存的 Key 优先：
 
 ```env
 BAILIAN_TTS_API_KEY=你的百炼官方API_Key
+BAILIAN_TTS_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 ```
 
 “试听脚本”和“声音设计”由本项目服务端直接调用百炼 DashScope，无需部署外部语音代理。
@@ -65,9 +70,22 @@ BAILIAN_TTS_API_KEY=你的百炼官方API_Key
 Key 为空时基础服务仍可启动，使用语音功能时会提示配置。
 
 官方公共音色首次用于脚本试听时，会在百炼注册对应的克隆音色。注册记录和试听音频保存在
-`runtime/bailian-tts/`（Docker 使用 `web_runtime` volume），后续复用音色；更换 Key 后会重新注册。
+`runtime/bailian-tts/`（Docker 使用 `web_runtime` volume），后续复用音色；更换 Key 或服务地址后会重新注册。
 脚本试听使用百炼克隆音色，数字人成片使用灵眸原生音色，两者听感可能有差异。
 音色卡片上的官方样例试听读取项目自带音频。
+
+## 管理员调用日志
+
+**账号 → 日志查看** 位于“系统设置”右侧，仅管理员可访问。
+更新后产生的 DeepSeek / 大模型、百炼语音、阿里云数字人、余额查询、素材及图像视频、
+Fish Audio、音色克隆、版本检查调用会记录成功或失败结果。
+支持按服务、结果和关键词筛选，翻页或每 10 秒自动刷新；展开记录可查看实际地址、HTTP 状态、
+耗时、请求 ID、请求参数、返回内容及异常堆栈。
+
+密钥、认证头、签名及文件内容不会写入日志，较长内容会截断。
+日志显示最近 7 天仍保留的记录；前后端分别滚动保存最多约 10 MiB，目录为各服务的
+`runtime/external-api-logs/`，Docker 随 `web_runtime` 和 `api_runtime` volume 持久化。
+历史终端日志不会自动导入。
 
 ## 源码开发
 

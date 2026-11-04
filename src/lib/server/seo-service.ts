@@ -1,3 +1,4 @@
+import { externalApi } from '@/lib/server/external-api-logging';
 import 'server-only';
 
 export function seoServiceConfig() {
@@ -17,7 +18,7 @@ export async function fetchSeoService(path: string, init: RequestInit) {
   let lastError: unknown;
   for (const upstream of upstreams) {
     try {
-      const response = await fetch(`${upstream}${path}`, {
+      const response = await externalApi.fetch('content', path, `${upstream}${path}`, {
         ...init,
         headers: { 'X-API-Key': apiKey, ...init.headers },
         cache: 'no-store',

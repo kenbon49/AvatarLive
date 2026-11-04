@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-from hashlib import sha256
 from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-from ...security.settings_store import effective_api_value
+from ...services.bailian_config import active_bailian_configuration
+from ...services.external_api_logs import external_api_call
 
 
 router = APIRouter(prefix="/tts/bailian", tags=["tts"])
 VC_MODEL = "qwen3-tts-vc-2026-01-22"
 VD_MODEL = "qwen3-tts-vd-2026-01-26"
-CUSTOMIZATION_URL = "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization"
-SYNTHESIS_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 
 
 class ProviderRequest(BaseModel):
@@ -52,21 +50,16 @@ class DesignInput(BaseModel):
     language: Literal["zh"]
 
 
-def active_configuration() -> tuple[str, str]:
-    key = effective_api_value("bailian_tts_api_key").strip()
-    return key, sha256(key.encode()).hexdigest() if key else ""
-
-
 @router.get("/configuration")
 def configuration() -> dict:
-    key, credential_id = active_configuration()
+    key, base_url, credential_id = active_bailian_configuration()
     # The browser and Web process receive a version fingerprint, never the key.
-    return {"configured": bool(key), "credential_id": credential_id}
+    return {"configured": bool(key), "base_url": base_url, "credential_id": credential_id}
 
 
 @router.post("/request")
 async def provider_request(payload: ProviderRequest) -> dict:
-    key, credential_id = active_configuration()
+    key, base_url, credential_id = active_bailian_configuration()
     if not key:
         raise HTTPException(status_code=503, detail="请在管理员系统设置中配置百炼语音 API Key")
     if payload.credential_id != credential_id:
@@ -83,27 +76,29 @@ async def provider_request(payload: ProviderRequest) -> dict:
     body = {"model": payload.model, "input": validated.model_dump()}
     if payload.model == "qwen-voice-design":
         body["parameters"] = {"sample_rate": 24000, "response_format": "wav"}
-    url = SYNTHESIS_URL if payload.model == VC_MODEL else CUSTOMIZATION_URL
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0), follow_redirects=False) as client:
-            response = await client.post(url, json=body, headers={"Authorization": f"Bearer {key}"})
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="连接百炼语音服务失败或超时，请检查网络后重试") from exc
-    if response.status_code in {401, 403}:
-        raise HTTPException(status_code=502, detail="百炼 API Key 无效或没有当前语音模型的访问权限")
-    if response.status_code == 429:
-        raise HTTPException(status_code=429, detail="百炼请求过于频繁或额度不足，请稍后重试")
-    if response.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"百炼语音调用失败（HTTP {response.status_code}），请检查账户额度和模型权限")
-    try:
-        result = response.json()
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail="百炼语音返回格式无效",
-                            headers={"x-bailian-provider-accepted": "true"}) from exc
-    if not isinstance(result, dict) or result.get("code") or not isinstance(result.get("output"), dict):
-        raise HTTPException(status_code=502, detail="百炼语音调用返回异常，请检查账户额度、模型权限和输入内容",
-                            headers={"x-bailian-provider-accepted": "true"})
-    output = result["output"]
-    # Forward only fields consumed by the local audio client.
-    fields = ("audio",) if payload.model == VC_MODEL else ("voice", "preview_audio")
-    return {"output": {name: output[name] for name in fields if name in output}}
+    url = base_url + ("/services/aigc/multimodal-generation/generation" if payload.model == VC_MODEL else "/services/audio/tts/customization")
+    with external_api_call("bailian", payload.model, url, request=body, secrets=[key]) as log:
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0), follow_redirects=False) as client:
+                response = await client.post(url, json=body, headers={"Authorization": f"Bearer {key}"})
+                log.http_response(response)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="连接百炼语音服务失败或超时，请检查网络后重试") from exc
+        if response.status_code in {401, 403}:
+            raise HTTPException(status_code=502, detail="百炼 API Key 无效或没有当前语音模型的访问权限")
+        if response.status_code == 429:
+            raise HTTPException(status_code=429, detail="百炼请求过于频繁或额度不足，请稍后重试")
+        if response.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"百炼语音调用失败（HTTP {response.status_code}），请检查账户额度和模型权限")
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="百炼语音返回格式无效",
+                                headers={"x-bailian-provider-accepted": "true"}) from exc
+        if not isinstance(result, dict) or result.get("code") or not isinstance(result.get("output"), dict):
+            raise HTTPException(status_code=502, detail="百炼语音调用返回异常，请检查账户额度、模型权限和输入内容",
+                                headers={"x-bailian-provider-accepted": "true"})
+        output = result["output"]
+        # Forward only fields consumed by the local audio client.
+        fields = ("audio",) if payload.model == VC_MODEL else ("voice", "preview_audio")
+        return {"output": {name: output[name] for name in fields if name in output}}

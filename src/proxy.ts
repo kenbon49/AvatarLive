@@ -43,6 +43,7 @@ export async function proxy(request: NextRequest) {
   const headers = new Headers(request.headers);
   headers.set('x-synlive-user-id', user.id);
   headers.set('x-synlive-user-role', user.role || 'user');
+  headers.set('x-synlive-request-path', path);
   return NextResponse.next({ request: { headers } });
 }
 
