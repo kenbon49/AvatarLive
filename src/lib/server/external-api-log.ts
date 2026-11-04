@@ -42,7 +42,11 @@ export function sanitizeLogValue(value: unknown, secrets: string[] = []): unknow
       return result.length > length ? `${result.slice(0, length)}…[内容已截断]` : result;
     }
     if (input === null || typeof input === 'boolean' || typeof input === 'number') return input;
-    if (input instanceof Error) return clean({ name: input.name, message: input.message, stack: input.stack, cause: input.cause }, depth + 1);
+    if (input instanceof Error) {
+      const details = input as NodeJS.ErrnoException;
+      return clean({ name: input.name, message: input.message, stack: input.stack, code: details.code,
+        syscall: details.syscall, path: details.path, cause: input.cause }, depth + 1);
+    }
     if (Array.isArray(input)) return input.slice(0, 20).map(item => clean(item, depth + 1));
     if (input && typeof input === 'object') return Object.fromEntries(Object.entries(input).slice(0, 40).map(([key, item]) => [
       secrets.filter(item => item.length >= 6).reduce((name, secret) => name.split(secret).join('[已隐藏]'), key).slice(0, 100), SENSITIVE.test(normalized(key)) ? '[已隐藏]'
@@ -176,8 +180,8 @@ export function createExternalApiLogger({ write, fetcher = fetch, context = asyn
       return result;
     } catch (error) {
       entry.status = 'error'; entry.error = error instanceof Error ? error : String(error);
-      const details = error as { statusCode?: number; code?: string; requestId?: string; data?: unknown };
-      entry.httpStatus = details?.statusCode || null;
+      const details = error as { statusCode?: number; status?: number; code?: string; requestId?: string; data?: unknown };
+      entry.httpStatus = details?.statusCode || details?.status || null;
       entry.response = details?.data || null;
       entry.requestId = details?.requestId || '';
       throw error;

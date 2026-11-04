@@ -9,17 +9,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from ...services.bailian_config import active_bailian_configuration
-from ...services.external_api_logs import external_api_call
+from ...services.bailian_speech import VC_MODEL, call_bailian, synthesize_speech
 
 
 router = APIRouter(prefix="/tts/bailian", tags=["tts"])
-VC_MODEL = "qwen3-tts-vc-2026-01-22"
 VD_MODEL = "qwen3-tts-vd-2026-01-26"
 
 
 class ProviderRequest(BaseModel):
     credential_id: str = Field(pattern=r"^[a-f0-9]{64}$")
-    model: Literal["qwen-voice-enrollment", "qwen-voice-design", "qwen3-tts-vc-2026-01-22"]
+    model: Literal["qwen-voice-enrollment", "qwen-voice-design", "qwen-audio-3.1-tts-plus"]
     input: dict
 
 
@@ -34,8 +33,8 @@ class EnrollmentAudio(BaseModel):
 
 class EnrollmentInput(BaseModel):
     action: Literal["create"]
-    target_model: Literal["qwen3-tts-vc-2026-01-22"]
-    preferred_name: str = Field(pattern=r"^[A-Za-z0-9_]{1,16}$")
+    target_model: Literal["qwen-audio-3.1-tts-plus"]
+    preferred_name: str = Field(pattern=r"^[a-z0-9]{1,10}$")
     audio: EnrollmentAudio
     text: str = Field(min_length=1, max_length=500)
     language: Literal["zh", "en", "ja", "ko"]
@@ -76,29 +75,15 @@ async def provider_request(payload: ProviderRequest) -> dict:
     body = {"model": payload.model, "input": validated.model_dump()}
     if payload.model == "qwen-voice-design":
         body["parameters"] = {"sample_rate": 24000, "response_format": "wav"}
-    url = base_url + ("/services/aigc/multimodal-generation/generation" if payload.model == VC_MODEL else "/services/audio/tts/customization")
-    with external_api_call("bailian", payload.model, url, request=body, secrets=[key]) as log:
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0), follow_redirects=False) as client:
-                response = await client.post(url, json=body, headers={"Authorization": f"Bearer {key}"})
-                log.http_response(response)
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="连接百炼语音服务失败或超时，请检查网络后重试") from exc
-        if response.status_code in {401, 403}:
-            raise HTTPException(status_code=502, detail="百炼 API Key 无效或没有当前语音模型的访问权限")
-        if response.status_code == 429:
-            raise HTTPException(status_code=429, detail="百炼请求过于频繁或额度不足，请稍后重试")
-        if response.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"百炼语音调用失败（HTTP {response.status_code}），请检查账户额度和模型权限")
-        try:
-            result = response.json()
-        except ValueError as exc:
-            raise HTTPException(status_code=502, detail="百炼语音返回格式无效",
-                                headers={"x-bailian-provider-accepted": "true"}) from exc
-        if not isinstance(result, dict) or result.get("code") or not isinstance(result.get("output"), dict):
-            raise HTTPException(status_code=502, detail="百炼语音调用返回异常，请检查账户额度、模型权限和输入内容",
-                                headers={"x-bailian-provider-accepted": "true"})
-        output = result["output"]
-        # Forward only fields consumed by the local audio client.
-        fields = ("audio",) if payload.model == VC_MODEL else ("voice", "preview_audio")
-        return {"output": {name: output[name] for name in fields if name in output}}
+    if payload.model == VC_MODEL:
+        return {"output": await synthesize_speech(key, base_url, validated.text, validated.voice)}
+    if payload.model == "qwen-voice-enrollment":
+        body = {"model": "voice-enrollment", "input": {
+            "action": "create_voice", "target_model": VC_MODEL,
+            "prefix": validated.preferred_name, "audio": validated.audio.data,
+        }}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0), follow_redirects=False) as client:
+        output = await call_bailian(client, key, base_url + "/services/audio/tts/customization", body)
+    if payload.model == "qwen-voice-enrollment":
+        return {"output": {"voice": output.get("voice_id")}}
+    return {"output": {name: output[name] for name in ("voice", "preview_audio") if name in output}}

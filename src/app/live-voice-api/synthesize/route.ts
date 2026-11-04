@@ -1,5 +1,6 @@
 import { getBailianTts, BailianTtsError } from '@/lib/server/bailian-tts';
 import { requireRequestUser } from '@/lib/server/user-context';
+import { externalApi } from '@/lib/server/external-api-logging';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,8 +16,13 @@ export async function POST(request: Request) {
     if (!input || typeof input.text !== 'string' || typeof input.voiceId !== 'string') {
       return Response.json({ message: '请填写试听文本并选择数字人声音' }, { status: 400 });
     }
-    const client = await getBailianTts(request);
-    const result = await client.synthesize(input.text.trim(), input.voiceId.trim(), user.id);
+    const text = input.text.trim();
+    const voiceId = input.voiceId.trim();
+    const result = await externalApi.call('bailian', '文本试听完整流程', new URL(request.url).pathname, 'POST',
+      { text, voiceId }, async () => {
+        const client = await getBailianTts(request);
+        return client.synthesize(text, voiceId, user.id);
+      }, value => ({ httpStatus: 200, response: value }));
     return Response.json(result, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {
     return Response.json({

@@ -2,9 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const CUSTOMIZATION_URL = 'https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization';
-const SYNTHESIS_URL = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
-const SYNTHESIS_MODEL = 'qwen3-tts-vc-2026-01-22';
+const SYNTHESIS_MODEL = 'qwen-audio-3.1-tts-plus';
 const DESIGN_MODEL = 'qwen3-tts-vd-2026-01-26';
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILENAME = /^bailian_tts_[a-f0-9-]{36}\.(wav|mp3)$/;
@@ -21,8 +19,8 @@ export class BailianTtsError extends Error {
   status: number;
   providerAccepted: boolean;
 
-  constructor(message: string, status = 502, providerAccepted = false) {
-    super(message);
+  constructor(message: string, status = 502, providerAccepted = false, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'BailianTtsError';
     this.status = status;
     this.providerAccepted = providerAccepted;
@@ -40,25 +38,59 @@ function audioType(bytes: Buffer) {
   throw new BailianTtsError('百炼返回的试听音频格式无效', 502, true);
 }
 
+function normalizeWav(bytes: Buffer) {
+  if (bytes.length < 44 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WAVE') return bytes;
+  // The speech API can return streaming WAV headers with unknown size markers.
+  const result = Buffer.from(bytes);
+  if (result.readUInt32LE(4) >= 0x7fff0000) result.writeUInt32LE(result.length - 8, 4);
+  for (let offset = 12; offset + 8 <= result.length;) {
+    const size = result.readUInt32LE(offset + 4);
+    if (result.toString('ascii', offset, offset + 4) === 'data') {
+      if (size >= 0x7fff0000) result.writeUInt32LE(result.length - offset - 8, offset + 4);
+      break;
+    }
+    offset += 8 + size + (size % 2);
+  }
+  return result;
+}
+
 function validVoice(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(value);
 }
 
 async function writeAtomic(filename: string, bytes: string | Buffer) {
-  await mkdir(path.dirname(filename), { recursive: true });
+  await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
   const temporary = `${filename}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, bytes, { mode: 0o600 });
+    await writeFile(temporary, bytes, { mode: 0o600, flag: 'wx' });
     await rename(temporary, filename);
   } finally {
     await unlink(temporary).catch(() => undefined);
   }
 }
 
-// Credentials are explicit here so protocol tests never load real keys.
-// Production requests use the project's API backend to read encrypted settings.
-export function createBailianTtsClient({ apiKey = '', credentialId, providerRequest, voiceTasks = new Map(), runtimeDirectory, publicDirectory, voices, fetcher = fetch }: {
-  apiKey?: string;
+async function storageOperation<T>(label: string, operation: () => Promise<T>, providerAccepted = false): Promise<T> {
+  try {
+    return await operation();
+  } catch (cause) {
+    throw new BailianTtsError(`${label}失败，请检查服务运行用户对 runtime/bailian-tts 目录的写入权限及磁盘空间`, 500, providerAccepted, { cause });
+  }
+}
+
+async function checkWritable(directory: string, label: string) {
+  await storageOperation(label, async () => {
+    const probe = path.join(directory, `.write-check-${randomUUID()}`);
+    try {
+      // Exercise creation and atomic rename before any paid provider request.
+      await writeAtomic(probe, '');
+    } finally {
+      await unlink(probe).catch(() => undefined);
+    }
+  });
+}
+
+// The API backend owns credentials and the provider's HTTP protocol.
+export function createBailianTtsClient({ credentialId, providerRequest, voiceTasks = new Map(), runtimeDirectory, publicDirectory, voices, fetcher = fetch }: {
   credentialId?: string;
   providerRequest?: (body: object) => Promise<BailianProviderOutput>;
   voiceTasks?: Map<string, Promise<string>>;
@@ -67,53 +99,28 @@ export function createBailianTtsClient({ apiKey = '', credentialId, providerRequ
   voices: readonly PublicVoice[];
   fetcher?: typeof fetch;
 }) {
-  const key = apiKey.trim();
-
   function assertConfigured() {
     if (providerRequest && credentialId) return;
-    if (!key || /[\r\n]/.test(key)) {
-      throw new BailianTtsError('请在管理员系统设置中配置百炼语音 API Key（BAILIAN_TTS_API_KEY）', 503);
-    }
+    throw new BailianTtsError('请在管理员系统设置中配置百炼语音 API Key（BAILIAN_TTS_API_KEY）', 503);
   }
 
-  async function callProvider(url: string, body: object): Promise<BailianProviderOutput> {
+  async function callProvider(body: object): Promise<BailianProviderOutput> {
     assertConfigured();
-    if (providerRequest) return providerRequest(body);
-    let response: Response;
-    try {
-      response = await fetcher(url, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        cache: 'no-store',
-        redirect: 'error',
-        signal: AbortSignal.timeout(120_000),
-      });
-    } catch {
-      throw new BailianTtsError('连接百炼语音服务失败或超时，请检查网络后重试');
-    }
-    if (!response.ok) {
-      await response.body?.cancel();
-      if (response.status === 401 || response.status === 403) {
-        throw new BailianTtsError('百炼 API Key 无效或没有当前语音模型的访问权限');
-      }
-      if (response.status === 429) throw new BailianTtsError('百炼请求过于频繁或额度不足，请稍后重试', 429);
-      throw new BailianTtsError(`百炼语音调用失败（HTTP ${response.status}），请检查账户额度和模型权限`);
-    }
-    const payload = await response.json().catch(() => null) as { code?: string; output?: BailianProviderOutput } | null;
-    if (!payload || typeof payload !== 'object' || !payload.output || typeof payload.output !== 'object' || payload.code) {
-      throw new BailianTtsError('百炼语音调用返回异常，请检查账户额度、模型权限和输入内容', 502, true);
-    }
-    return payload.output;
+    return providerRequest!(body);
   }
 
   async function resolveVoice(voiceId: string) {
     assertConfigured();
     const voice = voices.find((item) => item.id === voiceId);
     if (!voice || !/^[a-z0-9_]+$/.test(voice.id)) throw new BailianTtsError('当前音色尚未接入自定义文本合成', 400);
-    const sample = await readFile(path.join(publicDirectory, 'assets', 'aliyun-voices', `${voice.id}.mp3`));
-    // A registration belongs to the API key, model and source sample.
-    const cacheId = createHash('sha256').update(credentialId || key).update(SYNTHESIS_MODEL)
+    let sample: Buffer;
+    try {
+      sample = await readFile(path.join(publicDirectory, 'assets', 'aliyun-voices', `${voice.id}.mp3`));
+    } catch (cause) {
+      throw new BailianTtsError('无法读取官方音色样本，请检查 public/assets/aliyun-voices 中的语音文件', 500, false, { cause });
+    }
+    // A registration belongs to the account/region, model and source sample.
+    const cacheId = createHash('sha256').update(credentialId!).update(SYNTHESIS_MODEL)
       .update(voice.id).update(voice.sampleText).update(voice.language).update(sample).digest('hex');
     const existing = voiceTasks.get(cacheId);
     if (existing) return existing;
@@ -124,20 +131,22 @@ export function createBailianTtsClient({ apiKey = '', credentialId, providerRequ
         if (!validVoice(saved.voice)) throw new Error('音色缓存格式无效');
         return saved.voice;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw new BailianTtsError('无法读取音色缓存，请检查 runtime/bailian-tts/voices 中的缓存文件及读取权限', 500, false, { cause: error });
+        }
       }
       const language = ({ 英文: 'en', 日文: 'ja', 韩文: 'ko' } as Record<string, string>)[voice.language] || 'zh';
-      const output = await callProvider(CUSTOMIZATION_URL, {
+      const output = await callProvider({
         model: 'qwen-voice-enrollment',
         input: {
           action: 'create', target_model: SYNTHESIS_MODEL,
-          preferred_name: `lv_${cacheId.slice(0, 10)}`,
+          preferred_name: `av${cacheId.slice(0, 8)}`,
           audio: { data: `data:audio/mpeg;base64,${sample.toString('base64')}` },
           text: voice.sampleText.slice(0, 500), language,
         },
       });
       if (!validVoice(output.voice)) throw new BailianTtsError('百炼没有返回有效的音色标识', 502, true);
-      await writeAtomic(filename, JSON.stringify({ voice: output.voice }));
+      await storageOperation('保存已注册音色的缓存', () => writeAtomic(filename, JSON.stringify({ voice: output.voice })), true);
       return output.voice;
     })();
     voiceTasks.set(cacheId, pending);
@@ -152,10 +161,12 @@ export function createBailianTtsClient({ apiKey = '', credentialId, providerRequ
     if (typeof value !== 'string') throw new BailianTtsError('百炼没有返回试听音频地址', 502, true);
     let url: URL;
     try { url = new URL(value); } catch { throw new BailianTtsError('百炼返回的试听音频地址无效', 502, true); }
-    if (url.protocol !== 'https:' || url.username || url.password || url.port
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port
       || !(url.hostname.endsWith('.aliyuncs.com') || url.hostname.endsWith('.alicdn.com'))) {
       throw new BailianTtsError('百炼返回了不受信任的试听音频地址', 502, true);
     }
+    // BaiLian can return an HTTP OSS URL; download the trusted asset over HTTPS.
+    url.protocol = 'https:';
     // Download signed assets without forwarding the API key or following redirects.
     let response: Response;
     try {
@@ -194,11 +205,16 @@ export function createBailianTtsClient({ apiKey = '', credentialId, providerRequ
     async synthesize(text: string, voiceId: string, ownerId: string) {
       if (!text.trim() || text.length > 800) throw new BailianTtsError('单段试听文本必须在 1 到 800 字之间', 400);
       if (!USER_ID.test(ownerId)) throw new BailianTtsError('用户身份无效', 401);
+      assertConfigured();
+      await checkWritable(path.join(runtimeDirectory, 'voices'), '检查音色缓存目录');
+      const audioDirectory = path.join(runtimeDirectory, 'audio', ownerId);
+      await checkWritable(audioDirectory, '检查试听音频目录');
       const voice = await resolveVoice(voiceId);
-      const output = await callProvider(SYNTHESIS_URL, { model: SYNTHESIS_MODEL, input: { text, voice } });
+      const output = await callProvider({ model: SYNTHESIS_MODEL, input: { text, voice } });
       const audio = await downloadAudio(output.audio?.url);
+      const bytes = normalizeWav(audio.bytes);
       const filename = `bailian_tts_${randomUUID()}.${audio.extension}`;
-      await writeAtomic(path.join(runtimeDirectory, 'audio', ownerId, filename), audio.bytes);
+      await storageOperation('保存已合成的试听音频', () => writeAtomic(path.join(audioDirectory, filename), bytes), true);
       return { audioUrl: `/live-voice-api/audio/${filename}`, duration: 0 };
     },
 
@@ -216,7 +232,7 @@ export function createBailianTtsClient({ apiKey = '', credentialId, providerRequ
     async designVoice(voicePrompt: string, previewText: string) {
       if (!voicePrompt.trim() || voicePrompt.length > 1200) throw new BailianTtsError('声音描述长度必须在 1 到 1200 个字符之间', 400);
       if (!previewText.trim() || previewText.length > 500) throw new BailianTtsError('试听文本长度必须在 1 到 500 个字符之间', 400);
-      const output = await callProvider(CUSTOMIZATION_URL, {
+      const output = await callProvider({
         model: 'qwen-voice-design',
         input: {
           action: 'create', target_model: DESIGN_MODEL, voice_prompt: voicePrompt,

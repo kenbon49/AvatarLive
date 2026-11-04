@@ -117,6 +117,11 @@ BAILIAN_TTS_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 无需在其他项目中配置百炼 Key，也无需为“试听脚本”部署外部语音代理。
 音色注册记录与试听音频保存在 Web 服务的 `runtime/bailian-tts/`，随 `web_runtime` volume 持久化；
 更换 Key 或服务地址后会重新注册对应账号的音色。
+脚本试听使用 `qwen-audio-3.1-tts-plus`，通过当前官方 `voice-enrollment` 接口创建和查询音色，
+确认音色就绪后调用 `/services/audio/tts/SpeechSynthesizer` 合成，由 Web 服务下载保存为 WAV。
+源码部署须确保 Web 服务运行用户对 `runtime/bailian-tts/` 和 `runtime/external-api-logs/`
+具有写入权限；不要使用其他用户预先创建只读运行目录。合成前会实际检查目录写入，
+失败时提示权限或磁盘问题，管理员日志同时记录完整试听流程及异常原因。
 
 管理员可在 **账号 → 日志查看** 查看更新后产生的外部接口调用、返回和报错详情，
 支持筛选、翻页和自动刷新。日志不包含密钥和文件内容，并会截断较长内容。

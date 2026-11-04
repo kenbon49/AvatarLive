@@ -663,16 +663,13 @@ class LiveRoomApiTest(unittest.TestCase):
             self.assertEqual(client.get("/api/v1/tts/bailian/configuration").status_code, 200)
             self.assertEqual(client.put("/api/v1/admin/settings/bailian_tts_api_key",
                                         json={"value": "forbidden"}).status_code, 403)
-            import httpx
-            async_client = httpx.AsyncClient
-            with patch("app.api.v1.bailian_tts.httpx.AsyncClient", side_effect=lambda **kwargs: async_client(
-                transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"output": {"audio": {"url": "https://asset.aliyuncs.com/a.wav"}}})),
-                **kwargs,
-            )):
+            with patch("app.api.v1.bailian_tts.synthesize_speech", new_callable=AsyncMock,
+                       return_value={"audio": {"data": "UklGRg=="}}) as speech:
                 result = client.post("/api/v1/tts/bailian/request", json={
                     "credential_id": bailian_fingerprint("platform-bailian-key"),
-                    "model": "qwen3-tts-vc-2026-01-22", "input": {"text": "你好", "voice": "test-voice"},
+                    "model": "qwen-audio-3.1-tts-plus", "input": {"text": "你好", "voice": "test-voice"},
                 })
+                speech.assert_awaited_once_with("platform-bailian-key", "https://dashscope.aliyuncs.com/api/v1", "你好", "test-voice")
             self.assertEqual(result.status_code, 200, result.text)
 
     def test_bailian_forwards_only_validated_input_to_fixed_official_endpoints(self) -> None:
@@ -684,16 +681,15 @@ class LiveRoomApiTest(unittest.TestCase):
             requests.append(request)
             body = json.loads(request.content)
             output = {"audio": {"url": "https://asset.aliyuncs.com/a.wav"}} if body["model"].startswith("qwen3-") else {
-                "voice": "qwen-test-voice", "preview_audio": {"data": "UklGRg=="},
+                "voice_id": "qwen-test-voice", "voice": "qwen-test-voice", "preview_audio": {"data": "UklGRg=="},
             }
             return httpx.Response(200, json={"output": {**output, "debug": "must-not-be-forwarded"}})
 
         inputs = [
-            ("qwen3-tts-vc-2026-01-22", {"text": "试听", "voice": "qwen-test-voice", "url": "http://localhost/private"}),
-            ("qwen-voice-enrollment", {"action": "create", "target_model": "qwen3-tts-vc-2026-01-22",
-                "preferred_name": "av_test", "audio": {"data": "data:audio/mpeg;base64,SUQz"}, "text": "样例", "language": "zh"}),
+            ("qwen-voice-enrollment", {"action": "create", "target_model": "qwen-audio-3.1-tts-plus",
+                "preferred_name": "avtest", "audio": {"data": "data:audio/mpeg;base64,SUQz"}, "text": "样例", "language": "zh"}),
             ("qwen-voice-design", {"action": "create", "target_model": "qwen3-tts-vd-2026-01-26",
-                "preferred_name": "av_test", "voice_prompt": "专业女声", "preview_text": "欢迎", "language": "zh"}),
+                "preferred_name": "avtest", "voice_prompt": "专业女声", "preview_text": "欢迎", "language": "zh"}),
         ]
         with patch.object(settings, "bailian_tts_api_key", "header-only-key"), patch(
             "app.api.v1.bailian_tts.httpx.AsyncClient", side_effect=lambda **kwargs: async_client(
@@ -708,18 +704,24 @@ class LiveRoomApiTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertNotIn("debug", response.text)
                 self.assertNotIn("header-only-key", response.text)
-        self.assertEqual(len(requests), 3)
+        self.assertEqual(len(requests), 2)
         for index, request in enumerate(requests):
-            expected_path = "/api/v1/services/aigc/multimodal-generation/generation" if index == 0 else "/api/v1/services/audio/tts/customization"
+            expected_path = "/api/v1/services/audio/tts/customization"
             self.assertEqual(str(request.url), f"https://dashscope.aliyuncs.com{expected_path}")
             self.assertEqual(request.headers["Authorization"], "Bearer header-only-key")
             self.assertNotIn("header-only-key", request.content.decode())
             body = json.loads(request.content)
             self.assertNotIn("url", body["input"])
-            self.assertEqual(body.get("parameters"), {"sample_rate": 24000, "response_format": "wav"} if index == 2 else None)
+            self.assertEqual(body.get("parameters"), {"sample_rate": 24000, "response_format": "wav"} if index == 1 else None)
+            if index == 0:
+                self.assertEqual(body["model"], "voice-enrollment")
+                self.assertEqual(body["input"]["action"], "create_voice")
+                self.assertEqual(body["input"]["target_model"], "qwen-audio-3.1-tts-plus")
+                self.assertEqual(body["input"]["prefix"], "avtest")
+                self.assertEqual(body["input"]["audio"], "data:audio/mpeg;base64,SUQz")
 
     def test_bailian_missing_rotated_or_invalid_configuration_never_calls_provider(self) -> None:
-        payload = {"credential_id": bailian_fingerprint("old-key"), "model": "qwen3-tts-vc-2026-01-22",
+        payload = {"credential_id": bailian_fingerprint("old-key"), "model": "qwen-audio-3.1-tts-plus",
                    "input": {"text": "你好", "voice": "test-voice"}}
         with patch("app.api.v1.bailian_tts.httpx.AsyncClient") as upstream:
             with patch.object(settings, "bailian_tts_api_key", ""):
@@ -731,8 +733,8 @@ class LiveRoomApiTest(unittest.TestCase):
                 for model, invalid_input in [
                     ("arbitrary-model", payload["input"]),
                     (payload["model"], {"text": "字" * 801, "voice": "test-voice"}),
-                    ("qwen-voice-enrollment", {"action": "create", "target_model": "qwen3-tts-vc-2026-01-22",
-                        "preferred_name": "av_test", "audio": {"data": "https://localhost/private"}, "text": "样例", "language": "zh"}),
+                    ("qwen-voice-enrollment", {"action": "create", "target_model": "qwen-audio-3.1-tts-plus",
+                        "preferred_name": "avtest", "audio": {"data": "https://localhost/private"}, "text": "样例", "language": "zh"}),
                 ]:
                     response = self.client.post("/api/v1/tts/bailian/request", json={**payload, "model": model, "input": invalid_input})
                     self.assertEqual(response.status_code, 422, response.text)
@@ -753,8 +755,9 @@ class LiveRoomApiTest(unittest.TestCase):
                     transport=httpx.MockTransport(lambda request: httpx.Response(status, json=body)), **kwargs,
                 )):
                     response = self.client.post("/api/v1/tts/bailian/request", json={
-                        "credential_id": bailian_fingerprint("never-echo-this-key"), "model": "qwen3-tts-vc-2026-01-22",
-                        "input": {"text": "你好", "voice": "test-voice"},
+                        "credential_id": bailian_fingerprint("never-echo-this-key"), "model": "qwen-voice-enrollment",
+                        "input": {"action": "create", "target_model": "qwen-audio-3.1-tts-plus",
+                                  "preferred_name": "avtest", "audio": {"data": "data:audio/mpeg;base64,SUQz"}, "text": "样例", "language": "zh"},
                     })
                 self.assertEqual(response.status_code, expected, response.text)
                 self.assertNotIn("never-echo-this-key", response.text)
@@ -777,15 +780,14 @@ class LiveRoomApiTest(unittest.TestCase):
                 self.assertEqual(self.client.put("/api/v1/admin/settings/bailian_tts_base_url", json={"value": invalid}).status_code, 422)
             listing = self.client.get("/api/v1/admin/settings").json()["settings"]
             self.assertEqual(next(item for item in listing if item["key"] == "bailian_tts_base_url")["value"], active["base_url"])
-            def handler(request):
-                calls.append(str(request.url))
-                return httpx.Response(200, json={"output": {"audio": {"url": "https://asset.aliyuncs.com/a.wav"}}})
-            with patch("app.api.v1.bailian_tts.httpx.AsyncClient", side_effect=lambda **kwargs: async_client(transport=httpx.MockTransport(handler), **kwargs)):
-                payload = {"model": "qwen3-tts-vc-2026-01-22", "input": {"text": "你好", "voice": "test-voice"}, "credential_id": original["credential_id"]}
+            with patch("app.api.v1.bailian_tts.synthesize_speech", new_callable=AsyncMock,
+                       return_value={"audio": {"data": "UklGRg=="}}) as speech:
+                payload = {"model": "qwen-audio-3.1-tts-plus", "input": {"text": "你好", "voice": "test-voice"}, "credential_id": original["credential_id"]}
                 self.assertEqual(self.client.post("/api/v1/tts/bailian/request", json=payload).status_code, 409)
+                speech.assert_not_awaited()
                 payload["credential_id"] = active["credential_id"]
                 self.assertEqual(self.client.post("/api/v1/tts/bailian/request", json=payload).status_code, 200)
-            self.assertEqual(calls, ["https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"])
+                speech.assert_awaited_once_with("test-region-key", "https://dashscope-intl.aliyuncs.com/api/v1", "你好", "test-voice")
 
     def test_admin_external_api_logs_include_real_provider_errors_but_reject_other_users(self) -> None:
         import httpx
@@ -796,7 +798,9 @@ class LiveRoomApiTest(unittest.TestCase):
             ),
         ):
             response = self.client.post("/api/v1/tts/bailian/request", json={
-                "credential_id": bailian_fingerprint("logged-private-key"), "model": "qwen3-tts-vc-2026-01-22", "input": {"text": "你好", "voice": "test-voice"},
+                "credential_id": bailian_fingerprint("logged-private-key"), "model": "qwen-voice-enrollment", "input": {
+                    "action": "create", "target_model": "qwen-audio-3.1-tts-plus", "preferred_name": "avtest",
+                    "audio": {"data": "data:audio/mpeg;base64,SUQz"}, "text": "样例", "language": "zh"},
             })
             self.assertEqual(response.status_code, 502)
             logs = self.client.get("/api/v1/admin/external-api-logs?provider=bailian&status=error&q=AccessDenied")
