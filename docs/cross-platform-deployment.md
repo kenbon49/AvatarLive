@@ -180,12 +180,34 @@ Windows 使用相同的 `git pull`，然后执行 `.\deploy.ps1`。
 
 ### Windows：Docker Desktop 无法启动
 
-如果 `-Install` 提示 `Docker Desktop is unable to start`，先在 PowerShell 查看：
+如果 `-Install` 提示 `Docker Desktop is unable to start`，运行一键诊断：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\diagnose-windows.ps1
+```
+
+报告会显示 Windows 版本、上次启动时间、虚拟化状态、WSL 版本和分发版、系统组件与服务、
+Docker Desktop 后端设置，以及本次启动的最后 60 行错误日志。报告同时保存在
+`runtime/deploy-diagnostics/windows-docker-*.log`；部署检查发现 Docker 无法启动时也会自动保存。
+诊断只读取状态和生成报告；启动配置的读取需要管理员权限，未提权时会记录查询失败并继续其他检查。
+
+报告会分别检测 WSL 安装目录、`Windows\System32` 和终端命令解析到的 WSL 入口，并显示
+每条命令的完整路径和退出码。如果终端的 `wsl --version` 成功，但 Docker 日志显示
+`C:\Windows\System32\wsl.exe --version` 不支持该参数，应比较这些入口的结果；
+更新 WSL 后重启 Docker Desktop，再看最新日志，确认是否仍有相同错误。
+
+`HypervisorPresent=True` 表示 Windows 虚拟化已经运行；此时结合 WSL 版本和 Docker Desktop
+的具体错误日志继续排查。`False` 时检查系统组件启用后是否已经重启，以及 BIOS/UEFI 虚拟化、
+虚拟机的嵌套虚拟化和 `hypervisorlaunchtype` 启动配置。
+
+也可单独运行：
 
 ```powershell
 wsl --status
+wsl --version
 wsl -l -v
-docker info
+Get-CimInstance Win32_ComputerSystem | Select-Object HypervisorPresent
+docker desktop logs --priority 2 --boot 0 | Select-Object -Last 60
 ```
 
 若 `wsl --status` 显示“未找到 WSL 2 内核文件”，重跑 `deploy.ps1 -Install` 会自动安装/修复；

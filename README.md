@@ -37,6 +37,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Install
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Check
 ```
 
+Docker Desktop 无法启动时，运行只读诊断并查看生成的报告：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\diagnose-windows.ps1
+```
+
 Windows 也可以先双击 `deploy-postgres.cmd`，再双击 `deploy.cmd`。
 首次部署无需准备 `.env`：脚本会自动生成基础配置，初始化数据库并显示管理员 `admin` 的随机密码。
 脚本确认后端和登录页都就绪后才提示成功；访问 `http://localhost:8018/live`。

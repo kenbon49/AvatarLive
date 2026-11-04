@@ -36,6 +36,15 @@ if command == "docker":
     if args == ["compose", "version"] and os.environ.get("FAKE_DEPLOY_COMPOSE_FAIL"):
         print("docker: 'compose' is not a docker command", file=sys.stderr)
         sys.exit(1)
+    if args == ["version"]:
+        print("Client: Docker 29.9.2")
+        if os.environ.get("FAKE_DEPLOY_DOCKER_FAIL"):
+            print("Docker Desktop is unable to start", file=sys.stderr)
+            sys.exit(1)
+    if args == ["desktop", "status"]:
+        print("Docker Desktop is not running" if os.environ.get("FAKE_DEPLOY_DOCKER_FAIL") else "Docker Desktop is running")
+    if args[:2] == ["desktop", "logs"]:
+        print(os.environ.get("FAKE_DEPLOY_DESKTOP_LOGS", "No error logs found"))
     if "pg_isready" in args:
         counter = Path(os.environ["FAKE_DEPLOY_DB_COUNTER"])
         count = int(counter.read_text()) if counter.exists() else 0
@@ -54,6 +63,9 @@ elif command == "winget" and "Microsoft.WSL" in args:
     wsl.chmod(0o755)
 elif command == "wsl.exe":
     state = Path(os.environ["FAKE_DEPLOY_WSL_STATE"])
+    if args == ["--version"] and Path(sys.argv[0]).parent.name == "System32" and os.environ.get("FAKE_DEPLOY_OLD_SYSTEM_WSL"):
+        print("Invalid command line option: --version", file=sys.stderr)
+        sys.exit(1)
     if args[0] == "--update":
         if os.environ.get("FAKE_DEPLOY_WSL_UPDATE_FAIL") or (
             "--web-download" in args and os.environ.get("FAKE_DEPLOY_WSL_WEB_FAIL")
@@ -64,6 +76,10 @@ elif command == "wsl.exe":
     elif not state.exists():
         print("WSL 2 kernel file is missing", file=sys.stderr)
         sys.exit(1)
+    elif args == ["--version"]:
+        print("WSL version: 3.0.1.0")
+elif command == "bcdedit.exe":
+    print("hypervisorlaunchtype    Auto")
 elif command == "curl" and args[-1].endswith("/login"):
     if os.environ.get("FAKE_DEPLOY_WEB_FAIL"):
         sys.exit(22)
@@ -103,8 +119,29 @@ if ($env:FAKE_DEPLOY_TEST_WSL) {
     }
     function Get-CimInstance {
         param([string]$ClassName, [string]$Filter, [string]$ErrorAction)
-        $state = if ($env:FAKE_DEPLOY_FEATURE_STATE -eq "Enabled") { 1 } else { 2 }
-        return @([pscustomobject]@{ InstallState = $state }, [pscustomobject]@{ InstallState = $state })
+        switch ($ClassName) {
+            "Win32_OptionalFeature" {
+                $state = if ($env:FAKE_DEPLOY_FEATURE_STATE -eq "Enabled") { 1 } else { 2 }
+                return @(
+                    [pscustomobject]@{ Name = "Microsoft-Windows-Subsystem-Linux"; InstallState = $state },
+                    [pscustomobject]@{ Name = "VirtualMachinePlatform"; InstallState = $state }
+                )
+            }
+            "Win32_ComputerSystem" {
+                return [pscustomobject]@{ HypervisorPresent = -not [bool]$env:FAKE_DEPLOY_NO_HYPERVISOR; Manufacturer = "Test manufacturer"; Model = "Test computer" }
+            }
+            "Win32_Processor" {
+                return [pscustomobject]@{ Name = "Test CPU"; VirtualizationFirmwareEnabled = -not [bool]$env:FAKE_DEPLOY_NO_HYPERVISOR; SecondLevelAddressTranslationExtensions = $true; VMMonitorModeExtensions = $true }
+            }
+            "Win32_OperatingSystem" {
+                return [pscustomobject]@{ Caption = "Test Windows"; Version = "10.0.22631"; BuildNumber = "22631"; LastBootUpTime = [datetime]"2026-11-01" }
+            }
+            default { throw "Unexpected CIM class $ClassName" }
+        }
+    }
+    function Get-Service {
+        param([string[]]$Name, [string]$ErrorAction)
+        return [pscustomobject]@{ Name = "vmcompute"; Status = "Running"; StartType = "Manual" }
     }
     function Get-WindowsOptionalFeature {
         param([switch]$Online, [string]$FeatureName, [string]$ErrorAction)
@@ -130,6 +167,7 @@ switch ($Mode) {
     "install" { & $Target -EnvFile $EnvFile -Install }
     "check" { & $Target -EnvFile $EnvFile -Check; exit $LASTEXITCODE }
     "postgres" { & $Target -EnvFile $EnvFile }
+    "diagnose" { & $Target -OutputFile $EnvFile }
     "core" { & $Target -EnvFile $EnvFile }
     default { throw "Unexpected test mode" }
 }
@@ -149,7 +187,7 @@ class DeploymentScriptTests(unittest.TestCase):
         self.directory = Path(self.temporary.name)
         self.repo = self.directory / "repo with spaces"
         self.repo.mkdir()
-        for name in ("deploy.sh", "deploy-postgres.sh", "deploy.ps1", "deploy-postgres.ps1", ".env.example"):
+        for name in ("deploy.sh", "deploy-postgres.sh", "deploy.ps1", "deploy-postgres.ps1", "diagnose-windows.ps1", ".env.example"):
             shutil.copy2(ROOT / name, self.repo / name)
         (self.repo / "scripts").mkdir()
         for name in ("windows-docker.ps1", "install-wsl.ps1"):
@@ -187,7 +225,7 @@ class DeploymentScriptTests(unittest.TestCase):
             if env_file:
                 command += ["--env-file", env_file]
         else:
-            target = "deploy-postgres.ps1" if mode == "postgres" else "deploy.ps1"
+            target = {"postgres": "deploy-postgres.ps1", "diagnose": "diagnose-windows.ps1"}.get(mode, "deploy.ps1")
             command = [PWSH, "-NoProfile", "-File", str(self.wrapper),
                        "-Target", str(self.repo / target), "-Mode", mode, "-EnvFile", env_file]
         return subprocess.run(command, cwd=self.directory, env=self.env, capture_output=True, text=True, timeout=45)
@@ -430,6 +468,84 @@ class PowerShellDeploymentScriptTests(DeploymentScriptTests):
         result = self.deploy("check")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(any("Microsoft.WSL" in args or args[0] == "feature-event" for args in self.commands()))
+
+    def test_diagnostics_collect_startup_errors_without_changing_system_state(self) -> None:
+        self.prepare_windows_wsl()
+        shutil.copy2(self.bin / "winget", self.bin / "bcdedit.exe")
+        self.env.update(FAKE_DEPLOY_NO_HYPERVISOR="1", FAKE_DEPLOY_DOCKER_FAIL="1",
+                        FAKE_DEPLOY_DESKTOP_LOGS="HCS_E_HYPERV_NOT_INSTALLED: virtualization unavailable")
+        path = self.directory / "diagnostic report.log"
+        result = self.deploy("diagnose", str(path))
+        self.assert_success(result)
+        report = path.read_text(encoding="utf-8-sig")
+        for expected in ("Test Windows", "HypervisorPresent : False", "WSL 2 kernel file is missing",
+                         "HCS_E_HYPERV_NOT_INSTALLED", "hypervisorlaunchtype    Auto"):
+            self.assertIn(expected, report)
+        self.assertFalse(any(args[0] in ("winget", "feature-event") or "up" in args or "--update" in args
+                             or "--set-default-version" in args or "--shutdown" in args for args in self.commands()))
+        self.assertIn(["docker", "desktop", "logs", "--priority", "2", "--boot", "0"], self.commands())
+
+    def test_diagnostics_save_report_when_wsl_is_not_installed(self) -> None:
+        self.prepare_windows_wsl(installed=False)
+        result = self.deploy("diagnose")
+        self.assert_success(result)
+        self.assertIn("WSL executable not found", result.stdout)
+        self.assertEqual(len(list((self.repo / "runtime/deploy-diagnostics").glob("*.log"))), 1)
+        self.assertFalse(any("Microsoft.WSL" in args or "up" in args for args in self.commands()))
+
+    def test_diagnostics_read_backend_setting_without_dumping_other_settings(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        appdata = self.directory / "appdata"
+        (appdata / "Docker").mkdir(parents=True)
+        settings = appdata / "Docker/settings-store.json"
+        content = json.dumps({"wslEngineEnabled": False, "password": "private-setting-must-not-appear"})
+        settings.write_text(content)
+        self.env["APPDATA"] = str(appdata)
+        result = self.deploy("diagnose")
+        self.assert_success(result)
+        self.assertIn("wslEngineEnabled: False", result.stdout)
+        self.assertNotIn("private-setting-must-not-appear", result.stdout)
+        self.assertEqual(settings.read_text(), content)
+
+    def test_diagnostics_compare_package_system_and_path_wsl_versions(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        system_root = self.directory / "Windows"
+        system_wsl = system_root / "System32/wsl.exe"
+        package_wsl = self.directory / "WSL/wsl.exe"
+        for path in (system_wsl, package_wsl):
+            path.parent.mkdir(parents=True)
+            shutil.copy2(self.bin / "wsl.exe", path)
+        self.env.update(WINDIR=str(system_root), FAKE_DEPLOY_OLD_SYSTEM_WSL="1")
+        report_path = self.directory / "wsl-entries.log"
+        result = self.deploy("diagnose", str(report_path))
+        self.assert_success(result)
+        report = report_path.read_text(encoding="utf-8-sig")
+        for path in (system_wsl, package_wsl, self.bin / "wsl.exe"):
+            self.assertIn(f"Command: {path} --version", report)
+        self.assertIn("WSL version: 3.0.1.0", report)
+        self.assertIn("Exit code: 1\nInvalid command line option: --version", report)
+        self.assertIn("Docker Desktop errors from the current boot", report)
+        self.assertFalse(any("--update" in args or "--shutdown" in args or "--set-default-version" in args
+                             or args[0] in ("winget", "feature-event") for args in self.commands()))
+
+    def test_diagnostics_bound_desktop_log_output(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        self.env["FAKE_DEPLOY_DESKTOP_LOGS"] = "\n".join(f"desktop-error-{index:03d}" for index in range(150))
+        result = self.deploy("diagnose")
+        self.assert_success(result)
+        self.assertIn("desktop-error-149", result.stdout)
+        self.assertNotIn("desktop-error-000", result.stdout)
+
+    def test_startup_failure_saves_windows_diagnostics(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        self.env.update(FAKE_DEPLOY_DOCKER_FAIL="1", FAKE_DEPLOY_DESKTOP_LOGS="Docker backend startup failure detail")
+        result = self.deploy("install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("diagnose-windows.ps1", result.stdout + result.stderr)
+        reports = list((self.repo / "runtime/deploy-diagnostics").glob("*.log"))
+        self.assertEqual(len(reports), 1)
+        self.assertIn("Docker backend startup failure detail", reports[0].read_text(encoding="utf-8-sig"))
+        self.assertFalse(any("up" in args for args in self.commands()))
 
 
 if __name__ == "__main__":

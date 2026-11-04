@@ -79,6 +79,108 @@ function Initialize-WindowsWsl {
     finally { Remove-Item -LiteralPath $resultFile -Force -ErrorAction SilentlyContinue }
 }
 
+function Get-WindowsDockerDiagnostics {
+    $report = [System.Collections.Generic.List[string]]::new()
+    $report.Add("AvatarLive Windows Docker diagnostics - $([DateTime]::Now.ToString('s'))")
+    $queries = @(
+        @{ Title = "Windows"; Class = "Win32_OperatingSystem"; Properties = @("Caption", "Version", "BuildNumber", "LastBootUpTime") },
+        @{ Title = "Virtualization"; Class = "Win32_ComputerSystem"; Properties = @("Manufacturer", "Model", "HypervisorPresent") },
+        @{ Title = "Processor"; Class = "Win32_Processor"; Properties = @("Name", "VirtualizationFirmwareEnabled", "SecondLevelAddressTranslationExtensions", "VMMonitorModeExtensions") },
+        @{ Title = "Windows features (InstallState: 1=enabled, 2=disabled)"; Class = "Win32_OptionalFeature"; Properties = @("Name", "InstallState"); Filter = "Name = 'Microsoft-Windows-Subsystem-Linux' OR Name = 'VirtualMachinePlatform'" }
+    )
+    foreach ($query in $queries) {
+        try {
+            $arguments = @{ ClassName = $query.Class; ErrorAction = "Stop" }
+            if ($query.Filter) { $arguments.Filter = $query.Filter }
+            $items = Get-CimInstance @arguments
+            $text = ($items | Select-Object -Property $query.Properties | Format-List | Out-String -Width 200).Trim()
+            $report.Add("`n[$($query.Title)]`n$text")
+        }
+        catch { $report.Add("`n[$($query.Title)]`nUnavailable: $($_.Exception.Message)") }
+    }
+
+    try {
+        $services = Get-Service -Name "WslService", "LxssManager", "vmcompute", "com.docker.service" -ErrorAction SilentlyContinue
+        $text = ($services | Select-Object Name, Status, StartType | Format-Table -AutoSize | Out-String -Width 200).Trim()
+        $report.Add("`n[Services (some names vary by WSL version)]`n$text")
+    }
+    catch { $report.Add("`n[Services]`nUnavailable: $($_.Exception.Message)") }
+
+    if ($env:APPDATA) {
+        $settingsDirectory = Join-Path $env:APPDATA "Docker"
+        foreach ($name in @("settings-store.json", "settings.json")) {
+            $path = Join-Path $settingsDirectory $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+            try {
+                $settings = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+                $value = if ($settings.PSObject.Properties["wslEngineEnabled"]) { $settings.wslEngineEnabled } else { "not specified (Docker Desktop default)" }
+                $report.Add("`n[Docker Desktop backend]`nSettings: $path`nwslEngineEnabled: $value")
+            }
+            catch { $report.Add("`n[Docker Desktop backend]`nCannot read settings: $($_.Exception.Message)") }
+            break
+        }
+    }
+
+    $commands = @()
+    $wsl = Get-WslCommand
+    # Docker Desktop can invoke System32 directly even when PATH or our installer
+    # selects a newer WSL package. Probe both entry points to expose that mismatch.
+    $wslCandidates = @($wsl)
+    if ($env:WINDIR) { $wslCandidates += Join-Path $env:WINDIR "System32\wsl.exe" }
+    $wslCandidates += @(Get-Command wsl.exe -All -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -Unique)
+    $wslPaths = @()
+    foreach ($candidate in $wslCandidates) {
+        if (-not $candidate -or $wslPaths -contains $candidate) { continue }
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        $wslPaths += $candidate
+        $commands += @{ Title = "WSL version"; Command = $candidate; Arguments = @("--version") }
+    }
+    if ($wsl) {
+        $commands += @(
+            @{ Title = "WSL status"; Command = $wsl; Arguments = @("--status") },
+            @{ Title = "WSL distributions"; Command = $wsl; Arguments = @("--list", "--verbose") }
+        )
+    }
+    else { $report.Add("`n[WSL]`nWSL executable not found.") }
+    if (Get-Command bcdedit.exe -ErrorAction SilentlyContinue) {
+        $commands += @{ Title = "Hypervisor boot configuration (requires administrator access)"; Command = "bcdedit.exe"; Arguments = @("/enum", "{current}") }
+    }
+    if (Get-Command docker -ErrorAction SilentlyContinue) {
+        $commands += @(
+            @{ Title = "Docker client/server"; Command = "docker"; Arguments = @("version") },
+            @{ Title = "Docker Desktop status"; Command = "docker"; Arguments = @("desktop", "status") },
+            @{ Title = "Docker Desktop errors from the current boot (last 60 lines)"; Command = "docker"; Arguments = @("desktop", "logs", "--priority", "2", "--boot", "0") }
+        )
+    }
+    else { $report.Add("`n[Docker]`nDocker executable not found.") }
+    foreach ($command in $commands) {
+        try {
+            $probe = Invoke-NativeProbe -Command $command.Command -Arguments $command.Arguments
+            $text = ($probe.Output -split "\r?\n" | Select-Object -Last 60) -join [Environment]::NewLine
+            $report.Add("`n[$($command.Title)]`nCommand: $($command.Command) $($command.Arguments -join ' ')`nExit code: $($probe.ExitCode)`n$text")
+        }
+        catch { $report.Add("`n[$($command.Title)]`nUnavailable: $($_.Exception.Message)") }
+    }
+    $report.Add("`n[Next checks]`nHypervisorPresent must be True for the local WSL 2 Docker backend. If False, check BIOS/UEFI virtualization or nested virtualization, restart Windows after enabling features, and check hypervisorlaunchtype in the boot configuration.`nCompare the WSL version results for each executable path: Docker Desktop may invoke Windows System32 directly. A working package executable alone does not confirm that this entry point works. Check fresh Docker logs after restarting Docker Desktop following a WSL update.`nIf wslEngineEnabled is False, enable 'Use the WSL 2 based engine' in Docker Desktop settings.`nFor a fresh install, open Docker Desktop and complete its initial setup. Its current-boot error log above can identify further failures.")
+    return $report -join [Environment]::NewLine
+}
+
+function Save-WindowsDockerDiagnostics {
+    param(
+        [Parameter(Mandatory = $true)][string]$Report,
+        [string]$OutputFile = ""
+    )
+    if (-not $OutputFile) {
+        $root = Split-Path -Parent $PSScriptRoot
+        $OutputFile = Join-Path $root "runtime\deploy-diagnostics\windows-docker-$([DateTime]::Now.ToString('yyyyMMdd-HHmmssfff')).log"
+    }
+    $OutputFile = [IO.Path]::GetFullPath($OutputFile)
+    $directory = Split-Path -Parent $OutputFile
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    [IO.File]::WriteAllText($OutputFile, $Report, [Text.UTF8Encoding]::new($true))
+    return $OutputFile
+}
+
 function Get-DockerStartupHelp {
     param([string]$Details)
 
@@ -89,6 +191,18 @@ Run 'wsl --status', 'wsl -l -v', and 'docker info' in PowerShell to diagnose the
 If WSL or its kernel is missing, rerun .\deploy.ps1 -Install for automatic setup/repair and allow administrator access.
 See docs/cross-platform-deployment.md for Windows Docker Desktop troubleshooting.
 "@
-    if ($Details) { $message += "`nDocker diagnostic output:`n$Details" }
+    if ($Details) {
+        $errors = @($Details -split "\r?\n" | Where-Object { $_ -match "(?i)error|failed|unable|denied|cannot|not running|not found" } | Select-Object -Last 8)
+        if ($errors.Count -eq 0) { $errors = @($Details -split "\r?\n" | Select-Object -Last 12) }
+        $message += "`nDocker diagnostic output:`n$($errors -join [Environment]::NewLine)"
+    }
+    if ($env:OS -eq "Windows_NT") {
+        try {
+            $report = Get-WindowsDockerDiagnostics
+            $path = Save-WindowsDockerDiagnostics -Report $report
+            $message += "`nWindows/Docker diagnostic report: $path`nRun .\diagnose-windows.ps1 to display and save a fresh report."
+        }
+        catch { $message += "`nCould not save Windows diagnostics: $($_.Exception.Message)" }
+    }
     return $message
 }
