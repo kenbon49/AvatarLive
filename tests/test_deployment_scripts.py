@@ -26,10 +26,44 @@ with open(os.environ["FAKE_DEPLOY_LOG"], "a") as output:
     output.write(json.dumps([command, *args]) + "\n")
 if command == "docker":
     state = Path(os.environ["FAKE_DEPLOY_DB_STATE"])
+    if args == ["info"]:
+        counter = Path(os.environ["FAKE_DEPLOY_DOCKER_COUNTER"])
+        count = int(counter.read_text()) if counter.exists() else 0
+        counter.write_text(str(count + 1))
+        if os.environ.get("FAKE_DEPLOY_DOCKER_FAIL") or count < int(os.environ.get("FAKE_DEPLOY_DOCKER_FAILURES", "0")):
+            print("ERROR: Error response from daemon: Docker Desktop is unable to start", file=sys.stderr)
+            sys.exit(1)
+    if args == ["compose", "version"] and os.environ.get("FAKE_DEPLOY_COMPOSE_FAIL"):
+        print("docker: 'compose' is not a docker command", file=sys.stderr)
+        sys.exit(1)
     if "pg_isready" in args:
-        sys.exit(0 if state.exists() else 1)
+        counter = Path(os.environ["FAKE_DEPLOY_DB_COUNTER"])
+        count = int(counter.read_text()) if counter.exists() else 0
+        counter.write_text(str(count + 1))
+        if not state.exists() or count < int(os.environ.get("FAKE_DEPLOY_DB_FAILURES", "0")):
+            print("PostgreSQL is starting or unavailable", file=sys.stderr)
+            sys.exit(1)
     if "up" in args and args[-1] == "postgres":
         state.touch()
+elif command == "winget" and "Microsoft.WSL" in args:
+    if os.environ.get("FAKE_DEPLOY_WSL_INSTALL_FAIL"):
+        print("WSL package download failed", file=sys.stderr)
+        sys.exit(1)
+    wsl = Path(sys.argv[0]).with_name("wsl.exe")
+    wsl.write_text(Path(sys.argv[0]).read_text())
+    wsl.chmod(0o755)
+elif command == "wsl.exe":
+    state = Path(os.environ["FAKE_DEPLOY_WSL_STATE"])
+    if args[0] == "--update":
+        if os.environ.get("FAKE_DEPLOY_WSL_UPDATE_FAIL") or (
+            "--web-download" in args and os.environ.get("FAKE_DEPLOY_WSL_WEB_FAIL")
+        ):
+            print("WSL kernel update failed", file=sys.stderr)
+            sys.exit(1)
+        state.touch()
+    elif not state.exists():
+        print("WSL 2 kernel file is missing", file=sys.stderr)
+        sys.exit(1)
 elif command == "curl" and args[-1].endswith("/login"):
     if os.environ.get("FAKE_DEPLOY_WEB_FAIL"):
         sys.exit(22)
@@ -42,6 +76,17 @@ elif command == "curl" and args[-1].endswith("/login"):
 PWSH_WRAPPER = r'''
 param([string]$Target, [string]$Mode, [string]$EnvFile)
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
+# Reproduce Windows PowerShell 5.1's native stderr error records on PowerShell 7.
+if ($env:FAKE_DEPLOY_WINDOWS_STDERR) {
+    function docker {
+        $output = & $env:FAKE_DEPLOY_DOCKER @args 2>&1
+        $dockerExitCode = $LASTEXITCODE
+        if ($dockerExitCode -ne 0) { Write-Error ($output -join "`n") }
+        else { $output }
+        $global:LASTEXITCODE = $dockerExitCode
+    }
+}
 function Invoke-WebRequest {
     param([switch]$UseBasicParsing, [string]$Uri, [int]$TimeoutSec, [int]$MaximumRedirection)
     & $env:FAKE_DEPLOY_CURL $Uri
@@ -49,12 +94,47 @@ function Invoke-WebRequest {
     return [pscustomobject]@{ StatusCode = 200 }
 }
 function Start-Sleep { param([int]$Seconds) }
+if ($env:FAKE_DEPLOY_TEST_WSL) {
+    if ($env:FAKE_DEPLOY_WSL_REBOOT_CODE) {
+        function winget {
+            & $env:FAKE_DEPLOY_WINGET @args
+            if ("Microsoft.WSL" -in $args) { $global:LASTEXITCODE = [int]$env:FAKE_DEPLOY_WSL_REBOOT_CODE }
+        }
+    }
+    function Get-CimInstance {
+        param([string]$ClassName, [string]$Filter, [string]$ErrorAction)
+        $state = if ($env:FAKE_DEPLOY_FEATURE_STATE -eq "Enabled") { 1 } else { 2 }
+        return @([pscustomobject]@{ InstallState = $state }, [pscustomobject]@{ InstallState = $state })
+    }
+    function Get-WindowsOptionalFeature {
+        param([switch]$Online, [string]$FeatureName, [string]$ErrorAction)
+        return [pscustomobject]@{ State = $env:FAKE_DEPLOY_FEATURE_STATE }
+    }
+    function Enable-WindowsOptionalFeature {
+        param([switch]$Online, [string]$FeatureName, [switch]$All, [switch]$NoRestart, [string]$ErrorAction)
+        & $env:FAKE_DEPLOY_FEATURE_EVENT $FeatureName
+        return [pscustomobject]@{ RestartNeeded = $true }
+    }
+    function Start-Process {
+        param([string]$FilePath, [string]$Verb, [switch]$Wait, [switch]$PassThru, [string[]]$ArgumentList)
+        if ($Verb -ne "RunAs" -or -not $Wait -or -not $PassThru) { throw "WSL setup was not elevated" }
+        & $env:FAKE_DEPLOY_FEATURE_EVENT "elevate"
+        if ($env:FAKE_DEPLOY_ELEVATION_FAIL) { throw "Elevation was cancelled" }
+        $command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($ArgumentList[-1]))
+        Invoke-Expression $command
+    }
+}
 switch ($Mode) {
     "init" { & $Target -EnvFile $EnvFile -InitOnly }
     "first" { & $Target -EnvFile $EnvFile -WithPostgres }
     "install" { & $Target -EnvFile $EnvFile -Install }
+    "check" { & $Target -EnvFile $EnvFile -Check; exit $LASTEXITCODE }
+    "postgres" { & $Target -EnvFile $EnvFile }
     "core" { & $Target -EnvFile $EnvFile }
     default { throw "Unexpected test mode" }
+}
+if ($ErrorActionPreference -ne "Stop" -or -not $PSNativeCommandUseErrorActionPreference) {
+    throw "Docker probes changed the caller's error preferences"
 }
 '''
 
@@ -71,9 +151,12 @@ class DeploymentScriptTests(unittest.TestCase):
         self.repo.mkdir()
         for name in ("deploy.sh", "deploy-postgres.sh", "deploy.ps1", "deploy-postgres.ps1", ".env.example"):
             shutil.copy2(ROOT / name, self.repo / name)
+        (self.repo / "scripts").mkdir()
+        for name in ("windows-docker.ps1", "install-wsl.ps1"):
+            shutil.copy2(ROOT / "scripts" / name, self.repo / "scripts" / name)
         self.bin = self.directory / "bin"
         self.bin.mkdir()
-        for name in ("docker", "curl", "sleep", "winget"):
+        for name in ("docker", "curl", "sleep", "winget", "feature-event"):
             command = self.bin / name
             command.write_text(FAKE_COMMAND)
             command.chmod(0o755)
@@ -84,7 +167,13 @@ class DeploymentScriptTests(unittest.TestCase):
             PATH=str(self.bin) + os.pathsep + os.environ.get("PATH", ""),
             FAKE_DEPLOY_LOG=str(self.log),
             FAKE_DEPLOY_DB_STATE=str(self.state),
+            FAKE_DEPLOY_DOCKER_COUNTER=str(self.directory / "docker-attempts"),
+            FAKE_DEPLOY_DB_COUNTER=str(self.directory / "database-attempts"),
             FAKE_DEPLOY_LOGIN_COUNTER=str(self.directory / "login-attempts"),
+            FAKE_DEPLOY_DOCKER=str(self.bin / "docker"),
+            FAKE_DEPLOY_WINGET=str(self.bin / "winget"),
+            FAKE_DEPLOY_WSL_STATE=str(self.directory / "wsl-kernel-ready"),
+            FAKE_DEPLOY_FEATURE_EVENT=str(self.bin / "feature-event"),
             FAKE_DEPLOY_CURL=str(self.bin / "curl"),
             ProgramFiles=str(self.directory),
         )
@@ -98,8 +187,9 @@ class DeploymentScriptTests(unittest.TestCase):
             if env_file:
                 command += ["--env-file", env_file]
         else:
+            target = "deploy-postgres.ps1" if mode == "postgres" else "deploy.ps1"
             command = [PWSH, "-NoProfile", "-File", str(self.wrapper),
-                       "-Target", str(self.repo / "deploy.ps1"), "-Mode", mode, "-EnvFile", env_file]
+                       "-Target", str(self.repo / target), "-Mode", mode, "-EnvFile", env_file]
         return subprocess.run(command, cwd=self.directory, env=self.env, capture_output=True, text=True, timeout=45)
 
     def commands(self) -> list[list[str]]:
@@ -174,11 +264,172 @@ class DeploymentScriptTests(unittest.TestCase):
 class PowerShellDeploymentScriptTests(DeploymentScriptTests):
     engine = "powershell"
 
+    def setUp(self) -> None:
+        super().setUp()
+        self.env["FAKE_DEPLOY_WINDOWS_STDERR"] = "1"
+
     def test_install_also_deploys_database(self) -> None:
         self.assert_success(self.deploy("install"))
         starts = [args for args in self.commands() if args[0] == "docker" and "up" in args]
         self.assertEqual(len(starts), 2)
         self.assertEqual(starts[0][-1], "postgres")
+
+    def test_install_retries_docker_startup_errors(self) -> None:
+        self.env["FAKE_DEPLOY_DOCKER_FAILURES"] = "2"
+        self.assert_success(self.deploy("install"))
+        probes = [args for args in self.commands() if args == ["docker", "info"]]
+        self.assertGreaterEqual(len(probes), 3)
+
+    def test_install_reports_persistent_docker_failure_before_starting_containers(self) -> None:
+        self.env["FAKE_DEPLOY_DOCKER_FAIL"] = "1"
+        result = self.deploy("install")
+        self.assertNotEqual(result.returncode, 0)
+        output = result.stdout + result.stderr
+        self.assertIn("Docker Desktop did not become ready", output)
+        self.assertIn("Docker Desktop is unable to start", output)
+        self.assertIn("wsl --status", output)
+        self.assertGreater(len([args for args in self.commands() if args == ["docker", "info"]]), 1)
+        self.assertFalse(any("up" in args for args in self.commands()))
+
+    def test_check_reports_docker_failure_without_retrying_or_deploying(self) -> None:
+        self.env["FAKE_DEPLOY_DOCKER_FAIL"] = "1"
+        result = self.deploy("check")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Environment check found", result.stdout)
+        self.assertIn("Docker Desktop is unable to start", result.stdout)
+        self.assertEqual(len([args for args in self.commands() if args == ["docker", "info"]]), 1)
+        self.assertFalse(any("up" in args for args in self.commands()))
+
+    def test_check_reports_missing_compose(self) -> None:
+        self.env["FAKE_DEPLOY_COMPOSE_FAIL"] = "1"
+        result = self.deploy("check")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Docker Compose v2 is unavailable", result.stdout)
+        self.assertIn("'compose' is not a docker command", result.stdout)
+
+    def test_postgres_deploy_retries_database_startup_errors(self) -> None:
+        self.env["FAKE_DEPLOY_DB_FAILURES"] = "2"
+        self.assert_success(self.deploy("postgres"))
+        self.assertGreaterEqual(len([args for args in self.commands() if "pg_isready" in args]), 3)
+
+    def test_postgres_deploy_reports_docker_startup_failure(self) -> None:
+        self.env["FAKE_DEPLOY_DOCKER_FAIL"] = "1"
+        result = self.deploy("postgres")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Docker Desktop is not ready", result.stdout + result.stderr)
+        self.assertIn("Docker Desktop is unable to start", result.stdout + result.stderr)
+        self.assertFalse(any("up" in args for args in self.commands()))
+
+    def prepare_windows_wsl(self, *, installed: bool = True, ready: bool = False) -> None:
+        self.env.update(OS="Windows_NT", FAKE_DEPLOY_TEST_WSL="1", FAKE_DEPLOY_FEATURE_STATE="Enabled")
+        if installed:
+            shutil.copy2(self.bin / "winget", self.bin / "wsl.exe")
+        if ready:
+            Path(self.env["FAKE_DEPLOY_WSL_STATE"]).touch()
+
+    def test_install_reuses_healthy_wsl_without_elevation(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        self.assert_success(self.deploy("install"))
+        self.assertFalse(any(args[0] == "feature-event" for args in self.commands()))
+        self.assertFalse(any("Microsoft.WSL" in args for args in self.commands()))
+        self.assertTrue(any("up" in args for args in self.commands()))
+
+    def test_install_repairs_missing_wsl_kernel_and_continues(self) -> None:
+        self.prepare_windows_wsl()
+        self.assert_success(self.deploy("install"))
+        self.assertIn(["feature-event", "elevate"], self.commands())
+        self.assertIn(["wsl.exe", "--update", "--web-download"], self.commands())
+        self.assertIn(["wsl.exe", "--set-default-version", "2"], self.commands())
+        self.assertTrue(any("up" in args for args in self.commands()))
+
+    def test_install_adds_missing_wsl_without_a_distribution(self) -> None:
+        self.prepare_windows_wsl(installed=False)
+        self.assert_success(self.deploy("install"))
+        self.assertTrue(any(args[0] == "winget" and "Microsoft.WSL" in args for args in self.commands()))
+        self.assertFalse(any("--install" in args for args in self.commands() if args[0] == "wsl.exe"))
+        self.assertTrue(any("up" in args for args in self.commands()))
+
+    def test_install_stops_for_reboot_after_enabling_wsl_features(self) -> None:
+        self.prepare_windows_wsl()
+        self.env["FAKE_DEPLOY_FEATURE_STATE"] = "Disabled"
+        result = self.deploy("install")
+        self.assert_success(result)
+        self.assertIn("Restart Windows", result.stdout)
+        self.assertIn(["feature-event", "Microsoft-Windows-Subsystem-Linux"], self.commands())
+        self.assertIn(["feature-event", "VirtualMachinePlatform"], self.commands())
+        self.assertFalse(any("up" in args for args in self.commands()))
+        self.assertFalse(any(args[0] == "docker" for args in self.commands()))
+
+    def test_install_honors_pending_wsl_feature_reboot(self) -> None:
+        self.prepare_windows_wsl()
+        self.env["FAKE_DEPLOY_FEATURE_STATE"] = "EnablePending"
+        result = self.deploy("install")
+        self.assert_success(result)
+        self.assertIn("Restart Windows", result.stdout)
+        self.assertFalse(any(args[0] == "feature-event" and args[-1] != "elevate" for args in self.commands()))
+        self.assertFalse(any("up" in args for args in self.commands()))
+
+    def test_install_enables_features_even_when_wsl_kernel_is_healthy(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        self.env["FAKE_DEPLOY_FEATURE_STATE"] = "Disabled"
+        result = self.deploy("install")
+        self.assert_success(result)
+        self.assertIn("Restart Windows", result.stdout)
+        self.assertIn(["feature-event", "VirtualMachinePlatform"], self.commands())
+        self.assertFalse(any("up" in args for args in self.commands()))
+
+    def test_install_honors_winget_reboot_result(self) -> None:
+        self.prepare_windows_wsl()
+        self.env["FAKE_DEPLOY_WSL_REBOOT_CODE"] = str(0x8A150109 - 2**32)
+        result = self.deploy("install")
+        self.assert_success(result)
+        self.assertIn("Restart Windows", result.stdout)
+        self.assertFalse(any("up" in args for args in self.commands()))
+
+    def test_wsl_elevation_preserves_quotes_and_non_ascii_paths(self) -> None:
+        self.prepare_windows_wsl()
+        renamed = self.directory / "repo with spaces '中文"
+        self.repo.rename(renamed)
+        self.repo = renamed
+        self.assert_success(self.deploy("install"))
+        self.assertTrue(any("up" in args for args in self.commands()))
+
+    def test_install_falls_back_when_wsl_web_update_is_unsupported(self) -> None:
+        self.prepare_windows_wsl()
+        self.env["FAKE_DEPLOY_WSL_WEB_FAIL"] = "1"
+        self.assert_success(self.deploy("install"))
+        self.assertIn(["wsl.exe", "--update"], self.commands())
+
+    def test_install_reports_wsl_update_failure_without_deploying(self) -> None:
+        self.prepare_windows_wsl()
+        self.env["FAKE_DEPLOY_WSL_UPDATE_FAIL"] = "1"
+        result = self.deploy("install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("WSL kernel update failed", result.stdout + result.stderr)
+        self.assertFalse(any("up" in args for args in self.commands()))
+
+    def test_install_reports_wsl_package_failure_without_deploying(self) -> None:
+        self.prepare_windows_wsl(installed=False)
+        self.env["FAKE_DEPLOY_WSL_INSTALL_FAIL"] = "1"
+        result = self.deploy("install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("WSL package download failed", result.stdout + result.stderr)
+        self.assertFalse(any("up" in args for args in self.commands()))
+
+    def test_install_stops_if_administrator_elevation_is_cancelled(self) -> None:
+        self.prepare_windows_wsl()
+        self.env["FAKE_DEPLOY_ELEVATION_FAIL"] = "1"
+        result = self.deploy("install")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Elevation was cancelled", result.stdout + result.stderr)
+        self.assertFalse(any("Microsoft.WSL" in args or "up" in args for args in self.commands()))
+
+    def test_check_does_not_install_or_repair_wsl(self) -> None:
+        self.prepare_windows_wsl(installed=False)
+        self.env["FAKE_DEPLOY_DOCKER_FAIL"] = "1"
+        result = self.deploy("check")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("Microsoft.WSL" in args or args[0] == "feature-event" for args in self.commands()))
 
 
 if __name__ == "__main__":

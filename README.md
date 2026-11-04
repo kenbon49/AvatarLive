@@ -29,8 +29,9 @@ Windows 首次部署且尚未安装依赖时使用（需要 `winget`）：
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Install
 ```
 
-`-Install` 会安装缺少的 Git/Docker Desktop，启动 PostgreSQL，再部署应用；如果安装要求重启，
-重启并等待 Docker Desktop 就绪后重跑该命令。只检查环境而不启动服务：
+`-Install` 会自动检测 WSL 2，安装或修复缺失的 WSL 和内核，再安装缺少的 Git/Docker Desktop，
+启动 PostgreSQL 并部署应用。WSL 安装会请求管理员授权；如果需要重启，脚本会暂停，
+重启 Windows 后重跑同一命令。只检查环境而不启动服务：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Check

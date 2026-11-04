@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path $PSScriptRoot).Path
+. (Join-Path $Root "scripts\windows-docker.ps1")
 if (-not $EnvFile) { $EnvFile = Join-Path $Root ".env" }
 
 & (Join-Path $Root "deploy.ps1") -EnvFile $EnvFile -InitOnly
@@ -13,10 +14,10 @@ $EnvFile = (Resolve-Path -LiteralPath $EnvFile).Path
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "Docker Desktop is required."
 }
-& docker compose version *> $null
-if ($LASTEXITCODE -ne 0) { throw "Docker Compose v2 is required." }
-& docker info *> $null
-if ($LASTEXITCODE -ne 0) { throw "Docker Desktop is not running." }
+$composeProbe = Invoke-DockerProbe -Arguments @("compose", "version")
+if ($composeProbe.ExitCode -ne 0) { throw "Docker Compose v2 is required.`n$($composeProbe.Output)" }
+$dockerProbe = Invoke-DockerProbe -Arguments @("info")
+if ($dockerProbe.ExitCode -ne 0) { throw (Get-DockerStartupHelp -Details $dockerProbe.Output) }
 
 function Get-EnvValue {
     param([string]$Name)
@@ -38,8 +39,8 @@ if ($LASTEXITCODE -ne 0) { throw "PostgreSQL deployment failed." }
 
 for ($attempt = 0; $attempt -lt 60; $attempt++) {
     $check = $compose + @("exec", "-T", "postgres", "pg_isready", "-U", $postgresUser, "-d", $postgresDatabase)
-    & docker @check *> $null
-    if ($LASTEXITCODE -eq 0) {
+    $probe = Invoke-DockerProbe -Arguments $check
+    if ($probe.ExitCode -eq 0) {
         Write-Host "PostgreSQL is ready. Continue with .\deploy.ps1." -ForegroundColor Green
         return
     }

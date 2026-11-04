@@ -10,6 +10,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path $PSScriptRoot).Path
+. (Join-Path $Root "scripts\windows-docker.ps1")
 if (-not $EnvFile) { $EnvFile = Join-Path $Root ".env" }
 
 function Invoke-Docker {
@@ -31,9 +32,6 @@ function Install-WingetPackage {
 }
 
 function Install-OptionalDependencies {
-    if (-not (Test-CommandAvailable "winget")) {
-        throw "-Install requires winget. Install App Installer from the Microsoft Store, then rerun .\deploy.ps1 -Install."
-    }
     if (-not (Test-CommandAvailable "git")) { Install-WingetPackage "Git.Git" }
     if (-not (Test-CommandAvailable "docker")) { Install-WingetPackage "Docker.DockerDesktop" }
 
@@ -48,11 +46,13 @@ function Install-OptionalDependencies {
         Start-Process -FilePath $dockerDesktop | Out-Null
     }
     if (Test-CommandAvailable "docker") {
-        for ($attempt = 0; $attempt -lt 45; $attempt++) {
-            & docker info *> $null
-            if ($LASTEXITCODE -eq 0) { break }
-            Start-Sleep -Seconds 2
+        Write-Host "Waiting for Docker Desktop to become ready (up to 90 checks, 2 seconds apart)..." -ForegroundColor Cyan
+        for ($attempt = 0; $attempt -lt 90; $attempt++) {
+            $probe = Invoke-DockerProbe -Arguments @("info")
+            if ($probe.ExitCode -eq 0) { return }
+            if ($attempt -lt 89) { Start-Sleep -Seconds 2 }
         }
+        throw ("Docker Desktop did not become ready after 90 checks.`n" + (Get-DockerStartupHelp -Details $probe.Output))
     }
 }
 
@@ -67,10 +67,12 @@ function Test-DeploymentEnvironment {
         $issues.Add("Docker Desktop is missing. Install Docker Desktop or rerun with -Install.")
     }
     else {
-        & docker compose version *> $null
-        if ($LASTEXITCODE -ne 0) { $issues.Add("Docker Compose v2 is unavailable. Update Docker Desktop.") }
-        & docker info *> $null
-        if ($LASTEXITCODE -ne 0) { $issues.Add("Docker Desktop is not running. Start it and wait for the engine to become ready.") }
+        $composeProbe = Invoke-DockerProbe -Arguments @("compose", "version")
+        if ($composeProbe.ExitCode -ne 0) {
+            $issues.Add("Docker Compose v2 is unavailable. Update Docker Desktop.`n$($composeProbe.Output)")
+        }
+        $dockerProbe = Invoke-DockerProbe -Arguments @("info")
+        if ($dockerProbe.ExitCode -ne 0) { $issues.Add((Get-DockerStartupHelp -Details $dockerProbe.Output)) }
     }
 
     if ($issues.Count -gt 0) {
@@ -141,7 +143,13 @@ if ($InitOnly) {
     return
 }
 
-if ($Install) { Install-OptionalDependencies }
+if ($Install) {
+    if (-not (Test-CommandAvailable "winget")) {
+        throw "-Install requires winget. Install App Installer from the Microsoft Store, then rerun .\deploy.ps1 -Install."
+    }
+    if ($env:OS -eq "Windows_NT" -and -not (Initialize-WindowsWsl)) { return }
+    Install-OptionalDependencies
+}
 
 if ($Check) {
     if (-not (Test-DeploymentEnvironment)) { exit 1 }
@@ -158,8 +166,8 @@ if ($WithPostgres -or $Install) {
 
 $databaseCompose = @("compose", "-f", (Join-Path $Root "infra\docker-compose.postgres.yml"), "--env-file", $EnvFile)
 $databaseCheck = $databaseCompose + @("exec", "-T", "postgres", "pg_isready", "-U", $postgresUser, "-d", $postgresDatabase)
-& docker @databaseCheck *> $null
-if ($LASTEXITCODE -ne 0) {
+$databaseProbe = Invoke-DockerProbe -Arguments $databaseCheck
+if ($databaseProbe.ExitCode -ne 0) {
     throw "PostgreSQL is not ready. Run .\deploy.ps1 -WithPostgres or deploy it first with .\deploy-postgres.ps1."
 }
 

@@ -30,7 +30,7 @@ git clone --branch main https://github.com/kenbon49/AvatarLive.git
 前置条件是 Git 和 Docker。Windows/macOS 安装 Docker Desktop，Linux 安装 Docker
 Engine 与 Compose v2，Linux 还需安装 `curl`。Docker daemon 必须已经启动。
 Linux/macOS 脚本不会自动安装 Docker。Windows 可用 `-Install` 让脚本通过
-`winget` 安装 Git 和 Docker Desktop。
+`winget` 安装 WSL、Git 和 Docker Desktop，并自动检测和修复缺失的 WSL 2 内核。
 
 Linux / macOS：
 
@@ -58,8 +58,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Install
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Check
 ```
 
-`-Install` 安装依赖后会部署 PostgreSQL 和应用；如果 Docker Desktop/WSL 安装要求重启，
-重启并等待 Docker Desktop 就绪后重跑同一命令。
+`-Install` 会先检测 WSL 是否可用并将默认版本设为 2。WSL 未安装或内核缺失时，
+脚本会请求管理员授权，启用“适用于 Linux 的 Windows 子系统”和“虚拟机平台”，
+通过 `winget` 安装/更新 `Microsoft.WSL`，再更新内核；不安装 Ubuntu 等用户分发版。
+内核更新优先使用 `wsl --update --web-download`，避免依赖已暂停的 Windows 更新，
+不支持该选项时再尝试普通 `wsl --update`。
+如果系统组件或 WSL 安装要求重启，脚本会停止本次部署并提示重启 Windows，
+重启后重跑同一命令；脚本不会自动重启电脑。WSL 就绪后才安装其余依赖、部署 PostgreSQL 和应用。
+安装流程会尝试启动 Docker Desktop，并以 2 秒间隔检查引擎，最多检查 90 次；
+检测失败时保留 Docker 返回的诊断信息，超时后停止部署并提示排查步骤。
 `--with-postgres` / `-WithPostgres` 显式包含数据库部署，日常更新不加该选项。
 也可以继续分两步运行 `./deploy-postgres.sh`、`./deploy.sh`；Windows 对应
 `deploy-postgres.ps1`、`deploy.ps1`，或先双击 `deploy-postgres.cmd` 再双击 `deploy.cmd`。
@@ -170,6 +177,44 @@ Windows 使用相同的 `git pull`，然后执行 `.\deploy.ps1`。
 `./deploy-postgres.sh` 和 `./deploy.sh`（Windows 使用对应 PowerShell 脚本），独立数据库会继续挂载原数据卷。
 
 ## 常见检查
+
+### Windows：Docker Desktop 无法启动
+
+如果 `-Install` 提示 `Docker Desktop is unable to start`，先在 PowerShell 查看：
+
+```powershell
+wsl --status
+wsl -l -v
+docker info
+```
+
+若 `wsl --status` 显示“未找到 WSL 2 内核文件”，重跑 `deploy.ps1 -Install` 会自动安装/修复；
+请允许系统的管理员授权请求。也可以使用**管理员 PowerShell**手动修复内核：
+
+```powershell
+wsl --update
+```
+
+如果 Windows 更新已暂停，导致更新无法完成，可先恢复 Windows 更新后重试；
+也可按照微软的 [WSL 2 内核安装说明](https://aka.ms/wsl2kernel) 安装与系统架构对应的内核包。
+完成后重启 Windows，打开 Docker Desktop，等待引擎启动，再验证并重新部署：
+
+```powershell
+docker info
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Install
+```
+
+`docker info` 必须能正常返回 `Server` 信息。`wsl -l -v` 显示没有已安装的分发版，
+本身不表示必须安装 Ubuntu；Docker Desktop 会管理自己的 WSL 环境。
+若内核修复后仍无法启动，检查 BIOS/UEFI 中的硬件虚拟化，以及 Windows 的
+“适用于 Linux 的 Windows 子系统”和“虚拟机平台”功能是否启用；
+使用 WSL 后端时，Docker Desktop 设置中的 `Use the WSL 2 based engine` 也应开启。
+
+Windows PowerShell 5.1 会将部分外部命令的标准错误转成 `NativeCommandError`。
+部署脚本的环境和就绪检测会捕获这些输出并检查退出码，使引擎、数据库启动期间的预期失败可以重试；
+`-Check` 只输出诊断，不安装或修复系统组件；自动修复须使用 `-Install`。
+
+### 容器和服务状态
 
 ```bash
 docker compose -f infra/docker-compose.postgres.yml --env-file .env ps
