@@ -1,0 +1,13 @@
+{
+  "source": "https://yijing.baidu.com/",
+  "retrievedAt": "2026-09-15T15:19:10.828Z",
+  "templateCount": 889,
+  "pageCount": 1012,
+  "layerCount": 39142,
+  "assetCount": 38557,
+  "sourceFontCount": 45,
+  "mappedFontCount": 44,
+  "localFontCount": 43,
+  "restoredSceneBackgroundCount": 11,
+  "processing": "All covers, visual layers, original rendered text previews, and available source fonts are stored locally. Composite real-scene presenter images use locally restored presenter-free backgrounds. Digital-human layers use the selected project avatar."
+}

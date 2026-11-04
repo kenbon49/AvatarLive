@@ -6,9 +6,22 @@ FROM ${REGISTRY}python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=1000 \
+    PIP_RETRIES=20 \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 WORKDIR /app
+
+# The API owns the process-isolated media supervisor in the MVP. Keep FFmpeg
+# in the image so a live run can publish a test source and restream targets.
+RUN sed -i \
+        -e 's|http://deb.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g' \
+        -e 's|http://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # 先装依赖（利用层缓存）
 COPY requirements.txt .
@@ -16,8 +29,11 @@ RUN pip install -r requirements.txt
 
 # 再拷业务代码
 COPY app ./app
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 
 EXPOSE 8000
 
-# docker compose 里由 env 注入配置；这里只起服务
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 启动前迁移数据库，并在空数据库中创建唯一的初始管理员。凭据只写入
+# api_runtime volume，不进入镜像或容器环境变量。
+CMD ["sh", "-c", "alembic upgrade head && mkdir -p /app/runtime/admin && chmod 700 /app/runtime/admin && python -m app.bootstrap_admin --if-missing --email \"${BOOTSTRAP_ADMIN_EMAIL:-admin@avatarlive.app}\" --username \"${BOOTSTRAP_ADMIN_USERNAME:-admin}\" --credentials-file /app/runtime/admin/initial-admin.txt && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

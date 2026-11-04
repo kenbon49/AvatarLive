@@ -1,0 +1,11 @@
+.authScreen { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #f3f6f6; color: #1c2730; }
+.authPanel { width: min(100%, 390px); padding: 28px; border: 1px solid #dce2e3; border-radius: 8px; background: #fff; }
+.authPanel h1 { margin: 0 0 6px; font-size: 22px; }
+.authPanel p { margin: 0 0 18px; color: #66747b; }
+.authPanel form { display: grid; gap: 14px; margin: 16px 0; }
+.authPanel label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.authPanel input { width: 100%; min-height: 42px; padding: 8px 11px; border: 1px solid #bfcace; border-radius: 4px; background: #fff; color: #1c2730; font: inherit; }
+.authPanel button { min-height: 42px; border: 0; border-radius: 4px; background: #146d68; color: white; font: inherit; font-weight: 700; cursor: pointer; }
+.authPanel button:disabled { opacity: .6; cursor: wait; }
+.authPanel a { color: #146d68; font-size: 13px; }
+.authPanel .authError { margin: 0; color: #ae3434; font-size: 13px; }

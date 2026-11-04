@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls scripts/*.sh)"
+      "Bash(ls scripts/*.sh)",
+      "Bash(powershell.exe:*)",
+      "Bash(curl.exe:*)",
+      "Bash(cloudflared.exe --version)",
+      "Bash(echo \"---exit:$?\")",
+      "Bash(pnpm exec:*)",
+      "Bash(CI=true node node_modules/next/dist/bin/next dev -H 127.0.0.1 -p 3000)"
     ]
   }
 }

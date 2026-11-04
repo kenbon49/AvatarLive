@@ -1,0 +1,22 @@
+.backdrop { position: fixed; inset: 0; z-index: 100; display: flex; justify-content: flex-end; background: rgba(18, 32, 41, .34); }
+.drawer { width: min(460px, 100vw); height: 100dvh; outline: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; color: #243039; background: #fff; box-shadow: -16px 0 50px rgba(18, 32, 41, .15); }
+.header { min-height: 76px; padding: 16px 20px; display: grid; grid-template-columns: 40px minmax(0, 1fr) 34px; align-items: center; gap: 12px; border-bottom: 1px solid #e1e7e8; }
+.headerIcon { width: 40px; height: 40px; border-radius: 6px; display: grid; place-items: center; color: #fff; background: #146d68; }
+.header > div:nth-child(2) { min-width: 0; }
+.header span { color: #819096; font-size: 11px; }
+.header h2 { margin: 3px 0 0; font-size: 18px; }
+.closeButton { width: 34px; height: 34px; border: 0; display: grid; place-items: center; background: transparent; color: #69777e; cursor: pointer; }
+.closeButton:hover { background: #f1f5f5; }
+.content { min-height: 0; padding: 24px 20px; overflow-y: auto; }
+.resourceHeading h3 { margin: 0 0 14px; font-size: 14px; }
+.resourceList { display: grid; }
+.resourceItem { border-top: 1px solid #e6ebeb; }
+.resourceItem:last-child { border-bottom: 1px solid #e6ebeb; }
+.resourceItem > a { min-height: 72px; padding: 12px 4px; display: grid; grid-template-columns: 38px minmax(0, 1fr) 18px; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+.resourceItem > a:hover { color: #146d68; }
+.resourceItem > a:focus-visible, .closeButton:focus-visible { outline: 2px solid #146d68; outline-offset: 2px; }
+.resourceIcon { width: 38px; height: 38px; border-radius: 6px; display: grid; place-items: center; color: #146d68; background: #eaf5f2; }
+.resourceCopy { min-width: 0; display: grid; gap: 4px; }
+.resourceCopy strong { font-size: 13px; }
+.resourceCopy small { color: #738087; font-size: 11px; white-space: normal; }
+@media (max-width: 600px) { .backdrop { align-items: flex-end; } .drawer { width: 100%; height: min(100dvh, 760px); border-radius: 8px 8px 0 0; } .content { padding: 20px 16px; } }

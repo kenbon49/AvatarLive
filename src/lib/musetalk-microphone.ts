@@ -164,6 +164,10 @@ export class MuseTalkMicrophoneStream {
     }
   }
 
+  getInputAudioTrack(): MediaStreamTrack | null {
+    return this.mediaStream?.getAudioTracks()[0] ?? null;
+  }
+
   async cancel(): Promise<void> {
     await this.releaseCapture();
     const websocket = this.websocket;

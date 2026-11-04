@@ -1,7 +1,6 @@
 // 后端 API 客户端（浏览器端 fetch）。
-// - 本地开发：不设 NEXT_PUBLIC_API_BASE_URL → 默认 http://localhost:8000
-// - 单机反代部署：构建时设 NEXT_PUBLIC_API_BASE_URL="" → 同源相对路径（经 Caddy :8018 转发）
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+// Browser API requests must pass through the authenticated same-origin proxy.
+export const API_BASE = '';
 
 // LiveTalking WebRTC 地址：浏览器直连（LiveTalking 侧 aiohttp_cors 已对 8018 放开）。
 // 默认用页面同主机名 + :8028（单机部署时 SynLive 在 :8018、LiveTalking 在 :8028）。

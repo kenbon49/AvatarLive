@@ -1,0 +1,118 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  avatarIdleVideo,
+  avatarUsesSharedMuseTalkCycle,
+} from '../src/lib/avatar-preview-media.ts';
+import {
+  ALIYUN_PUBLIC_AVATARS,
+  LIVE_AVATARS,
+  aliyunAvatarForCloudVideo,
+} from '../src/lib/live-avatar-catalog.ts';
+import { matchesAvatar } from '../src/lib/avatar-catalog-filters.ts';
+
+function customAvatar(mode) {
+  return {
+    id: 'custom-test',
+    profile: 'custom-test_job',
+    language: 'ZH',
+    name: '测试形象',
+    role: '测试',
+    description: '测试',
+    image: '/custom.jpg',
+    custom: true,
+    video: {
+      jobId: 'job',
+      profile: 'custom-test_job',
+      idleVideo: '/idle.mp4',
+      talkVideo: '/talk.mp4',
+      motion: mode ? { prompt: '挥手', mode, intensity: 'natural', duration: 4 } : undefined,
+    },
+  };
+}
+
+test('uses the complete generated video for looping and legacy custom avatars', () => {
+  assert.equal(avatarIdleVideo(customAvatar('loop')), '/talk.mp4');
+  assert.equal(avatarIdleVideo(customAvatar()), '/talk.mp4');
+});
+
+test('uses the neutral idle clip after a one-shot gesture', () => {
+  assert.equal(avatarIdleVideo(customAvatar('once')), '/idle.mp4');
+});
+
+test('keeps curated idle media for built-in avatars', () => {
+  assert.equal(avatarIdleVideo({
+    id: 'chinese',
+    profile: 'chinese',
+    language: 'ZH',
+    name: '中文女',
+    role: '顾问',
+    description: '内置',
+    image: '/chinese.jpg',
+  }), '/assets/musetalk-default/chinese2-cycle-4to7-d0853621.mp4');
+});
+
+test('only synchronizes source phase for the unchanged shared Chinese cycle', () => {
+  const chinese = {
+    id: 'chinese',
+    profile: 'chinese',
+    language: 'ZH',
+    name: '中文女',
+    role: '顾问',
+    description: '内置',
+    image: '/chinese.jpg',
+  };
+  assert.equal(avatarUsesSharedMuseTalkCycle(chinese), true);
+  assert.equal(avatarUsesSharedMuseTalkCycle({ ...chinese, id: 'business-male-1' }), false);
+  assert.equal(avatarUsesSharedMuseTalkCycle({
+    ...chinese,
+    video: customAvatar('loop').video,
+  }), false);
+});
+
+test('exposes the complete synchronized Alibaba Cloud public avatar catalog', () => {
+  assert.equal(ALIYUN_PUBLIC_AVATARS.length, 182);
+  assert.equal(ALIYUN_PUBLIC_AVATARS.filter((avatar) => avatar.gender === '男').length, 61);
+  assert.equal(ALIYUN_PUBLIC_AVATARS.filter((avatar) => avatar.gender === '女').length, 121);
+  assert.equal(ALIYUN_PUBLIC_AVATARS.filter((avatar) => avatar.previewVideo).length, 170);
+  assert.equal(ALIYUN_PUBLIC_AVATARS.filter((avatar) => avatar.transparent).length, 170);
+  assert.ok(ALIYUN_PUBLIC_AVATARS.some((avatar) => avatar.name === '灵锐'));
+  assert.ok(ALIYUN_PUBLIC_AVATARS.every((avatar) => (
+    avatar.scope === 'aliyun'
+    && avatar.providerName === '官方形象库'
+    && avatar.officialId
+    && avatar.image.endsWith(`${avatar.officialId}.webp`)
+    && avatar.rendererProfile === undefined
+  )));
+  assert.equal(new Set(ALIYUN_PUBLIC_AVATARS.map((avatar) => avatar.officialId)).size, 182);
+});
+
+test('filters the shared avatar catalog by search, gender, type, and scene', () => {
+  const liveFemale = ALIYUN_PUBLIC_AVATARS.find((avatar) => avatar.gender === '女' && avatar.businessType === 'LIVE');
+  const threeDimensional = ALIYUN_PUBLIC_AVATARS.find((avatar) => avatar.sourceType === 'AVATAR_3D_TRADITIONAL');
+  assert.ok(liveFemale);
+  assert.ok(threeDimensional);
+  assert.equal(matchesAvatar(liveFemale, liveFemale.name, '女', '全部类型', '直播'), true);
+  assert.equal(matchesAvatar(liveFemale, liveFemale.officialId, '男', '全部类型', '直播'), false);
+  assert.equal(matchesAvatar(liveFemale, 'no-such-avatar', '全部', '全部类型', '全部场景'), false);
+  assert.equal(matchesAvatar(threeDimensional, '', '全部', '3D / UE', '全部场景'), true);
+  assert.equal(matchesAvatar(threeDimensional, '', '全部', '2D', '全部场景'), false);
+});
+
+test('uses the Alibaba Cloud catalog as the only live avatar source', () => {
+  assert.equal(LIVE_AVATARS, ALIYUN_PUBLIC_AVATARS);
+  assert.equal(LIVE_AVATARS.length, 182);
+  assert.ok(LIVE_AVATARS.every((avatar) => avatar.scope === 'aliyun' && avatar.rendererProfile === undefined));
+  assert.ok(LIVE_AVATARS.every((avatar) => avatar.name !== '商务男' && avatar.name !== '陈屿'));
+});
+
+test('uses the selected Alibaba Cloud avatar directly for cloud video synthesis', () => {
+  const lingruo = ALIYUN_PUBLIC_AVATARS.find((avatar) => avatar.name === '灵箬');
+  const liveLingwan = ALIYUN_PUBLIC_AVATARS.find((avatar) => avatar.name === '灵婉' && avatar.businessType === 'LIVE');
+  assert.ok(lingruo);
+  assert.equal(lingruo.businessType, 'LIVE');
+  assert.equal(aliyunAvatarForCloudVideo(lingruo), lingruo);
+  assert.ok(liveLingwan);
+  assert.equal(aliyunAvatarForCloudVideo(liveLingwan), liveLingwan);
+});

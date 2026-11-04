@@ -1,0 +1,115 @@
+{
+  "source": "https://yijing.baidu.com/",
+  "retrievedAt": "2026-09-15",
+  "processing": "Imported as editable local image and text layers; source digital-human layers are replaced by the selected project avatar.",
+  "templates": [
+    {
+      "id": 811,
+      "name": "春日悦选",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/de60eaf5804629e8ae124aad118f287a.png",
+      "thumbnail": "yijing-811.png",
+      "editableLayers": 28,
+      "imageLayers": 11,
+      "textLayers": 16
+    },
+    {
+      "id": 431,
+      "name": "味蕾盛宴",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/3ca6ccff0275d58a2978dc26322d4188.png",
+      "thumbnail": "yijing-431.png",
+      "editableLayers": 22,
+      "imageLayers": 10,
+      "textLayers": 11
+    },
+    {
+      "id": 857,
+      "name": "品质之选",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/a717502a2c3ee2b02a23370e9d039794.png",
+      "thumbnail": "yijing-857.png",
+      "editableLayers": 24,
+      "imageLayers": 13,
+      "textLayers": 10
+    },
+    {
+      "id": 1088,
+      "name": "家居台灯",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/cefef163783b1901cd59cb08e25c93b6.png",
+      "thumbnail": "yijing-1088.png",
+      "editableLayers": 61,
+      "imageLayers": 20,
+      "textLayers": 40
+    },
+    {
+      "id": 1104,
+      "name": "美妆大促",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/a63642af1c0fe4f1937e9d11b35c0fcc.png",
+      "thumbnail": "yijing-1104.png",
+      "editableLayers": 28,
+      "imageLayers": 13,
+      "textLayers": 14
+    },
+    {
+      "id": 1197,
+      "name": "口红直播",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/f74376d0cf6974be8679464b616e734c.png",
+      "thumbnail": "yijing-1197.png",
+      "editableLayers": 45,
+      "imageLayers": 21,
+      "textLayers": 23
+    },
+    {
+      "id": 408,
+      "name": "零食狂欢",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/20c6edbb4962c892cd96b5c34110df20.png",
+      "thumbnail": "yijing-408.png",
+      "editableLayers": 37,
+      "imageLayers": 16,
+      "textLayers": 20
+    },
+    {
+      "id": 1146,
+      "name": "酒水专享",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/c730c4d6df7cc78573417bf03888e3e3.png",
+      "thumbnail": "yijing-1146.png",
+      "editableLayers": 47,
+      "imageLayers": 21,
+      "textLayers": 25
+    },
+    {
+      "id": 2033,
+      "name": "家中欧美",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/04063fe22ccda3afdf7af7c6006ab3c1.png",
+      "thumbnail": "yijing-2033.png",
+      "editableLayers": 41,
+      "imageLayers": 21,
+      "textLayers": 19
+    },
+    {
+      "id": 875,
+      "name": "春季新风",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/6fd52f2449986f063621c51629ab1fd6.png",
+      "thumbnail": "yijing-875.png",
+      "editableLayers": 19,
+      "imageLayers": 11,
+      "textLayers": 7
+    },
+    {
+      "id": 856,
+      "name": "潮流智玩",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/aef1e0f0938b4debba1d71f1f8706535.png",
+      "thumbnail": "yijing-856.png",
+      "editableLayers": 32,
+      "imageLayers": 17,
+      "textLayers": 14
+    },
+    {
+      "id": 3304,
+      "name": "冲刺开学",
+      "cover": "https://huibo-data.cdn.bcebos.com/upload/ef37b13cc034a7edd6394b1b51e64f9b.png",
+      "thumbnail": "yijing-3304.png",
+      "editableLayers": 55,
+      "imageLayers": 36,
+      "textLayers": 18
+    }
+  ]
+}

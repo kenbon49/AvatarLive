@@ -1,5 +1,5 @@
-import { LiveConsole } from '@/components/live-console';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <LiveConsole />;
+  redirect('/live');
 }

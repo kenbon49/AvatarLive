@@ -13,7 +13,7 @@ export function AppDashboard() {
           <p>选择一个模块进入，或从最近任务继续。当前是静态原型，后续会接入真实后端和实时状态。</p>
         </div>
         <div className="workspaceActions">
-          <Link className="primaryCta" href="/app/live">
+          <Link className="primaryCta" href="/live">
             创建直播 <ArrowRight size={18} />
           </Link>
           <Link className="secondaryCta light" href="/app/scripts">
@@ -66,7 +66,7 @@ export function AppDashboard() {
               <span><CalendarClock size={15} /> 脚本待预演</span>
               <span><CircleAlert size={15} /> 视频号待授权</span>
             </div>
-            <Link href="/app/live">进入预备室</Link>
+            <Link href="/live">进入预备室</Link>
           </div>
           <div className="opsCard">
             <div className="opsHeader">

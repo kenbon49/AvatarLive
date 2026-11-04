@@ -1,17 +1,25 @@
-import { Construction, ArrowLeft } from 'lucide-react';
-import Link from 'next/link';
-import { ProductShell } from '@/components/product-shell';
+import { LiveStudio } from '@/components/live-studio';
 
-export default function LivePage() {
+type LivePageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function firstValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function LivePage({ searchParams }: LivePageProps) {
+  const params = await searchParams;
+  const requestedDialog = firstValue(params.dialog);
+  const dialog = requestedDialog === 'settings' || requestedDialog === 'voice' ? requestedDialog : undefined;
+  const roomId = firstValue(params.room);
+  const entered = firstValue(params.studio) === '1' || firstValue(params.demo) === '1' || Boolean(dialog) || Boolean(roomId);
   return (
-    <ProductShell>
-      <main className="developingPage">
-        <div className="developingMark"><Construction size={32} /></div>
-        <span className="eyebrow">DIGITAL HUMAN LIVE</span>
-        <h1>数字人直播<br />正在开发</h1>
-        <p>直播编排与推流能力正在准备中，敬请期待。</p>
-        <Link className="developingBack" href="/"><ArrowLeft size={17} />返回实时互动</Link>
-      </main>
-    </ProductShell>
+    <LiveStudio
+      dialog={dialog}
+      entered={entered}
+      requestedRoomId={roomId}
+      createOnLanding={!entered && firstValue(params.create) === '1'}
+    />
   );
 }

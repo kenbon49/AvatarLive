@@ -1,0 +1,145 @@
+[
+  {
+    "templateId": 3317,
+    "pageIndex": 0,
+    "name": "豪华甄选",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3317-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/dd372063-4b0a-4068-8e2a-24c19947bbe9.png",
+    "maskRectangle": {
+      "left": 89,
+      "top": 190,
+      "width": 408,
+      "height": 770
+    }
+  },
+  {
+    "templateId": 3315,
+    "pageIndex": 0,
+    "name": "终极购车",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3315-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/2982512d-e72a-4460-b40d-8e3b45cdaae2.png",
+    "maskRectangle": {
+      "left": 35,
+      "top": 420,
+      "width": 422,
+      "height": 314
+    }
+  },
+  {
+    "templateId": 3314,
+    "pageIndex": 0,
+    "name": "心动价格",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3314-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/5299b8ba-b0eb-4579-adc2-016b14b104d4.png",
+    "maskRectangle": {
+      "left": 0,
+      "top": 350,
+      "width": 477,
+      "height": 610
+    }
+  },
+  {
+    "templateId": 3313,
+    "pageIndex": 0,
+    "name": "年度风暴",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3313-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/c4044d83-d56a-4528-96b6-336c18ddde2e.png",
+    "maskRectangle": {
+      "left": 0,
+      "top": 230,
+      "width": 540,
+      "height": 730
+    }
+  },
+  {
+    "templateId": 3312,
+    "pageIndex": 0,
+    "name": "焕新盛宴",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3312-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/61f9452a-79ed-4c47-a27a-088717fdd1c3.png",
+    "maskRectangle": {
+      "left": 0,
+      "top": 344,
+      "width": 540,
+      "height": 616
+    }
+  },
+  {
+    "templateId": 3298,
+    "pageIndex": 0,
+    "name": "型号补贴",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3298-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/2cfa11f1-a933-44bd-b0df-52da3957face.png",
+    "maskRectangle": {
+      "left": 109,
+      "top": 440,
+      "width": 346,
+      "height": 370
+    }
+  },
+  {
+    "templateId": 3297,
+    "pageIndex": 0,
+    "name": "北欧轿车",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3297-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/4f16f644-67b0-4d26-87fc-70279b3bdcca.png",
+    "maskRectangle": {
+      "left": 0,
+      "top": 230,
+      "width": 540,
+      "height": 730
+    }
+  },
+  {
+    "templateId": 3296,
+    "pageIndex": 0,
+    "name": "全新好车",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3296-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/0695f290-5374-40aa-b294-392fdf02d4a3.png",
+    "maskRectangle": {
+      "left": 75,
+      "top": 142,
+      "width": 322,
+      "height": 818
+    }
+  },
+  {
+    "templateId": 3294,
+    "pageIndex": 0,
+    "name": "高级轿车",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3294-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/ee4b4c3a-f280-4afc-b648-1914f3f0815c.png",
+    "maskRectangle": {
+      "left": 0,
+      "top": 116,
+      "width": 507,
+      "height": 844
+    }
+  },
+  {
+    "templateId": 3293,
+    "pageIndex": 0,
+    "name": "电混轿车",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3293-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/e6be264b-00dd-42d1-81e5-cc9ae61b4099.png",
+    "maskRectangle": {
+      "left": 109,
+      "top": 440,
+      "width": 346,
+      "height": 370
+    }
+  },
+  {
+    "templateId": 3282,
+    "pageIndex": 0,
+    "name": "好车限购",
+    "path": "/assets/xiling-live/yijing/scene-backgrounds/3282-p0.webp",
+    "sourceUrl": "https://huibo-ds-img.bj.bcebos.com/img_trans/923f6880-0de5-438a-9c89-00bfb62bbaee.png",
+    "maskRectangle": {
+      "left": 0,
+      "top": 350,
+      "width": 477,
+      "height": 610
+    }
+  }
+]

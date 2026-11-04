@@ -11,6 +11,7 @@ dist
 !.env.example
 tmp
 output
+runtime
 **/__pycache__
 *.tsbuildinfo
 *.log
@@ -20,3 +21,4 @@ public/assets/musetalk-body/**/*.npz
 apps/api/.env
 infra/.env
 scripts/.env
+secrets

@@ -1,5 +1,5 @@
-import { AvatarDesignStudio } from '@/components/avatar-design-studio';
+import { redirect } from 'next/navigation';
 
 export default function DesignPage() {
-  return <AvatarDesignStudio />;
+  redirect('/');
 }

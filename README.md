@@ -2,12 +2,59 @@
 
 AI 数字人直播中控平台原型。
 
-## 本地启动
+## 一键部署（Windows / Linux / macOS）
+
+PostgreSQL 使用独立 Compose 生命周期；前端、控制 API、SRS 和统一入口由 Core Compose 管理。
+当前部署只使用阿里云数字人、DeepSeek 和百炼语音等云端能力，不部署 Cloudflare
+Tunnel、Azure TTS、LiveTalking 或本地 GPU 推理服务。
+
+前置条件：Linux 安装并启动 Docker Engine 与 Compose v2，同时安装 `curl`；macOS 安装并启动
+Docker Desktop。脚本不会自动安装 Linux/macOS 的 Docker。
+
+Linux / macOS 首次部署（在仓库根目录运行）：
+
+```bash
+./deploy.sh --with-postgres
+```
+
+Windows 已安装并启动 Docker Desktop 时：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -WithPostgres
+```
+
+Windows 首次部署且尚未安装依赖时使用（需要 `winget`）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Install
+```
+
+`-Install` 会安装缺少的 Git/Docker Desktop，启动 PostgreSQL，再部署应用；如果安装要求重启，
+重启并等待 Docker Desktop 就绪后重跑该命令。只检查环境而不启动服务：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Check
+```
+
+Windows 也可以先双击 `deploy-postgres.cmd`，再双击 `deploy.cmd`。
+首次部署无需准备 `.env`：脚本会自动生成基础配置，初始化数据库并显示管理员 `admin` 的随机密码。
+脚本确认后端和登录页都就绪后才提示成功；访问 `http://localhost:8018/live`。
+DeepSeek 的 URL、Key 和模型在管理员系统设置中配置；阿里云凭据、模板和语音服务配置写入
+`.env` 后重新部署。未配置云服务时仍可启动基础服务。
+
+日常更新运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`），不会启动或重建独立数据库。
+也可以继续分两步运行 `deploy-postgres` 和 `deploy` 脚本。
+
+详细前置条件、更新、停止和故障排查见
+[`docs/cross-platform-deployment.md`](docs/cross-platform-deployment.md)。
+
+## 源码开发
 
 如果你的终端没有 `pnpm`，直接使用 npm 即可：
 
 ```bash
-cd /Users/yangcheng/PycharmProjects/SynLive
+cd AvatarLive
+npm install
 npm run dev
 ```
 
@@ -16,6 +63,9 @@ npm run dev
 ```text
 http://localhost:3000
 ```
+
+`3000` 是源码开发时的前端端口；Docker 一键部署的统一入口默认是 `8018`。
+`npm run dev` 只启动前端，完整功能还需按 [`apps/api/README.md`](apps/api/README.md) 启动后端和数据库。
 
 如果 3000 端口被占用，可以换端口：
 
@@ -51,17 +101,14 @@ pnpm dev
 
 ## 页面入口
 
-- 官网首页：http://localhost:3000/
-- 工作台：http://localhost:3000/app
-- 直播中控：http://localhost:3000/app/live
-- 数字人资产：http://localhost:3000/app/avatars
-- 脚本编排：http://localhost:3000/app/scripts
-- 知识库问答：http://localhost:3000/app/knowledge
-- 多平台推流：http://localhost:3000/app/platforms
-- 场控与风控：http://localhost:3000/app/moderation
-- 数据报表：http://localhost:3000/app/reports
-- 年度服务：http://localhost:3000/app/services
+以下以源码前端端口 `3000` 为例；Docker 部署使用统一入口端口 `8018`。
+
+- 实时互动首页：http://localhost:3000/
+- 直播中控：http://localhost:3000/live
+- 直播节目输出窗口：http://localhost:3000/live/program（由直播控制台带会话参数打开）
 - 文档入口：http://localhost:3000/docs
+
+`/app/*` 是旧版工作台路径，当前父布局会将其兼容重定向到首页；新的直播推流链路请使用 `/live`。
 
 ## 校验命令
 
@@ -106,23 +153,25 @@ python3 scripts/generate_marketing_assets.py
 
 注意：Hero 主视觉和 `product-live-control.png` 当前由 GPT Image 生成，辅助脚本不会覆盖它们。
 
-## 后端 & 一键启动
+## 后端与兼容入口
 
-后端代码与文档在 `apps/api/`（FastAPI，已接入 Azure TTS + LiteLLM/GPT + LiveTalking 客户端）。基础设施编排、数字人渲染部署在 `infra/`。
+后端代码与文档在 `apps/api/`（FastAPI + LiteLLM/DeepSeek）。基础设施编排在 `infra/`。
 
-### 一键脚本
+旧的 `scripts/start.sh`、`scripts/deploy-full.sh` 和 `scripts/stop.sh` 仍可使用，
+它们现在转发到根目录的跨平台部署入口。新部署建议直接使用：
 
 ```bash
-# 1) 启动后端 docker 栈（postgres/redis/qdrant/minio/srs/api），自动生成 .env
-#    可选提前 export AZURE_SERVICE_KEY / LITELLM_LLM_API_KEY 自动注入密钥
-./scripts/start.sh
-./scripts/start.sh --with-frontend   # 顺带起 Next.js 前端 :3000
-
-# 2) 停止（保留数据）；--purge 连数据一起清
-./scripts/stop.sh
-
-# 3) 在 GPU 机器上部署 LiveTalking（渲染节点，跨机接入）
-AZURE_SPEECH_KEY=xxxx SRS_HOST=<SynLive主机IP> ./scripts/deploy-livetalking.sh
+./deploy-postgres.sh
+./deploy.sh
+./stop.sh
 ```
 
-更多见 `apps/api/README.md` 与 `infra/livetalking/README.md`。
+`start.sh`/`deploy-full.sh` 会同时启用 Compose 的 `media` profile。SRS 的 RTMP/API 端口分别为 `1935/1985`，WebRTC 使用 UDP `8000`，HTTP-FLV 默认映射到 `18080`（可用 `SRS_HTTP_PORT` 覆盖）。生产环境需把 `SRS_CANDIDATE` 设置为浏览器可达的服务器 IP；控制台会将最终竖屏 Canvas 和数字人音频经同源 WHIP 发布到 SRS，再由 API 为各 RTMP 目标启动独立 FFmpeg。`LIVE_RUN_ALLOW_TEST_PATTERN` 默认关闭。
+
+### 官方直播伴侣窗口采集
+
+直播控制台的“开播编排”现在默认提供“窗口采集（推荐）”模式。该模式不需要平台 RTMP 密钥：点击“打开节目输出窗口”后，控制台会打开 `/live/program` 纯净节目窗口，并通过本机 WebRTC 将合成画面和数字人音频送入窗口。用户在抖音、快手、淘宝等官方直播伴侣中选择该窗口（以及系统声音）后，再由平台客户端完成登录和开播。
+
+节目窗口支持 `9:16` 竖屏手机比例和 `16:9` 横屏 PC 比例。窗口采集只适用于节目窗口与平台客户端运行在同一台电脑的场景；平台客户端的实际开播状态不会回传给 AvatarLive。手工 RTMP 模式仍然保留，适用于账号后台明确提供合法 RTMP/RTMPS 地址和推流密钥的情况。
+
+更多见 `apps/api/README.md` 与 `docs/cross-platform-deployment.md`。

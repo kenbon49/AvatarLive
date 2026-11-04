@@ -13,7 +13,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    model_id: str | None = Field(None, description="留空用默认模型 llm-gpt")
+    model_id: str | None = Field(None, description="留空使用系统设置中的默认模型")
     messages: list[ChatMessage] = Field(..., min_length=1)
     system_prompt: str = ""
     max_tokens: int | None = Field(None, ge=1, le=32768)
