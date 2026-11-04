@@ -1,4 +1,4 @@
-import { bailianTts, BailianTtsError } from '@/lib/server/bailian-tts';
+import { getBailianTts, BailianTtsError } from '@/lib/server/bailian-tts';
 import { requireRequestUser } from '@/lib/server/user-context';
 
 export const runtime = 'nodejs';
@@ -15,7 +15,8 @@ export async function POST(request: Request) {
     if (!input || typeof input.text !== 'string' || typeof input.voiceId !== 'string') {
       return Response.json({ message: '请填写试听文本并选择数字人声音' }, { status: 400 });
     }
-    const result = await bailianTts.synthesize(input.text.trim(), input.voiceId.trim(), user.id);
+    const client = await getBailianTts(request);
+    const result = await client.synthesize(input.text.trim(), input.voiceId.trim(), user.id);
     return Response.json(result, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {
     return Response.json({

@@ -1,4 +1,4 @@
-import { bailianTts, BailianTtsError } from '@/lib/server/bailian-tts';
+import { bailianAudio, BailianTtsError } from '@/lib/server/bailian-tts';
 import { requireRequestUser } from '@/lib/server/user-context';
 
 export const runtime = 'nodejs';
@@ -11,7 +11,7 @@ export async function GET(request: Request, context: { params: Promise<{ filenam
   }
   try {
     const { filename } = await context.params;
-    const audio = await bailianTts.readAudio(filename, user.id);
+    const audio = await bailianAudio.readAudio(filename, user.id);
     return new Response(new Uint8Array(audio.bytes), {
       headers: {
         'cache-control': 'private, max-age=3600',

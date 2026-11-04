@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from .api.v1 import admin, auth, billing, health, live_library, live_rooms, live_runs, llm, platform_connections, platform_events, resources
+from .api.v1 import admin, auth, bailian_tts, billing, health, live_library, live_rooms, live_runs, llm, platform_connections, platform_events, resources
 from .core.config import settings
 from .core.logging import setup_logging
 from .services.live_runs import media_supervisor
@@ -85,7 +85,7 @@ app.include_router(health.router)
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
 app.include_router(billing.router, prefix=settings.api_prefix)
-for protected_router in (llm.router, live_rooms.router, live_library.router,
+for protected_router in (llm.router, bailian_tts.router, live_rooms.router, live_library.router,
                          platform_connections.router, live_runs.router, resources.router):
     app.include_router(protected_router, prefix=settings.api_prefix, dependencies=[Depends(require_user)])
 app.include_router(platform_events.router, prefix=settings.api_prefix)

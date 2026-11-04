@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -28,10 +29,11 @@ from app.models.live_library import LiveRoomProduct, LiveRoomProductSelection, L
 from app.models.live_run import LiveRun, LiveRunTarget
 from app.models.platform_connection import PlatformConnection
 from app.models.platform_event import PlatformLiveEvent
-from app.models.account import ApiUsage, CreditLedgerEntry, LoginSession, PlatformFundingEntry, User, UserAdminAudit
+from app.models.account import ApiUsage, CreditLedgerEntry, LoginSession, PlatformFundingEntry, SystemSetting, User, UserAdminAudit
 from app.security.accounts import COOKIE_NAME, create_session, hash_password
 from app.bootstrap_admin import main as bootstrap_admin, write_generated_credentials
 from app.security.platform_secrets import decrypt_secret
+from app.security.settings_store import decrypt_setting
 from app.services.llm.chat import complete_litellm_chat
 from app.services.llm.config import (
     LlmModelDiscoveryError, discover_litellm_models,
@@ -613,6 +615,141 @@ class LiveRoomApiTest(unittest.TestCase):
         ):
             response = self.client.put(f"/api/v1/admin/settings/{name}", json={"value": value})
             self.assertEqual(response.status_code, 422, response.text)
+
+    def test_bailian_admin_key_is_encrypted_and_rotates_immediately(self) -> None:
+        with patch.object(settings, "bailian_tts_api_key", "environment-key"):
+            initial = self.client.get("/api/v1/tts/bailian/configuration")
+            self.assertEqual(initial.json(), {
+                "configured": True, "credential_id": sha256(b"environment-key").hexdigest(),
+            })
+            for key in ("saved-bailian-key-one", "saved-bailian-key-two"):
+                saved = self.client.put("/api/v1/admin/settings/bailian_tts_api_key", json={"value": key})
+                self.assertEqual(saved.status_code, 200, saved.text)
+                self.assertEqual(saved.json()["mode"], "api")
+                # Another process may still have the original environment value.
+                settings.bailian_tts_api_key = "environment-key"
+                configuration = self.client.get("/api/v1/tts/bailian/configuration")
+                self.assertEqual(configuration.json()["credential_id"], sha256(key.encode()).hexdigest())
+                listing = self.client.get("/api/v1/admin/settings")
+                setting = next(item for item in listing.json()["settings"] if item["key"] == "bailian_tts_api_key")
+                self.assertTrue(setting["saved"])
+                self.assertTrue(setting["configured"])
+                self.assertNotIn(key, listing.text + configuration.text + saved.text)
+                with SessionLocal() as db:
+                    row = db.get(SystemSetting, "bailian_tts_api_key")
+                    self.assertNotIn(key, row.encrypted_value)
+                    self.assertEqual(decrypt_setting(row.key, row.encrypted_value), key)
+
+    def test_bailian_requires_login_and_only_admin_can_change_key(self) -> None:
+        with patch.object(settings, "bailian_tts_api_key", "platform-bailian-key"), TestClient(app) as client:
+            self.assertEqual(client.get("/api/v1/tts/bailian/configuration").status_code, 401)
+            self.assertEqual(client.post("/api/v1/tts/bailian/request", json={}).status_code, 401)
+            with SessionLocal() as db:
+                user = User(email="tts-viewer@example.com", password_hash=hash_password("test-password-1234"),
+                            role="user", status="approved")
+                db.add(user)
+                db.commit()
+                client.cookies.set(COOKIE_NAME, create_session(db, user))
+            self.assertEqual(client.get("/api/v1/tts/bailian/configuration").status_code, 200)
+            self.assertEqual(client.put("/api/v1/admin/settings/bailian_tts_api_key",
+                                        json={"value": "forbidden"}).status_code, 403)
+            import httpx
+            async_client = httpx.AsyncClient
+            with patch("app.api.v1.bailian_tts.httpx.AsyncClient", side_effect=lambda **kwargs: async_client(
+                transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"output": {"audio": {"url": "https://asset.aliyuncs.com/a.wav"}}})),
+                **kwargs,
+            )):
+                result = client.post("/api/v1/tts/bailian/request", json={
+                    "credential_id": sha256(b"platform-bailian-key").hexdigest(),
+                    "model": "qwen3-tts-vc-2026-01-22", "input": {"text": "你好", "voice": "test-voice"},
+                })
+            self.assertEqual(result.status_code, 200, result.text)
+
+    def test_bailian_forwards_only_validated_input_to_fixed_official_endpoints(self) -> None:
+        import httpx
+        async_client = httpx.AsyncClient
+        requests = []
+
+        def official(request):
+            requests.append(request)
+            body = json.loads(request.content)
+            output = {"audio": {"url": "https://asset.aliyuncs.com/a.wav"}} if body["model"].startswith("qwen3-") else {
+                "voice": "qwen-test-voice", "preview_audio": {"data": "UklGRg=="},
+            }
+            return httpx.Response(200, json={"output": {**output, "debug": "must-not-be-forwarded"}})
+
+        inputs = [
+            ("qwen3-tts-vc-2026-01-22", {"text": "试听", "voice": "qwen-test-voice", "url": "http://localhost/private"}),
+            ("qwen-voice-enrollment", {"action": "create", "target_model": "qwen3-tts-vc-2026-01-22",
+                "preferred_name": "av_test", "audio": {"data": "data:audio/mpeg;base64,SUQz"}, "text": "样例", "language": "zh"}),
+            ("qwen-voice-design", {"action": "create", "target_model": "qwen3-tts-vd-2026-01-26",
+                "preferred_name": "av_test", "voice_prompt": "专业女声", "preview_text": "欢迎", "language": "zh"}),
+        ]
+        with patch.object(settings, "bailian_tts_api_key", "header-only-key"), patch(
+            "app.api.v1.bailian_tts.httpx.AsyncClient", side_effect=lambda **kwargs: async_client(
+                transport=httpx.MockTransport(official), **kwargs,
+            ),
+        ):
+            for model, input_body in inputs:
+                response = self.client.post("/api/v1/tts/bailian/request", json={
+                    "credential_id": sha256(b"header-only-key").hexdigest(), "model": model, "input": input_body,
+                    "url": "http://localhost/private", "parameters": {"injected": True},
+                })
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertNotIn("debug", response.text)
+                self.assertNotIn("header-only-key", response.text)
+        self.assertEqual(len(requests), 3)
+        for index, request in enumerate(requests):
+            expected_path = "/api/v1/services/aigc/multimodal-generation/generation" if index == 0 else "/api/v1/services/audio/tts/customization"
+            self.assertEqual(str(request.url), f"https://dashscope.aliyuncs.com{expected_path}")
+            self.assertEqual(request.headers["Authorization"], "Bearer header-only-key")
+            self.assertNotIn("header-only-key", request.content.decode())
+            body = json.loads(request.content)
+            self.assertNotIn("url", body["input"])
+            self.assertEqual(body.get("parameters"), {"sample_rate": 24000, "response_format": "wav"} if index == 2 else None)
+
+    def test_bailian_missing_rotated_or_invalid_configuration_never_calls_provider(self) -> None:
+        payload = {"credential_id": sha256(b"old-key").hexdigest(), "model": "qwen3-tts-vc-2026-01-22",
+                   "input": {"text": "你好", "voice": "test-voice"}}
+        with patch("app.api.v1.bailian_tts.httpx.AsyncClient") as upstream:
+            with patch.object(settings, "bailian_tts_api_key", ""):
+                self.assertEqual(self.client.get("/api/v1/tts/bailian/configuration").json(), {"configured": False, "credential_id": ""})
+                self.assertEqual(self.client.post("/api/v1/tts/bailian/request", json=payload).status_code, 503)
+            with patch.object(settings, "bailian_tts_api_key", "new-key"):
+                self.assertEqual(self.client.post("/api/v1/tts/bailian/request", json=payload).status_code, 409)
+                payload["credential_id"] = sha256(b"new-key").hexdigest()
+                for model, invalid_input in [
+                    ("arbitrary-model", payload["input"]),
+                    (payload["model"], {"text": "字" * 801, "voice": "test-voice"}),
+                    ("qwen-voice-enrollment", {"action": "create", "target_model": "qwen3-tts-vc-2026-01-22",
+                        "preferred_name": "av_test", "audio": {"data": "https://localhost/private"}, "text": "样例", "language": "zh"}),
+                ]:
+                    response = self.client.post("/api/v1/tts/bailian/request", json={**payload, "model": model, "input": invalid_input})
+                    self.assertEqual(response.status_code, 422, response.text)
+            upstream.assert_not_called()
+
+    def test_bailian_provider_errors_do_not_echo_secret_or_raw_response(self) -> None:
+        import httpx
+        async_client = httpx.AsyncClient
+        with patch.object(settings, "bailian_tts_api_key", "never-echo-this-key"):
+            for status, body, expected in [
+                (401, {"message": "never-echo-this-key"}, 502),
+                (429, {"message": "never-echo-this-key"}, 429),
+                (500, {"message": "never-echo-this-key"}, 502),
+                (200, {"code": "Error", "message": "never-echo-this-key"}, 502),
+                (200, None, 502),
+            ]:
+                with patch("app.api.v1.bailian_tts.httpx.AsyncClient", side_effect=lambda **kwargs: async_client(
+                    transport=httpx.MockTransport(lambda request: httpx.Response(status, json=body)), **kwargs,
+                )):
+                    response = self.client.post("/api/v1/tts/bailian/request", json={
+                        "credential_id": sha256(b"never-echo-this-key").hexdigest(), "model": "qwen3-tts-vc-2026-01-22",
+                        "input": {"text": "你好", "voice": "test-voice"},
+                    })
+                self.assertEqual(response.status_code, expected, response.text)
+                self.assertNotIn("never-echo-this-key", response.text)
+                if status == 200:
+                    self.assertEqual(response.headers["x-bailian-provider-accepted"], "true")
 
     def test_admin_llm_configuration_discovers_models_before_saving(self) -> None:
         original = (settings.llm_api_key, settings.llm_base_url, settings.llm_default_model_id)

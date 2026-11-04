@@ -39,8 +39,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -Check
 Windows 也可以先双击 `deploy-postgres.cmd`，再双击 `deploy.cmd`。
 首次部署无需准备 `.env`：脚本会自动生成基础配置，初始化数据库并显示管理员 `admin` 的随机密码。
 脚本确认后端和登录页都就绪后才提示成功；访问 `http://localhost:8018/live`。
-DeepSeek 的 URL、Key 和模型在管理员系统设置中配置；阿里云凭据、模板和语音服务配置写入
-`.env` 后重新部署。未配置云服务时仍可启动基础服务。
+DeepSeek 的 URL、Key、模型及百炼语音 Key 可在管理员系统设置中配置；阿里云数字人凭据和
+模板配置写入 `.env` 后重新部署。未配置云服务时仍可启动基础服务。
 
 日常更新运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`），不会启动或重建独立数据库。
 也可以继续分两步运行 `deploy-postgres` 和 `deploy` 脚本。
@@ -50,14 +50,18 @@ DeepSeek 的 URL、Key 和模型在管理员系统设置中配置；阿里云凭
 
 ## 百炼语音配置
 
-在 **AvatarLive 项目根目录** `.env` 中填写百炼北京地域的官方 API Key：
+使用管理员登录，打开 **账号 → 系统设置 → 接口密钥 → 百炼语音 API Key**，
+填入百炼北京地域的官方 API Key 并保存。Key 加密保存在本项目数据库中，不回显；
+保存或更换后立即生效，无需重启，也无需在外部项目配置。
+
+也可在 **AvatarLive 项目根目录** `.env` 中提供默认值；后台保存的 Key 优先：
 
 ```env
 BAILIAN_TTS_API_KEY=你的百炼官方API_Key
 ```
 
 “试听脚本”和“声音设计”由本项目服务端直接调用百炼 DashScope，无需部署外部语音代理。
-Docker 部署修改后运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`）；源码运行则重启前端进程。
+只有修改 `.env` 时才需重新部署（`./deploy.sh`，Windows 为 `.\deploy.cmd`）；源码运行则重启后端 API。
 Key 为空时基础服务仍可启动，使用语音功能时会提示配置。
 
 官方公共音色首次用于脚本试听时，会在百炼注册对应的克隆音色。注册记录和试听音频保存在

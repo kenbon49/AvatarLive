@@ -11,7 +11,7 @@ const AUDIO_FILENAME = /^bailian_tts_[a-f0-9-]{36}\.(wav|mp3)$/;
 const USER_ID = /^[a-f0-9-]{36}$/;
 
 type PublicVoice = { id: string; sampleText: string; language: string };
-type ProviderOutput = {
+export type BailianProviderOutput = {
   voice?: string;
   audio?: { url?: string };
   preview_audio?: { data?: string };
@@ -56,25 +56,29 @@ async function writeAtomic(filename: string, bytes: string | Buffer) {
 }
 
 // Credentials are explicit here so protocol tests never load real keys.
-// Runtime environment access is confined to the server-only wrapper.
-export function createBailianTtsClient({ apiKey, runtimeDirectory, publicDirectory, voices, fetcher = fetch }: {
-  apiKey: string;
+// Production requests use the project's API backend to read encrypted settings.
+export function createBailianTtsClient({ apiKey = '', credentialId, providerRequest, voiceTasks = new Map(), runtimeDirectory, publicDirectory, voices, fetcher = fetch }: {
+  apiKey?: string;
+  credentialId?: string;
+  providerRequest?: (body: object) => Promise<BailianProviderOutput>;
+  voiceTasks?: Map<string, Promise<string>>;
   runtimeDirectory: string;
   publicDirectory: string;
   voices: readonly PublicVoice[];
   fetcher?: typeof fetch;
 }) {
   const key = apiKey.trim();
-  const voiceTasks = new Map<string, Promise<string>>();
 
   function assertConfigured() {
+    if (providerRequest && credentialId) return;
     if (!key || /[\r\n]/.test(key)) {
-      throw new BailianTtsError('请在 AvatarLive 根目录 .env 配置 BAILIAN_TTS_API_KEY，并重启应用', 503);
+      throw new BailianTtsError('请在管理员系统设置中配置百炼语音 API Key（BAILIAN_TTS_API_KEY）', 503);
     }
   }
 
-  async function callProvider(url: string, body: object): Promise<ProviderOutput> {
+  async function callProvider(url: string, body: object): Promise<BailianProviderOutput> {
     assertConfigured();
+    if (providerRequest) return providerRequest(body);
     let response: Response;
     try {
       response = await fetcher(url, {
@@ -96,7 +100,7 @@ export function createBailianTtsClient({ apiKey, runtimeDirectory, publicDirecto
       if (response.status === 429) throw new BailianTtsError('百炼请求过于频繁或额度不足，请稍后重试', 429);
       throw new BailianTtsError(`百炼语音调用失败（HTTP ${response.status}），请检查账户额度和模型权限`);
     }
-    const payload = await response.json().catch(() => null) as { code?: string; output?: ProviderOutput } | null;
+    const payload = await response.json().catch(() => null) as { code?: string; output?: BailianProviderOutput } | null;
     if (!payload || typeof payload !== 'object' || !payload.output || typeof payload.output !== 'object' || payload.code) {
       throw new BailianTtsError('百炼语音调用返回异常，请检查账户额度、模型权限和输入内容', 502, true);
     }
@@ -109,7 +113,7 @@ export function createBailianTtsClient({ apiKey, runtimeDirectory, publicDirecto
     if (!voice || !/^[a-z0-9_]+$/.test(voice.id)) throw new BailianTtsError('当前音色尚未接入自定义文本合成', 400);
     const sample = await readFile(path.join(publicDirectory, 'assets', 'aliyun-voices', `${voice.id}.mp3`));
     // A registration belongs to the API key, model and source sample.
-    const cacheId = createHash('sha256').update(key).update(SYNTHESIS_MODEL)
+    const cacheId = createHash('sha256').update(credentialId || key).update(SYNTHESIS_MODEL)
       .update(voice.id).update(voice.sampleText).update(voice.language).update(sample).digest('hex');
     const existing = voiceTasks.get(cacheId);
     if (existing) return existing;

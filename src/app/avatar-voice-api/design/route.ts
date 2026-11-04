@@ -1,4 +1,4 @@
-import { bailianTts, BailianTtsError } from '@/lib/server/bailian-tts';
+import { getBailianTts, BailianTtsError } from '@/lib/server/bailian-tts';
 import { requireRequestUser } from '@/lib/server/user-context';
 
 export const runtime = 'nodejs';
@@ -14,7 +14,8 @@ export async function POST(request: Request) {
     if (!input || typeof input.voice_prompt !== 'string' || typeof input.preview_text !== 'string') {
       return Response.json({ success: false, message: '请填写声音描述和试听文本' }, { status: 400 });
     }
-    return Response.json(await bailianTts.designVoice(input.voice_prompt.trim(), input.preview_text.trim()), {
+    const client = await getBailianTts(request);
+    return Response.json(await client.designVoice(input.voice_prompt.trim(), input.preview_text.trim()), {
       headers: { 'cache-control': 'no-store' },
     });
   } catch (error) {

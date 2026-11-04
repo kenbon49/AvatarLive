@@ -94,22 +94,26 @@ docker compose -f infra/docker-compose.yml exec -T api \
 后台保存在数据库中的 LLM 配置优先于 `.env`；也可在 `.env` 使用 `LLM_BASE_URL`、
 `LLM_API_KEY`、`LLM_DEFAULT_MODEL_ID`，旧 `LITELLM_LLM_*` 变量名继续兼容。
 
+百炼语音在 **账号 → 系统设置 → 接口密钥 → 百炼语音 API Key** 中填写北京地域的
+官方 Key。保存后立即用于脚本试听和声音设计，无需重启；密钥加密存入本项目数据库，
+不会回显。后台保存的值优先于根目录 `.env` 的 `BAILIAN_TTS_API_KEY`。
+
 以下服务配置需编辑根目录 `.env`，然后重新运行应用部署命令：
 
 - `ALIYUN_ACCESS_KEY_ID` / `ALIYUN_ACCESS_KEY_SECRET`
 - `ALIYUN_LINGMOU_TEMPLATE_ID` / `ALIYUN_LINGMOU_REGION_ID`
-- `BAILIAN_TTS_API_KEY`：百炼北京地域官方 Key，本项目直接用于脚本试听及声音设计。
 - `SEO_VOICE_API_BASE_URL` / `SEO_VOICE_API_KEY`：可选的素材解析及 Fish Audio 参考声音服务。
 
-百炼语音配置示例（写入本项目根目录 `.env`）：
+百炼语音也支持通过本项目根目录 `.env` 提供默认 Key：
 
 ```env
 BAILIAN_TTS_API_KEY=你的百炼官方API_Key
 ```
 
-填写后重新运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`）；源码运行则重启前端进程。
+通过 `.env` 修改后重新运行 `./deploy.sh`（Windows 为 `.\deploy.cmd`）；源码运行则重启后端 API。
 无需在其他项目中配置百炼 Key，也无需为“试听脚本”部署外部语音代理。
-音色注册记录与试听音频保存在 Web 服务的 `runtime/bailian-tts/`，随 `web_runtime` volume 持久化。
+音色注册记录与试听音频保存在 Web 服务的 `runtime/bailian-tts/`，随 `web_runtime` volume 持久化；
+更换 Key 后会重新注册对应账号的音色。
 
 阿里云设置在后台保存后仍需应用到 `.env` 并重新部署；后台保存不会更新 Web 容器的环境变量。
 

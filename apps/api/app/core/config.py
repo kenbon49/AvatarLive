@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(Path(__file__).resolve().parent.parent.parent.parent.parent / ".env", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -51,6 +52,7 @@ class Settings(BaseSettings):
     storyboard_video_credit_cost: int = Field(default=10, ge=1, le=1_000_000)
     aliyun_access_key_id: str = ""
     aliyun_access_key_secret: str = ""
+    bailian_tts_api_key: str = ""
 
     # --- 持久化与基础设施 ---
     database_url: str = "postgresql+psycopg://synlive:synlive@localhost:5432/synlive"

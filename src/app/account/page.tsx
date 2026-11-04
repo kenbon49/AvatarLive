@@ -35,7 +35,7 @@ type LlmConfiguration = {
 };
 type AccountTab = 'profile' | 'users' | 'settings';
 
-const CREDENTIAL_KEYS = new Set(['aliyun_access_key_id', 'aliyun_access_key_secret']);
+const CREDENTIAL_KEYS = new Set(['bailian_tts_api_key', 'aliyun_access_key_id', 'aliyun_access_key_secret']);
 
 async function responseError(response: Response, fallback: string) {
   try {
@@ -320,7 +320,7 @@ export default function AccountPage() {
       {credentialSettings.length > 0 && <div className="accountSettingGroup">
         <h3>接口密钥</h3>
         {credentialSettings.map((setting) => <div className="accountSetting" key={setting.key}>
-          <div><strong>{setting.label}</strong></div>
+          <div><strong>{setting.label}</strong>{setting.key === 'bailian_tts_api_key' && <small>百炼北京地域 · 脚本试听与声音设计 · 保存后立即生效</small>}</div>
           <span className={setting.configured ? 'configured' : 'missing'}>{setting.saved ? '已保存' : setting.configured ? '已通过环境配置' : '未配置'}{setting.mode === 'deployment' && setting.saved && <small>部署后生效</small>}</span>
           <details className="accountSettingEdit"><summary><Pencil size={13} />{setting.configured ? '更换' : '配置'}</summary>
             <div><input type="password" aria-label={`替换${setting.label}`} autoComplete="off" placeholder="输入新密钥" value={drafts[setting.key] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))} />

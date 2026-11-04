@@ -23,6 +23,7 @@ SETTING_FIELDS = {
     "llm_api_key": ("LLM API Key", True, "api"),
     "llm_base_url": ("LLM 服务地址", False, "api"),
     "llm_default_model_id": ("LLM 默认模型", False, "api"),
+    "bailian_tts_api_key": ("百炼语音 API Key", True, "api"),
     "seo_voice_api_key": ("SEO 声音服务 Key", True, "deployment"),
     "seo_voice_api_base_url": ("SEO 声音服务地址", False, "deployment"),
     "aliyun_access_key_id": ("阿里云 Access Key ID", True, "deployment"),

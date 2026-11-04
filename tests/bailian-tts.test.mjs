@@ -87,6 +87,42 @@ test('deduplicates concurrent enrollment for the same official voice', async t =
   assert.equal(requests.filter(item => item.body?.model === 'qwen3-tts-vc-2026-01-22').length, 2);
 });
 
+test('uses admin-backed transport without a local key and isolates refreshed credentials and request sessions', async t => {
+  const calls = [];
+  const voiceTasks = new Map();
+  const { options, requests } = await setup(t, { apiKey: '', voiceTasks });
+  function clientFor(credentialId, session) {
+    return createBailianTtsClient({ ...options, credentialId, providerRequest: async body => {
+      calls.push({ credentialId, session, body });
+      if (body.model === 'qwen-voice-enrollment') return { voice: `voice-${credentialId}` };
+      if (body.model === 'qwen-voice-design') return {
+        voice: `design-${credentialId}`, preview_audio: { data: AUDIO.toString('base64') },
+      };
+      return { audio: { url: ASSET_URL } };
+    } });
+  }
+  const first = clientFor('account-one', 'session-one');
+  const second = clientFor('account-one', 'session-two');
+  const [result] = await Promise.all([
+    first.synthesize('第一位用户', 'longbaizhi', OWNER),
+    second.synthesize('第二位用户', 'longbaizhi', OTHER),
+  ]);
+  assert.equal(calls.filter(item => item.body.model === 'qwen-voice-enrollment').length, 1);
+  assert.deepEqual(calls.filter(item => item.body.model === 'qwen3-tts-vc-2026-01-22').map(item => item.session).sort(), ['session-one', 'session-two']);
+  await clientFor('account-one', 'session-three').synthesize('复用记录', 'longbaizhi', OWNER);
+  assert.equal(calls.filter(item => item.body.model === 'qwen-voice-enrollment').length, 1);
+  const updated = clientFor('account-two', 'session-four');
+  await updated.synthesize('更新密钥', 'longbaizhi', OWNER);
+  assert.equal(calls.filter(item => item.body.model === 'qwen-voice-enrollment').length, 2);
+  assert.equal(calls.at(-1).body.input.voice, 'voice-account-two');
+  assert.equal((await updated.designVoice('清澈的女声', '你好')).voice, 'design-account-two');
+  assert.ok(requests.every(item => item.url === ASSET_URL && !item.init.headers));
+  // Already saved audio remains readable even if the administrator clears configuration.
+  const storageOnly = createBailianTtsClient(options);
+  assert.deepEqual((await storageOnly.readAudio(result.audioUrl.split('/').at(-1), OWNER)).bytes, AUDIO);
+  assert.equal(voiceTasks.size, 0);
+});
+
 test('an empty key keeps the client constructible and gives configuration guidance before any request', async t => {
   const { client, requests } = await setup(t, { apiKey: '' });
   await assert.rejects(client.synthesize('测试', 'longbaizhi', OWNER), { status: 503, message: /BAILIAN_TTS_API_KEY/ });
