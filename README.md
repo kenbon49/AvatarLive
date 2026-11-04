@@ -1,4 +1,4 @@
-# SynLive
+# AvatarLive
 
 AI 数字人直播中控平台原型。
 
