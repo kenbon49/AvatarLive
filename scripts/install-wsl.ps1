@@ -40,19 +40,19 @@ try {
     else {
         Write-Host "Updating the WSL kernel..." -ForegroundColor Cyan
         # Prefer a direct download so paused Windows Update does not block repair.
-        $update = Invoke-NativeProbe -Command $wsl -Arguments @("--update", "--web-download")
+        $update = Invoke-WslProbe -Command $wsl -Arguments @("--update", "--web-download")
         $details.Add("WSL direct update:`n$($update.Output)")
         if ($update.ExitCode -ne 0) {
-            $update = Invoke-NativeProbe -Command $wsl -Arguments @("--update")
+            $update = Invoke-WslProbe -Command $wsl -Arguments @("--update")
             $details.Add("WSL update fallback:`n$($update.Output)")
         }
         if ($update.ExitCode -ne 0 -and -not $result.RebootRequired) {
             throw "WSL kernel update failed (exit code $($update.ExitCode))."
         }
 
-        $default = Invoke-NativeProbe -Command $wsl -Arguments @("--set-default-version", "2")
+        $default = Invoke-WslProbe -Command $wsl -Arguments @("--set-default-version", "2")
         $details.Add("WSL default version:`n$($default.Output)")
-        $status = Invoke-NativeProbe -Command $wsl -Arguments @("--status")
+        $status = Invoke-WslProbe -Command $wsl -Arguments @("--status")
         $details.Add("WSL status:`n$($status.Output)")
         if (($default.ExitCode -ne 0 -or $status.ExitCode -ne 0) -and -not $result.RebootRequired) {
             throw "WSL 2 is still unavailable. Check BIOS/UEFI hardware virtualization and the WSL diagnostic output."

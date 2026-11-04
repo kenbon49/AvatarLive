@@ -63,6 +63,12 @@ elif command == "winget" and "Microsoft.WSL" in args:
     wsl.chmod(0o755)
 elif command == "wsl.exe":
     state = Path(os.environ["FAKE_DEPLOY_WSL_STATE"])
+    if encoding := os.environ.get("FAKE_DEPLOY_WSL_OUTPUT_ENCODING"):
+        sys.stdout.buffer.write("WSL 版本: 3.0.1.0\r\n默认版本: 2\r\n".encode(encoding))
+        if os.environ.get("FAKE_DEPLOY_WSL_ERROR_ENCODING"):
+            sys.stderr.buffer.write("内核查询失败\r\n".encode(os.environ["FAKE_DEPLOY_WSL_ERROR_ENCODING"]))
+            sys.exit(5)
+        sys.exit(0)
     if args == ["--version"] and Path(sys.argv[0]).parent.name == "System32" and os.environ.get("FAKE_DEPLOY_OLD_SYSTEM_WSL"):
         print("Invalid command line option: --version", file=sys.stderr)
         sys.exit(1)
@@ -79,6 +85,9 @@ elif command == "wsl.exe":
     elif args == ["--version"]:
         print("WSL version: 3.0.1.0")
 elif command == "bcdedit.exe":
+    if args != ["/enum"]:
+        print("Invalid boot entry argument", file=sys.stderr)
+        sys.exit(1)
     print("hypervisorlaunchtype    Auto")
 elif command == "curl" and args[-1].endswith("/login"):
     if os.environ.get("FAKE_DEPLOY_WEB_FAIL"):
@@ -535,6 +544,38 @@ class PowerShellDeploymentScriptTests(DeploymentScriptTests):
         self.assert_success(result)
         self.assertIn("desktop-error-149", result.stdout)
         self.assertNotIn("desktop-error-000", result.stdout)
+
+    def test_diagnostics_decode_redirected_wsl_output(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        for encoding in ("utf-16-le", "utf-16", "utf-8", "utf-8-sig"):
+            with self.subTest(encoding=encoding):
+                self.env["FAKE_DEPLOY_WSL_OUTPUT_ENCODING"] = encoding
+                result = self.deploy("diagnose")
+                self.assert_success(result)
+                self.assertIn("WSL 版本: 3.0.1.0", result.stdout)
+                self.assertIn("默认版本: 2", result.stdout)
+                self.assertNotIn("\x00", result.stdout)
+
+    def test_diagnostics_decode_wsl_error_stream_and_keep_exit_code(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        self.env.update(FAKE_DEPLOY_WSL_OUTPUT_ENCODING="utf-16-le", FAKE_DEPLOY_WSL_ERROR_ENCODING="utf-8")
+        path = self.directory / "wsl-error.log"
+        result = self.deploy("diagnose", str(path))
+        self.assert_success(result)
+        report = path.read_text(encoding="utf-8-sig")
+        self.assertIn("Exit code: 5\nWSL 版本: 3.0.1.0", report)
+        self.assertIn("内核查询失败", report)
+        self.assertIn("Docker Desktop status", report)
+
+    def test_diagnostics_truncate_oversized_escaped_log_entries(self) -> None:
+        self.prepare_windows_wsl(ready=True)
+        self.env["FAKE_DEPLOY_DESKTOP_LOGS"] = "WSL --version failed: " + "x" * 12000 + "oversized-payload-tail"
+        result = self.deploy("diagnose")
+        self.assert_success(result)
+        self.assertIn("WSL --version failed:", result.stdout)
+        self.assertIn("[truncated;", result.stdout)
+        self.assertNotIn("oversized-payload-tail", result.stdout)
+        self.assertLess(len(result.stdout), 10000)
 
     def test_startup_failure_saves_windows_diagnostics(self) -> None:
         self.prepare_windows_wsl(ready=True)

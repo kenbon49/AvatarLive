@@ -190,6 +190,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\diagnose-windows.ps1
 Docker Desktop 后端设置，以及本次启动的最后 60 行错误日志。报告同时保存在
 `runtime/deploy-diagnostics/windows-docker-*.log`；部署检查发现 Docker 无法启动时也会自动保存。
 诊断只读取状态和生成报告；启动配置的读取需要管理员权限，未提权时会记录查询失败并继续其他检查。
+WSL 重定向输出按其实际编码解码，以保留中文错误信息。超过 2000 字符的 Docker 日志行会截短；
+需要完整日志时运行 `docker desktop logs --priority 2 --boot 0`。
 
 报告会分别检测 WSL 安装目录、`Windows\System32` 和终端命令解析到的 WSL 入口，并显示
 每条命令的完整路径和退出码。如果终端的 `wsl --version` 成功，但 Docker 日志显示
@@ -199,6 +201,12 @@ Docker Desktop 后端设置，以及本次启动的最后 60 行错误日志。�
 `HypervisorPresent=True` 表示 Windows 虚拟化已经运行；此时结合 WSL 版本和 Docker Desktop
 的具体错误日志继续排查。`False` 时检查系统组件启用后是否已经重启，以及 BIOS/UEFI 虚拟化、
 虚拟机的嵌套虚拟化和 `hypervisorlaunchtype` 启动配置。
+虚拟机监控程序运行时，处理器的虚拟化属性仍可能显示 `False`，不能仅凭这些属性判断 BIOS 虚拟化未开启。
+部分服务按需启动，单独的 `Stopped` 状态也不能证明该服务故障。
+
+报告时间带有本地时区；Docker 日志时间末尾的 `Z` 表示 UTC，中国时间需要加 8 小时。
+`--boot 0` 选择的 Docker 启动日志可能早于 WSL 安装或修复。若各 WSL 入口现已正常，
+先重启 Windows（系统组件安装要求重启时）和 Docker Desktop，再查看新日志，确认旧错误是否仍在发生。
 
 也可单独运行：
 
