@@ -30,7 +30,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (!user?.id) {
-    if (path.startsWith('/api/') || path.includes('-api/') || path.startsWith('/rtc/')) {
+    if (path.startsWith('/api/') || path.includes('-api/') || path.endsWith('-api') || path.startsWith('/rtc/')) {
       return NextResponse.json({ detail: '请先登录' }, { status: 401 });
     }
     const login = new URL('/login', request.url);
