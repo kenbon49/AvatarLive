@@ -32,6 +32,18 @@ Engine 与 Compose v2，Linux 还需安装 `curl`。Docker daemon 必须已经�
 Linux/macOS 脚本不会自动安装 Docker。Windows 可用 `-Install` 让脚本通过
 `winget` 安装 WSL、Git 和 Docker Desktop，并自动检测和修复缺失的 WSL 2 内核。
 
+形象库的 182 张封面和 170 个原始预览视频不在 Git 中。首次构建前从
+[预览资源 Release](https://github.com/kenbon49/AvatarLive/releases/tag/avatar-previews-2026-11-05) 恢复；
+Windows 在仓库根目录运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\restore-aliyun-avatar-assets.ps1
+```
+
+脚本下载四个 ZIP、检查 SHA256 并恢复到 `public/assets/aliyun-avatars/`。
+Linux/macOS 和离线恢复步骤见 [预览资源说明](../public/assets/aliyun-avatars/README.md)。
+文件必须在构建 Web 镜像前恢复；已部署的环境需要重新构建并部署 Web 才能显示预览。
+
 Linux / macOS：
 
 ```bash

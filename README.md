@@ -11,6 +11,16 @@ Tunnel、Azure TTS、LiveTalking 或本地 GPU 推理服务。
 前置条件：Linux 安装并启动 Docker Engine 与 Compose v2，同时安装 `curl`；macOS 安装并启动
 Docker Desktop。脚本不会自动安装 Linux/macOS 的 Docker。
 
+数字人形象的预览视频和封面通过 [预览资源 Release](https://github.com/kenbon49/AvatarLive/releases/tag/avatar-previews-2026-11-05)
+单独分发，`git clone` 不包含这些媒体文件。首次构建前，Windows 运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\restore-aliyun-avatar-assets.ps1
+```
+
+包含 182 张封面和 170 个原始预览视频；Linux/macOS、离线恢复和重新打包见
+[预览资源说明](public/assets/aliyun-avatars/README.md)。
+
 Linux / macOS 首次部署（在仓库根目录运行）：
 
 ```bash
